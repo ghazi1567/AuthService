@@ -1,0 +1,29 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.swp
+*.DotSettings.user
+
+# Test results / coverage
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local secrets
+appsettings.*.local.json
+.env
