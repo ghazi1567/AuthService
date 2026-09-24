@@ -54,7 +54,7 @@ public sealed class PostgresContainerFixture : IAsyncLifetime
 
         await ExecuteAsync(AdminConnectionString, $"CREATE DATABASE \"{TestSettings.TemplateDatabase}\"", cancellationToken);
 
-        // AC1: the schema comes only from the real EF Core migrations. Never EnsureCreated().
+        // AC1: the schema comes only from the real EF Core migrations, never from the model directly.
         await using (var context = AuthDbContextRegistration.CreateAuthDbContext(ConnectionStringFor(TestSettings.TemplateDatabase)))
         {
             await context.Database.MigrateAsync(cancellationToken);
