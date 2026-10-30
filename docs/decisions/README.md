@@ -46,3 +46,4 @@ What becomes easier, what becomes harder, and what must be revisited if circumst
 | [0001](0001-use-postgresql.md) | Use PostgreSQL 17 as the database | Accepted |
 | [0002](0002-blazor-web-app-for-ui.md) | Build the UI as a Blazor Web App | Accepted |
 | [0003](0003-migrations-applied-explicitly.md) | Apply EF Core migrations explicitly, never on startup | Accepted |
+| [0004](0004-global-identity-with-tenant-memberships.md) | One global identity with tenant memberships | Accepted |
