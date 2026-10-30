@@ -1,0 +1,9 @@
+AUTH-nn Short summary in the imperative mood (about 70 characters)
+
+# Why: what problem does this solve, or why now? (the diff already shows what changed)
+#
+# Approach: how it works, and anything non-obvious about the choice.
+#
+# Not done / follow-ups: what you deliberately left out.
+#
+# Keep one logical change per commit. Lines starting with '#' are removed.

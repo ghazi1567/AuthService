@@ -27,3 +27,6 @@ Thumbs.db
 # Local secrets
 appsettings.*.local.json
 .env
+
+# Local working files (spec workbook, generated outputs)
+Claude outputs/
