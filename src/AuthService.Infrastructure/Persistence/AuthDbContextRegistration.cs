@@ -20,11 +20,18 @@ public static class AuthDbContextRegistration
             .UseSnakeCaseNamingConvention();
     }
 
-    public static IServiceCollection AddAuthDbContext(this IServiceCollection services, string connectionString)
+    /// <summary>
+    /// The connection string is resolved when the context is first created, not when the service is
+    /// registered, so configuration added after startup (e.g. WebApplicationFactory overrides) is honoured.
+    /// </summary>
+    public static IServiceCollection AddAuthDbContext(
+        this IServiceCollection services,
+        Func<IServiceProvider, string> connectionStringFactory)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        ArgumentNullException.ThrowIfNull(connectionStringFactory);
 
-        return services.AddDbContext<AuthDbContext>(options => options.ConfigureAuthDb(connectionString));
+        return services.AddDbContext<AuthDbContext>(
+            (serviceProvider, options) => options.ConfigureAuthDb(connectionStringFactory(serviceProvider)));
     }
 
     /// <summary>Builds a standalone context (used by the design-time factory and the tests).</summary>

@@ -79,15 +79,28 @@ public sealed class EphemeralDatabaseTests(PostgresContainerFixture fixture)
     {
         var ct = TestContext.Current.CancellationToken;
         var container = PostgresContainerFixture.CreateContainer();
+        var disposed = false;
 
-        await container.StartAsync(ct);
-        var containerId = container.Id;
-        (await DockerContainerExistsAsync(containerId, ct)).ShouldBeTrue();
+        try
+        {
+            await container.StartAsync(ct);
+            var containerId = container.Id;
+            (await DockerContainerExistsAsync(containerId, ct)).ShouldBeTrue();
 
-        await container.DisposeAsync();
+            await container.DisposeAsync();
+            disposed = true;
 
-        (await DockerContainerExistsAsync(containerId, ct)).ShouldBeFalse(
-            "test containers must never persist after disposal");
+            (await DockerContainerExistsAsync(containerId, ct)).ShouldBeFalse(
+                "test containers must never persist after disposal");
+        }
+        finally
+        {
+            // If an assertion or the start failed before the explicit dispose, still remove the container.
+            if (!disposed)
+            {
+                await container.DisposeAsync();
+            }
+        }
     }
 
     private static async Task<bool> DockerContainerExistsAsync(string containerId, CancellationToken ct)
