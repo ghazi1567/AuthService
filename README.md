@@ -54,6 +54,19 @@ public sealed class MyTests(PostgresContainerFixture postgres) : AuthApiTestBase
 }
 ```
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request and every push to `main`: restore, build in Release (warnings are
+errors), then the whole test suite against a throwaway PostgreSQL started by Testcontainers. A failing test fails the
+**Build and test** job. Failing tests are shown by name, including their Test Case ID (e.g. `TST_TC6_...`), as
+annotations on the pull request and in the workflow run's summary; the TRX results are kept as the `test-results`
+artifact for 14 days.
+
+**The merge gate is a repository setting, not part of the workflow.** To make a failing test block merging, require the
+`Build and test` status check on `main` (Settings → Branches → branch protection, or a ruleset) and require pull
+requests. GitHub offers this on private repositories only with a paid plan (GitHub Pro, Team or Enterprise); on the Free
+plan the repository must be public. Until that is enabled, a red check is advisory only.
+
 ## Adding a migration
 
 ```bash
