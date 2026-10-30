@@ -1,4 +1,7 @@
+using System.Text.Json.Serialization;
+using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Signup;
+using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Identity;
@@ -19,14 +22,26 @@ builder.Services.AddSingleton(TimeProvider.System);
 // Salted PBKDF2 hashes; the hash is only ever stored, never returned by an API.
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
+// Enums are written by name ("Active"), not number.
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+builder.Services.Configure<IdentityTokenOptions>(builder.Configuration.GetSection(IdentityTokenOptions.SectionName));
+builder.Services.AddSingleton<SigningKeyProvider>();
+builder.Services.AddSingleton<IdentityTokenService>();
+
 builder.Services.AddScoped<SignupService>();
+builder.Services.AddScoped<LoginService>();
 
 var app = builder.Build();
+
+// Create the signing key now so a missing key stops the deployment instead of failing the first login.
+app.Services.GetRequiredService<SigningKeyProvider>();
 
 app.UseExceptionHandler();
 
 app.MapGet("/", () => "AuthService");
 app.MapSignup();
+app.MapLogin();
 
 app.Run();
 

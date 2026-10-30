@@ -67,6 +67,20 @@ artifact for 14 days.
 requests. GitHub offers this on private repositories only with a paid plan (GitHub Pro, Team or Enterprise); on the Free
 plan the repository must be public. Until that is enabled, a red check is advisory only.
 
+## Configuration
+
+| Setting | Meaning |
+|---|---|
+| `ConnectionStrings:AuthDb` | PostgreSQL connection string. Set in `appsettings.Development.json` for local runs. |
+| `Auth:Tokens:SigningKeyPem` | EC (P-256) private key, in PEM form, that signs tokens. **Required outside Development and Testing**: the API refuses to start without it. Pass it as a secret (`Auth__Tokens__SigningKeyPem`), never in a committed file. |
+| `Auth:Tokens:Issuer` | `iss` claim of issued tokens. Default `AuthService`. |
+| `Auth:Tokens:AccessTokenMinutes` | Identity access token lifetime. Default 15. |
+| `Auth:Tokens:RefreshTokenDays` | Refresh token lifetime. Default 30. |
+
+Generate a signing key with `openssl ecparam -name prime256v1 -genkey -noout`. In Development and Testing a throwaway key
+is created at startup, so tokens stop working when the process restarts. Key rotation and publishing public keys (JWKS)
+arrive with TOK-02.
+
 ## Adding a migration
 
 ```bash

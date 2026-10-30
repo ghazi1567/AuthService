@@ -1,3 +1,9 @@
+using System.Net.Http.Json;
+using AuthService.Api.Features.Signup;
+using AuthService.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace AuthService.IntegrationTests.Infrastructure;
 
 /// <summary>
@@ -35,5 +41,25 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
         {
             await _harness.DisposeAsync();
         }
+    }
+
+    /// <summary>Calls the real signup endpoint (TEN-01). Parameters are nullable so tests can send incomplete requests.</summary>
+    protected Task<HttpResponseMessage> SignUpAsync(string? tenantName, string? email, string? password, CancellationToken ct) =>
+        Client.PostAsJsonAsync(SignupEndpoints.Route, new { tenantName, email, password }, ct);
+
+    /// <summary>
+    /// Marks an email as verified directly in the database. Email verification (TEN-11) is not built yet, and login
+    /// refuses unverified users, so tests that need a working login use this after signing up.
+    /// </summary>
+    protected async Task VerifyEmailAsync(string email, CancellationToken ct)
+    {
+        await using var scope = Harness.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+
+        var updated = await db.Users
+            .Where(user => user.Email == email)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.EmailVerifiedAt, DateTimeOffset.UtcNow), ct);
+
+        updated.ShouldBe(1, $"no user with email '{email}' to verify");
     }
 }
