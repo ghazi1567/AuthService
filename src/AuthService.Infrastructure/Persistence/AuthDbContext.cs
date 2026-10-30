@@ -1,3 +1,4 @@
+using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuthService.Infrastructure.Persistence;
@@ -8,11 +9,23 @@ namespace AuthService.Infrastructure.Persistence;
 /// </summary>
 public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbContext(options)
 {
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
+
+    public DbSet<Role> Roles => Set<Role>();
+
+    public DbSet<MembershipRole> MembershipRoles => Set<MembershipRole>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // citext backs case-insensitive columns such as User.Email (see TEN-01 / AUTH-8).
         // Declared in the model so the migrations and the model stay in sync (TST_TC2).
         modelBuilder.HasPostgresExtension("citext");
+
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(AuthDbContext).Assembly);
 
         base.OnModelCreating(modelBuilder);
     }
