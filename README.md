@@ -39,6 +39,21 @@ Each test run:
 
 The first run pulls the Postgres image, so it takes longer.
 
+## Writing integration tests
+
+Derive every API test class from `AuthApiTestBase` (`tests/AuthService.IntegrationTests/Infrastructure`). Each test gets
+the real service running in-process, its own migrated database copy, and an `HttpClient` (`Client`) that calls it.
+Call the same HTTP endpoints as a real client, not internal service methods.
+
+```csharp
+public sealed class MyTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
+{
+    [Fact]
+    public async Task TEN_TC1_Something() =>
+        (await Client.GetAsync("/", TestContext.Current.CancellationToken)).EnsureSuccessStatusCode();
+}
+```
+
 ## Adding a migration
 
 ```bash
