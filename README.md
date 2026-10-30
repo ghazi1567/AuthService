@@ -56,3 +56,12 @@ dotnet ef migrations add <Name> \
 - **The API never migrates on startup.** Migrations are applied explicitly.
 - **Keep one Postgres version everywhere.** The test image is pinned in `tests/AuthService.IntegrationTests/Infrastructure/TestSettings.cs` and must match production.
 - **Name tests after their Test Case ID.** Every test method name starts with its ID from the spec workbook (e.g. `TST_TC1_...`).
+
+## History and decisions
+
+- **Commits explain why, not what.** Start the subject with the ticket ID (`AUTH-33 ...`) and use the body for the
+  problem and the approach. Enable the template once per clone: `git config commit.template .gitmessage`.
+- **Pull requests** follow `.github/pull_request_template.md`.
+- **Lasting decisions** (database, UI technology, team rules) are recorded in [docs/decisions](docs/decisions/README.md).
+  Add a record when a choice is expensive to reverse; never rewrite an accepted one, supersede it with a new record.
+- **Comments say why**, never what changed or when. Git history holds that.
