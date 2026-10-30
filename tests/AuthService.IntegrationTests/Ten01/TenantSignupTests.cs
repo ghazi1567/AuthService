@@ -158,9 +158,6 @@ public sealed class TenantSignupTests(PostgresContainerFixture postgres) : AuthA
         (await CountRowsAsync(ct)).ShouldBe(new RowCounts(Tenants: 1, Users: 1, Memberships: 1, Roles: 1, Assignments: 1));
     }
 
-    private Task<HttpResponseMessage> SignUpAsync(string? tenantName, string? email, string? password, CancellationToken ct) =>
-        Client.PostAsJsonAsync(SignupEndpoints.Route, new { tenantName, email, password }, ct);
-
     private async Task<RowCounts> CountRowsAsync(CancellationToken ct)
     {
         await using var scope = Harness.CreateScope();

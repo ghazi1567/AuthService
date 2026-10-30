@@ -1,4 +1,5 @@
 using System.Net.Mail;
+using AuthService.Api.Common;
 
 namespace AuthService.Api.Features.Signup;
 
@@ -12,9 +13,6 @@ public static class SignupValidator
     public const int MaxEmailLength = 254;
     public const int MinPasswordLength = 8;
     public const int MaxPasswordLength = 128;
-
-    /// <summary>Emails are stored trimmed and lowercased; this is the only place that rule lives.</summary>
-    public static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
 
     public static bool TryValidate(
         SignupRequest request,
@@ -34,7 +32,7 @@ public static class SignupValidator
             errors[nameof(SignupRequest.TenantName)] = [$"Tenant name must be at most {MaxTenantNameLength} characters."];
         }
 
-        var email = string.IsNullOrWhiteSpace(request.Email) ? null : NormalizeEmail(request.Email);
+        var email = string.IsNullOrWhiteSpace(request.Email) ? null : EmailNormalizer.Normalize(request.Email);
         if (email is null)
         {
             errors[nameof(SignupRequest.Email)] = ["Email is required."];
