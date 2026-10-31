@@ -52,6 +52,9 @@ builder.Services.AddScoped<EmailOutbox>();
 builder.Services.AddScoped<EmailDeliveryService>();
 builder.Services.AddHostedService<EmailDispatcher>();
 
+// Login protection (TEN-12).
+builder.Services.Configure<LoginProtectionOptions>(builder.Configuration.GetSection(LoginProtectionOptions.SectionName));
+
 // Email verification (TEN-11).
 builder.Services.Configure<EmailVerificationOptions>(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
 builder.Services.AddScoped<EmailVerificationService>();
@@ -72,6 +75,21 @@ builder.Services.AddRateLimiter(limiter =>
         await ApiProblem.Create(StatusCodes.Status429TooManyRequests, "rate_limited", "Too many requests", "Try again later.")
             .ExecuteAsync(context.HttpContext);
     };
+
+    // Login is limited per IP address across all accounts (TEN-12); per-account protection is the lockout in LoginService.
+    limiter.AddPolicy(LoginEndpoints.RateLimitPolicy, httpContext =>
+    {
+        var settings = httpContext.RequestServices.GetRequiredService<IOptions<LoginProtectionOptions>>().Value;
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = settings.IpLimit,
+                Window = TimeSpan.FromMinutes(settings.IpWindowMinutes),
+                QueueLimit = 0,
+            });
+    });
 
     limiter.AddPolicy(EmailVerificationEndpoints.ResendRateLimitPolicy, httpContext =>
     {

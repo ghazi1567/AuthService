@@ -338,6 +338,14 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("email_verified_at");
 
+                    b.Property<int>("FailedLoginCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_login_count");
+
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_until");
+
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")

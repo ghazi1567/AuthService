@@ -83,6 +83,8 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Email:FileDirectory` | Where the `File` provider writes emails. Default `artifacts/emails` under the API project. |
 | `Email:MaxAttempts` / `Email:RetryDelaySeconds` | How often a failing email is tried (default 5 attempts, waiting 30 s, 2 min, 10 min, 1 h between them). |
 | `Email:DispatchIntervalMilliseconds` / `Email:DispatcherEnabled` | How often the background worker looks for emails to send, and whether it runs at all. |
+| `Auth:LoginProtection:MaxFailedAttempts` / `LockoutMinutes` | Wrong passwords in a row after which an account is locked, and for how long. Default 5 and 15. |
+| `Auth:LoginProtection:IpLimit` / `IpWindowMinutes` | How many login requests one IP may make per window, across all accounts, before getting 429. Default 20 per minute. |
 | `Auth:EmailVerification:TokenHours` | How long a verification link works. Default 24. |
 | `Auth:EmailVerification:ResendCooldownSeconds` | An account sent a link less than this long ago is not sent another. Default 60. |
 | `Auth:EmailVerification:ResendIpLimit` / `ResendIpWindowMinutes` | How many resend requests one IP may make per window before getting 429. Default 10 per 10 minutes. |
@@ -100,6 +102,21 @@ growing delays and logged; after the last attempt it is marked `Failed`. Switchi
 Logs mention an email's id, template and attempt number, never its address, token or link. The `email_outbox` row keeps the
 token only until the email is sent or given up on. In Development, open the files the `File` provider writes to follow a
 verification link.
+
+### Login protection
+
+Login is protected against password guessing in two ways:
+
+- **Per account:** each wrong password is counted. The fifth in a row locks the account for 15 minutes. A locked account is
+  refused even with the right password, with exactly the same 401 as a wrong password, so an attacker learns nothing. Attempts
+  during a lock neither count nor extend it, and a right password clears the count. The check costs the same time whether or
+  not the account is locked or exists.
+- **Per IP address:** one address may make a limited number of login requests per minute across all accounts, then gets 429
+  with `Retry-After`. Behind a reverse proxy this sees the proxy's address until forwarded headers are configured for the
+  deployment.
+
+The lockout is logged by user id, never by email. The audit log (AUD-01) will record it too once it exists, and password
+reset (TEN-10) will clear the count.
 
 ### Email verification
 
