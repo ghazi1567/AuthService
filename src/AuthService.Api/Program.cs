@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using AuthService.Api.Common;
 using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
+using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Jwks;
@@ -66,6 +67,13 @@ builder.Services.AddHostedService<EmailDispatcher>();
 
 // Login protection (TEN-12).
 builder.Services.Configure<LoginProtectionOptions>(builder.Configuration.GetSection(LoginProtectionOptions.SectionName));
+
+// Audit log (AUD-01): entries are added in the same transaction as the action they record; old ones are deleted daily.
+builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<AuditOptions>(builder.Configuration.GetSection(AuditOptions.SectionName));
+builder.Services.AddScoped<AuditLog>();
+builder.Services.AddScoped<AuditRetention>();
+builder.Services.AddHostedService<AuditRetentionWorker>();
 
 // Password reset (TEN-10).
 builder.Services.Configure<PasswordResetOptions>(builder.Configuration.GetSection(PasswordResetOptions.SectionName));

@@ -36,6 +36,10 @@ public sealed class AuthApiFactory(string connectionString, HarnessOptions optio
                 // tests about the limit ever hit it.
                 ["Auth:LoginProtection:IpLimit"] = "1000",
 
+                // The audit retention worker deletes old entries at startup and on a schedule. Off by default so a test that
+                // plants old entries and calls the job itself cannot race the worker; the worker has its own test.
+                ["Auth:Audit:RetentionEnabled"] = "false",
+
                 // Likewise for password reset: no cooldown between requests and a high per-IP limit by default.
                 ["Auth:PasswordReset:RequestCooldownSeconds"] = "0",
                 ["Auth:PasswordReset:IpLimit"] = "1000",

@@ -1,4 +1,5 @@
 using AuthService.Api.Features.Accounts;
+using AuthService.Api.Features.Audit;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -31,6 +32,7 @@ public sealed class LoginService(
     IPasswordHasher<User> passwordHasher,
     IdentityTokenService tokens,
     IOptions<LoginProtectionOptions> options,
+    AuditLog audit,
     TimeProvider timeProvider,
     ILogger<LoginService> logger)
 {
@@ -46,6 +48,9 @@ public sealed class LoginService(
         if (user?.PasswordHash is null)
         {
             passwordHasher.VerifyHashedPassword(DummyUser, DummyHash, password);
+
+            // Nobody to name, and the email that was tried is not recorded.
+            await RecordFailureAsync(AuditActor.Anonymous, "unknown_account", cancellationToken);
             return new LoginResult.InvalidCredentials();
         }
 
@@ -55,6 +60,7 @@ public sealed class LoginService(
         if (user.LockedUntil is { } lockedUntil && lockedUntil > now)
         {
             passwordHasher.VerifyHashedPassword(DummyUser, DummyHash, password);
+            await RecordFailureAsync(AuditActor.User(user.Id), "account_locked", cancellationToken);
             return new LoginResult.InvalidCredentials();
         }
 
@@ -81,11 +87,13 @@ public sealed class LoginService(
 
         if (AccountAccess.IsDisabled(memberships.ConvertAll(membership => membership.Status)))
         {
+            await RecordFailureAsync(AuditActor.User(user.Id), "account_disabled", cancellationToken);
             return new LoginResult.AccountDisabled();
         }
 
         if (user.EmailVerifiedAt is null)
         {
+            await RecordFailureAsync(AuditActor.User(user.Id), "email_not_verified", cancellationToken);
             return new LoginResult.EmailNotVerified();
         }
 
@@ -93,6 +101,9 @@ public sealed class LoginService(
         var refreshToken = tokens.CreateRefreshToken(user.Id, now);
 
         db.RefreshTokens.Add(refreshToken.Entity);
+
+        // Saved together with the session it describes.
+        audit.Record(AuditActions.LoginSucceeded, AuditActor.User(user.Id));
         await db.SaveChangesAsync(cancellationToken);
 
         return new LoginResult.Succeeded(new LoginResponse(
@@ -126,13 +137,26 @@ public sealed class LoginService(
             .Select(candidate => candidate.LockedUntil)
             .SingleAsync(cancellationToken);
 
+        audit.Record(AuditActions.LoginFailed, AuditActor.User(userId), detail: "wrong_password");
+
         // Postgres stores microseconds and .NET keeps finer ticks, so compare with a tolerance, not for equality.
         if (lockedUntil is { } storedLockedUntil && (storedLockedUntil - lockUntil).Duration() < TimeSpan.FromMilliseconds(1))
         {
-            // Logged by user id, never by email. The audit log (AUD-01) will record this event too once it exists.
+            audit.Record(AuditActions.AccountLocked, AuditActor.User(userId), detail: "too_many_failed_logins");
+
+            // Logged by user id, never by email.
             logger.LogWarning(
                 "Account {UserId} locked for {LockoutMinutes} minutes after {MaxFailedAttempts} failed logins.",
                 userId, settings.LockoutMinutes, max);
         }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>Records a refused login. Saved at once: there is no other change for it to wait for.</summary>
+    private async Task RecordFailureAsync(AuditActor actor, string detail, CancellationToken cancellationToken)
+    {
+        audit.Record(AuditActions.LoginFailed, actor, detail: detail);
+        await db.SaveChangesAsync(cancellationToken);
     }
 }
