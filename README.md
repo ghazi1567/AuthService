@@ -240,6 +240,13 @@ entries per request).
   changes are audited.
 - Registering permissions, activating and deactivating are each audit-logged under the admin, with the product's key as the detail.
 
+#### Listing products for tenants
+
+`GET /api/auth/applications` with any signed-in person's identity token returns the products a tenant can connect, for the "connect a
+new product" screen: `[{"id", "key", "name"}]`, ordered by name. Only **active** products appear, so a product still waiting for its
+permission catalog, or withdrawn, is not offered. It needs no subscription and no tenant. The product's audience and client
+credentials are not included. No token is 401; service and product tokens are 403.
+
 #### Product client credentials
 
 A product calls the Auth Service as itself with the **client ID** and **client secret** it was given at registration (OAuth 2.0
