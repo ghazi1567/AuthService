@@ -76,10 +76,27 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Tokens:Issuer` | `iss` claim of issued tokens. Default `AuthService`. |
 | `Auth:Tokens:AccessTokenMinutes` | Identity access token lifetime. Default 15. |
 | `Auth:Tokens:RefreshTokenDays` | Refresh token lifetime. Default 30. |
+| `Email:Provider` | Who sends email: `Brevo`, `File` (writes each email to a file) or `InMemory` (tests). **Required outside Development and Testing**, where it defaults to `File` and `InMemory`. |
+| `Email:BrevoApiKey` | Brevo API key. **Required for `Brevo`.** A secret: pass it as `Email__BrevoApiKey`. |
+| `Email:FromAddress` / `Email:FromName` | Sender of every email. `FromAddress` must be a sender verified with Brevo. |
+| `Email:PublicBaseUrl` | Address that links in emails point at (the page that handles `/verify-email`, `/reset-password`, `/accept-invitation`). |
+| `Email:FileDirectory` | Where the `File` provider writes emails. Default `artifacts/emails` under the API project. |
+| `Email:MaxAttempts` / `Email:RetryDelaySeconds` | How often a failing email is tried (default 5 attempts, waiting 30 s, 2 min, 10 min, 1 h between them). |
+| `Email:DispatchIntervalMilliseconds` / `Email:DispatcherEnabled` | How often the background worker looks for emails to send, and whether it runs at all. |
 
 Generate a signing key with `openssl ecparam -name prime256v1 -genkey -noout`. In Development and Testing a throwaway key
 is created at startup, so tokens stop working when the process restarts. Key rotation and publishing public keys (JWKS)
 arrive with TOK-02.
+
+### Email
+
+Email is never sent inside a request. A feature queues it in the `email_outbox` table, in the same transaction as the
+change that caused it, and a background worker sends it through the configured provider. A failing email is retried with
+growing delays and logged; after the last attempt it is marked `Failed`. Switching provider is a configuration change only.
+
+Logs mention an email's id, template and attempt number, never its address, token or link. The `email_outbox` row keeps the
+token only until the email is sent or given up on. In Development, open the files the `File` provider writes to follow a
+verification link.
 
 ## Adding a migration
 
