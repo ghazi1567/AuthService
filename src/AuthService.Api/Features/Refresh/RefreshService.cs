@@ -1,4 +1,5 @@
 using AuthService.Api.Features.Accounts;
+using AuthService.Api.Features.Audit;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +21,7 @@ public abstract record RefreshResult
 /// every token works once, and presenting a spent token revokes the whole family it belongs to (a replayed token
 /// suggests it was stolen).
 /// </summary>
-public sealed class RefreshService(AuthDbContext db, IdentityTokenService tokens, TimeProvider timeProvider)
+public sealed class RefreshService(AuthDbContext db, IdentityTokenService tokens, AuditLog audit, TimeProvider timeProvider)
 {
     public async Task<RefreshResult> RefreshAsync(string refreshToken, CancellationToken cancellationToken)
     {
@@ -39,6 +40,7 @@ public sealed class RefreshService(AuthDbContext db, IdentityTokenService tokens
         if (stored.RevokedAt is not null)
         {
             await RevokeFamilyAsync(stored.FamilyId, now, cancellationToken);
+            await RecordReuseAsync(stored.UserId, cancellationToken);
             return new RefreshResult.InvalidRefreshToken();
         }
 
@@ -69,6 +71,7 @@ public sealed class RefreshService(AuthDbContext db, IdentityTokenService tokens
         {
             await transaction.RollbackAsync(cancellationToken);
             await RevokeFamilyAsync(stored.FamilyId, now, cancellationToken);
+            await RecordReuseAsync(stored.UserId, cancellationToken);
             return new RefreshResult.InvalidRefreshToken();
         }
 
@@ -84,6 +87,13 @@ public sealed class RefreshService(AuthDbContext db, IdentityTokenService tokens
             "Bearer",
             (int)(accessToken.ExpiresAt - now).TotalSeconds,
             next.Value));
+    }
+
+    /// <summary>A spent token being presented again suggests it was stolen, so it is worth a trace.</summary>
+    private async Task RecordReuseAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        audit.Record(AuditActions.RefreshTokenReuseDetected, AuditActor.User(userId));
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     private Task<int> RevokeFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken cancellationToken) =>

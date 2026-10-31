@@ -1,3 +1,4 @@
+using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Tenants;
 using AuthService.Infrastructure.Persistence;
@@ -26,6 +27,7 @@ public sealed class SignupService(
     AuthDbContext db,
     IPasswordHasher<User> passwordHasher,
     EmailVerificationService emailVerification,
+    AuditLog audit,
     TimeProvider timeProvider)
 {
     public async Task<SignupResult> SignUpAsync(ValidSignup signup, CancellationToken cancellationToken)
@@ -53,6 +55,7 @@ public sealed class SignupService(
 
         // Queued in the same save, so the email exists only if the account does.
         emailVerification.Issue(user.Id, user.Email, now);
+        audit.Record(AuditActions.SignupCompleted, AuditActor.User(user.Id), provisioned.Tenant.Id);
 
         try
         {

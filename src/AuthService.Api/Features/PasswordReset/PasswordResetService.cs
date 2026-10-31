@@ -1,4 +1,5 @@
 using AuthService.Api.Common;
+using AuthService.Api.Features.Audit;
 using AuthService.Api.Email;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
@@ -23,6 +24,7 @@ public sealed class PasswordResetService(
     EmailOutbox outbox,
     IPasswordHasher<User> passwordHasher,
     IOptions<PasswordResetOptions> options,
+    AuditLog audit,
     TimeProvider timeProvider,
     ILogger<PasswordResetService> logger)
 {
@@ -101,6 +103,9 @@ public sealed class PasswordResetService(
         // A reset ends any run of wrong passwords and any lockout (TEN-12).
         user.FailedLoginCount = 0;
         user.LockedUntil = null;
+
+        // In the same transaction as the reset: recorded if and only if the password really changed.
+        audit.Record(AuditActions.PasswordResetCompleted, AuditActor.User(user.Id));
         await db.SaveChangesAsync(cancellationToken);
 
         // Whoever knew the old password, or held a session, is signed out everywhere.
@@ -113,7 +118,7 @@ public sealed class PasswordResetService(
 
         await transaction.CommitAsync(cancellationToken);
 
-        // By user id, never by email. The audit log (AUD-01) will record this event too once it exists.
+        // By user id, never by email.
         logger.LogInformation("Password reset completed for account {UserId}; all its sessions were revoked.", user.Id);
         return ResetPasswordResult.Reset;
     }

@@ -1,4 +1,5 @@
 using AuthService.Api.Common;
+using AuthService.Api.Features.Audit;
 using AuthService.Api.Email;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -23,6 +24,7 @@ public sealed class EmailVerificationService(
     AuthDbContext db,
     EmailOutbox outbox,
     IOptions<EmailVerificationOptions> options,
+    AuditLog audit,
     TimeProvider timeProvider)
 {
     /// <summary>
@@ -85,9 +87,16 @@ public sealed class EmailVerificationService(
                 : VerifyEmailResult.InvalidOrExpired;
         }
 
-        await db.Users
+        var verified = await db.Users
             .Where(user => user.Id == stored.UserId && user.EmailVerifiedAt == null)
             .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.EmailVerifiedAt, now), cancellationToken);
+
+        if (verified > 0)
+        {
+            // In the same transaction as the change it records.
+            audit.Record(AuditActions.EmailVerified, AuditActor.User(stored.UserId));
+            await db.SaveChangesAsync(cancellationToken);
+        }
 
         // Any other link sent to this address is no longer needed.
         await db.EmailVerificationTokens

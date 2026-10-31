@@ -1,4 +1,5 @@
 using AuthService.Api.Features.Accounts;
+using AuthService.Api.Features.Audit;
 using AuthService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,7 +19,7 @@ public abstract record CreateTenantResult
 /// TEN-09: lets a logged-in person create another tenant and become its Owner, without signing up again. The tenant, its
 /// Owner role and the person's Active membership are saved in one transaction. Their existing memberships are untouched.
 /// </summary>
-public sealed class CreateTenantService(AuthDbContext db, TimeProvider timeProvider)
+public sealed class CreateTenantService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
 {
     public async Task<CreateTenantResult> CreateAsync(Guid userId, string tenantName, CancellationToken cancellationToken)
     {
@@ -39,6 +40,7 @@ public sealed class CreateTenantService(AuthDbContext db, TimeProvider timeProvi
         }
 
         var provisioned = db.AddTenantWithOwner(userId, tenantName, timeProvider.GetUtcNow());
+        audit.Record(AuditActions.TenantCreated, AuditActor.User(userId), provisioned.Tenant.Id);
         await db.SaveChangesAsync(cancellationToken);
 
         return new CreateTenantResult.Created(

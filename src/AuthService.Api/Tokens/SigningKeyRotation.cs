@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using AuthService.Api.Features.Audit;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +13,7 @@ namespace AuthService.Api.Tokens;
 /// Keeps the signing keys in the database rotating on schedule (TOK-02). Every change happens under a database lock, so
 /// several instances starting or refreshing at once cannot each create a key.
 /// </summary>
-public sealed class SigningKeyRotation(AuthDbContext db, KeyEncryption encryption, IOptions<IdentityTokenOptions> options)
+public sealed class SigningKeyRotation(AuthDbContext db, KeyEncryption encryption, AuditLog audit, IOptions<IdentityTokenOptions> options)
 {
     // An arbitrary number that identifies this lock to PostgreSQL's advisory lock.
     private const long AdvisoryLockId = 7_270_001;
@@ -35,6 +36,7 @@ public sealed class SigningKeyRotation(AuthDbContext db, KeyEncryption encryptio
         if (keys.Count == 0)
         {
             db.SigningKeys.Add(NewKey(now, publishFrom: now, signFrom: now));
+            audit.Record(AuditActions.SigningKeyCreated, AuditActor.System, detail: "initial");
         }
         else
         {
@@ -56,6 +58,7 @@ public sealed class SigningKeyRotation(AuthDbContext db, KeyEncryption encryptio
                     current.SignUntil = signFrom;
                     current.PublishUntil = signFrom.AddHours(settings.SigningKeyPostRetireHours);
                     db.SigningKeys.Add(NewKey(now, publishFrom: now, signFrom: signFrom));
+                    audit.Record(AuditActions.SigningKeyRotated, AuditActor.System, detail: "scheduled");
                 }
             }
         }
@@ -88,6 +91,9 @@ public sealed class SigningKeyRotation(AuthDbContext db, KeyEncryption encryptio
         }
 
         db.SigningKeys.Add(NewKey(now, publishFrom: now, signFrom: now));
+
+        // Until the platform-admin endpoint exists (APP-04) nobody can trigger this over HTTP, so the actor is the system.
+        audit.Record(AuditActions.SigningKeyRotated, AuditActor.System, detail: "emergency");
 
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

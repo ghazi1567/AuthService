@@ -190,6 +190,27 @@ public sealed class KeyRotationTests(PostgresContainerFixture postgres) : AuthAp
         });
     }
 
+    [Fact]
+    public async Task TOK02_Rotation_ScheduledAndEmergencyRotationsAreAudited()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        _clock.Advance(TimeSpan.FromDays(89));
+        await ReloadKeysAsync(ct);
+        await RotateNowAsync(ct);
+
+        await WithDbAsync(async db =>
+        {
+            var rotations = await db.AuditEntries.AsNoTracking()
+                .Where(entry => entry.Action == "auth.signing_key.rotated")
+                .OrderBy(entry => entry.OccurredAt)
+                .ToListAsync(ct);
+
+            rotations.Select(entry => entry.Detail).ShouldBe(["scheduled", "emergency"]);
+            rotations.ShouldAllBe(entry => entry.ActorType == AuthService.Infrastructure.Persistence.Entities.AuditActorType.System);
+        });
+    }
+
     private string CurrentKid() => ServiceSigningKey().KeyId!;
 
     private async Task<List<string>> JwksKidsAsync(CancellationToken ct)

@@ -74,6 +74,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `ConnectionStrings:AuthDb` | PostgreSQL connection string. Set in `appsettings.Development.json` for local runs. |
 | `Auth:Tokens:KeyEncryptionKey` | The secret that encrypts signing keys before they are stored: 32 random bytes, base64 (`openssl rand -base64 32`). **Required outside Development and Testing**: the API refuses to start without it. Pass it as a secret (`Auth__Tokens__KeyEncryptionKey`), never in a committed file. **Losing it means losing every stored signing key.** |
 | `Auth:Tokens:SigningKeyRotationDays` / `SigningKeyPrePublishHours` / `SigningKeyPostRetireHours` | How long a key signs (default 90 days), how long before that it is published (24 h), and how long it stays published after (24 h). |
+| `Auth:Audit:RetentionDays` / `RetentionCheckSeconds` / `RetentionEnabled` | How long audit entries are kept (default 365 days), how often the cleanup job runs (default every 86,400 s, once a day, and once at startup), and whether it runs at all. |
 | `Auth:Tokens:SigningKeyRefreshSeconds` | How often each instance reloads the keys and checks whether it is time to rotate. Default 60. |
 | `Auth:Tokens:Issuer` | `iss` claim of issued tokens. Default `AuthService`. |
 | `Auth:Tokens:AccessTokenMinutes` | Identity access token lifetime. Default 15. |
@@ -143,6 +144,34 @@ Login is protected against password guessing in two ways:
 
 The lockout is logged by user id, never by email. The audit log (AUD-01) will record it too once it exists, and password
 reset (TEN-10) will clear the count.
+
+### Audit log
+
+Security events are recorded in the `audit_entries` table so who did what, when and in which tenant can always be traced. Each
+entry has **who** (user, product, API key, the system, or anonymous), **what** (a stable code such as `auth.login.succeeded`),
+**when**, the **tenant** if there is one, the caller's **IP address**, and an optional short code of detail (`wrong_password`).
+
+What is recorded today: signup, tenant creation, login success and failure (with the reason: wrong password, unknown account,
+locked, disabled, email not verified), lockouts, email verification, completed password resets, refresh-token reuse, and signing-key
+creation and rotation. Events from stories not built yet (role and permission changes, member and product-access changes,
+invitations, API keys, subscriptions, seat limits, platform-admin actions) are recorded when those stories land. The codes live in
+`AuditActions`.
+
+- **Written with the action, not after it.** An entry is saved in the same transaction as the action it records, so it exists if
+  and only if the action happened. A signup that rolls back leaves no entry.
+- **No secrets, by construction.** The only free text is a short code (lowercase letters, digits, dots, underscores), so a
+  password, token or address cannot be recorded by mistake. A failed login for an unregistered email records nothing about the
+  email that was tried.
+- **Append-only, enforced by the database.** Triggers refuse every `UPDATE`, every `TRUNCATE`, and every `DELETE` except the
+  retention job's, which switches on a setting that lasts only for its own transaction. No endpoint edits or deletes entries.
+  The application's own database user can still change the triggers, so for stronger protection give it `INSERT` and `SELECT`
+  only on this table and run the retention job as a separate role.
+- **Kept for a year.** A daily job deletes entries older than `Auth:Audit:RetentionDays` (365).
+- **The IP is the caller's as the service sees it**: behind a reverse proxy, the proxy's address, until forwarded headers are
+  configured for the deployment.
+
+Not built yet: the two endpoints that read the log. The tenant one (`GET /api/auth/tenants/me/audit`) needs tenant-scoped tokens
+(TOK-01) and role permissions; the platform-admin one (`GET /api/auth/admin/audit`) needs the platform-admin flag (APP-04).
 
 ### Calling protected endpoints
 
