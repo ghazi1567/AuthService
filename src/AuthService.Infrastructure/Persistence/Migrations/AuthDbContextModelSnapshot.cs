@@ -270,6 +270,47 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("email_verification_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipApplicationAccess", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<DateTimeOffset>("GrantedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("granted_at");
+
+                    b.Property<Guid>("MembershipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("membership_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_application_access");
+
+                    b.HasIndex("ApplicationId")
+                        .HasDatabaseName("ix_application_access_application_id");
+
+                    b.HasIndex("MembershipId", "ApplicationId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_application_access_membership_id_application_id");
+
+                    b.HasIndex("TenantId", "ApplicationId")
+                        .HasDatabaseName("ix_application_access_tenant_id_application_id");
+
+                    b.HasIndex("TenantId", "MembershipId")
+                        .HasDatabaseName("ix_application_access_tenant_id_membership_id");
+
+                    b.ToTable("application_access", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -566,6 +607,54 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("tenants", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.TenantApplicationSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("MaxSeats")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_seats");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_subscriptions");
+
+                    b.HasIndex("ApplicationId")
+                        .HasDatabaseName("ix_subscriptions_application_id");
+
+                    b.HasIndex("TenantId", "ApplicationId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_tenant_application_subscriptions_tenant_id_application_id");
+
+                    b.ToTable("subscriptions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tenant_application_subscriptions_max_seats", "max_seats IS NULL OR max_seats >= 1");
+                        });
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.TenantMembership", b =>
                 {
                     b.Property<Guid>("Id")
@@ -660,6 +749,62 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.WebhookOutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("event_type");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("last_error");
+
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_webhook_outbox");
+
+                    b.HasIndex("ApplicationId")
+                        .HasDatabaseName("ix_webhook_outbox_application_id");
+
+                    b.HasIndex("Status", "NextAttemptAt")
+                        .HasDatabaseName("ix_webhook_outbox_status_next_attempt_at");
+
+                    b.ToTable("webhook_outbox", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationSecret", b =>
                 {
                     b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
@@ -678,6 +823,24 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_email_verification_tokens_users_user_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipApplicationAccess", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_application_access_applications_application_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.TenantMembership", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "MembershipId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_application_access_tenant_memberships_tenant_id_membership_");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipRole", b =>
@@ -739,6 +902,23 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_roles_tenants_tenant_id");
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.TenantApplicationSubscription", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_subscriptions_applications_application_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_subscriptions_tenants_tenant_id");
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.TenantMembership", b =>
                 {
                     b.HasOne("AuthService.Infrastructure.Persistence.Entities.Tenant", null)
@@ -754,6 +934,16 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_tenant_memberships_users_user_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.WebhookOutboxMessage", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_outbox_applications_application_id");
                 });
 #pragma warning restore 612, 618
         }

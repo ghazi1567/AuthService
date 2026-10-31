@@ -15,6 +15,7 @@ using AuthService.Api.Features.Logout;
 using AuthService.Api.Features.PasswordReset;
 using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
+using AuthService.Api.Features.Subscriptions;
 using AuthService.Api.Features.Tenants;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
@@ -174,6 +175,7 @@ builder.Services.AddScoped<PermissionCatalogService>();
 builder.Services.Configure<ApplicationCredentialOptions>(builder.Configuration.GetSection(ApplicationCredentialOptions.SectionName));
 builder.Services.AddScoped<ServiceTokenService>();
 builder.Services.AddScoped<SecretRotationService>();
+builder.Services.AddScoped<SubscribeTenantService>();
 
 var app = builder.Build();
 
@@ -202,6 +204,7 @@ app.MapJwks();
 app.MapServiceToken();
 app.MapCurrentApplication();
 app.MapListApplications();
+app.MapSubscriptions();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
 var admin = app.MapAdminGroup();
