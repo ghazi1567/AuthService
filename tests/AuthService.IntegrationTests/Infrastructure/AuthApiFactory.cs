@@ -28,6 +28,9 @@ public sealed class AuthApiFactory(string connectionString, HarnessOptions optio
                 ["Email:DispatchIntervalMilliseconds"] = "50",
                 ["Email:RetryDelaySeconds:0"] = "0",
                 ["Email:PublicBaseUrl"] = "https://app.test",
+
+                // No cooldown between verification emails by default, so tests can ask for a new link straight away.
+                ["Auth:EmailVerification:ResendCooldownSeconds"] = "0",
             };
 
             foreach (var (key, value) in options.Settings)

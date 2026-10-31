@@ -1,3 +1,4 @@
+using AuthService.Api.Features.EmailVerification;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Configurations;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -15,13 +16,15 @@ public abstract record SignupResult
 }
 
 /// <summary>
-/// TEN-01: creates a tenant, a global user and that user's Active membership holding the built-in Owner role.
+/// TEN-01: creates a tenant, a global user and that user's Active membership holding the built-in Owner role, and queues
+/// the email that asks them to verify their address (TEN-11).
 /// Everything is added to the context and saved with one <c>SaveChangesAsync</c>, which EF runs in a single
-/// database transaction, so a failure part-way leaves no tenant, user, role or membership behind.
+/// database transaction, so a failure part-way leaves no tenant, user, role, membership, token or queued email behind.
 /// </summary>
 public sealed class SignupService(
     AuthDbContext db,
     IPasswordHasher<User> passwordHasher,
+    EmailVerificationService emailVerification,
     TimeProvider timeProvider)
 {
     public async Task<SignupResult> SignUpAsync(ValidSignup signup, CancellationToken cancellationToken)
@@ -42,7 +45,7 @@ public sealed class SignupService(
             CreatedAt = now,
         };
 
-        // EmailVerifiedAt stays null: the new user starts unverified. The verification email is TEN-11 (needs NTF-01).
+        // EmailVerifiedAt stays null: the new user starts unverified and cannot log in until they open the emailed link.
         var user = new User
         {
             Id = Guid.CreateVersion7(),
@@ -80,6 +83,9 @@ public sealed class SignupService(
         };
 
         db.AddRange(tenant, user, membership, ownerRole, ownerAssignment);
+
+        // Queued in the same save, so the email exists only if the account does.
+        emailVerification.Issue(user.Id, user.Email, now);
 
         try
         {

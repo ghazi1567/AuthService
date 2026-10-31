@@ -64,6 +64,10 @@ public sealed class TenantSignupTests(PostgresContainerFixture postgres) : AuthA
         assignment.TenantId.ShouldBe(tenant.Id);
         assignment.MembershipId.ShouldBe(membership.Id);
         assignment.RoleId.ShouldBe(role.Id);
+
+        // Signup also issued exactly one verification token and queued exactly one verification email (TEN-11).
+        (await db.EmailVerificationTokens.ToListAsync(ct)).ShouldHaveSingleItem().UserId.ShouldBe(user.Id);
+        (await db.EmailOutbox.ToListAsync(ct)).ShouldHaveSingleItem().Template.ShouldBe(EmailTemplate.Verification);
     }
 
     [Fact]
@@ -102,6 +106,13 @@ public sealed class TenantSignupTests(PostgresContainerFixture postgres) : AuthA
 
         response.StatusCode.ShouldBe(HttpStatusCode.InternalServerError);
         (await CountRowsAsync(ct)).ShouldBe(RowCounts.Empty, "the whole signup must roll back, not just part of it");
+
+        // The verification token and the queued email belong to the same transaction, so they roll back too.
+        await WithDbAsync(async db =>
+        {
+            (await db.EmailVerificationTokens.CountAsync(ct)).ShouldBe(0, "no verification token may survive a failed signup");
+            (await db.EmailOutbox.CountAsync(ct)).ShouldBe(0, "no email may be queued for an account that was not created");
+        });
     }
 
     [Fact(Skip = "Enabled once ROL-03 (edit role) and ROL-04 (delete role) exist.")]

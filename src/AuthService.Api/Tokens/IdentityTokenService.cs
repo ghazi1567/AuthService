@@ -1,6 +1,5 @@
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
+using AuthService.Api.Common;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -51,7 +50,7 @@ public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options,
     /// <summary>Issues the next token in an existing family, as happens when a refresh token is rotated.</summary>
     public IssuedRefreshToken CreateRefreshToken(Guid userId, Guid familyId, DateTimeOffset now)
     {
-        var value = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
+        var value = SecretToken.NewValue();
 
         var entity = new RefreshToken
         {
@@ -67,5 +66,5 @@ public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options,
     }
 
     /// <summary>The form in which a refresh token is stored and looked up.</summary>
-    public static string Hash(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    public static string Hash(string token) => SecretToken.Hash(token);
 }

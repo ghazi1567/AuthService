@@ -1,6 +1,10 @@
+using System.Globalization;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+using AuthService.Api.Common;
 using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
+using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Logout;
 using AuthService.Api.Features.Refresh;
@@ -9,6 +13,8 @@ using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -46,6 +52,43 @@ builder.Services.AddScoped<EmailOutbox>();
 builder.Services.AddScoped<EmailDeliveryService>();
 builder.Services.AddHostedService<EmailDispatcher>();
 
+// Email verification (TEN-11).
+builder.Services.Configure<EmailVerificationOptions>(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
+builder.Services.AddScoped<EmailVerificationService>();
+
+// Limits how often one IP address can ask for verification emails. (Behind a proxy this sees the proxy's address until
+// forwarded headers are configured for the deployment; TEN-12 revisits rate limiting.)
+builder.Services.AddRateLimiter(limiter =>
+{
+    limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    limiter.OnRejected = async (context, _) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+        }
+
+        await ApiProblem.Create(StatusCodes.Status429TooManyRequests, "rate_limited", "Too many requests", "Try again later.")
+            .ExecuteAsync(context.HttpContext);
+    };
+
+    limiter.AddPolicy(EmailVerificationEndpoints.ResendRateLimitPolicy, httpContext =>
+    {
+        // Read per request, so configuration added after startup (test overrides) still applies.
+        var settings = httpContext.RequestServices.GetRequiredService<IOptions<EmailVerificationOptions>>().Value;
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = settings.ResendIpLimit,
+                Window = TimeSpan.FromMinutes(settings.ResendIpWindowMinutes),
+                QueueLimit = 0,
+            });
+    });
+});
+
 builder.Services.AddScoped<SignupService>();
 builder.Services.AddScoped<LoginService>();
 builder.Services.AddScoped<RefreshService>();
@@ -60,9 +103,11 @@ app.Services.GetRequiredService<SigningKeyProvider>();
 app.Services.GetRequiredService<IEmailSender>();
 
 app.UseExceptionHandler();
+app.UseRateLimiter();
 
 app.MapGet("/", () => "AuthService");
 app.MapSignup();
+app.MapEmailVerification();
 app.MapLogin();
 app.MapRefresh();
 app.MapLogout();

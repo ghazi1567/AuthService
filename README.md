@@ -83,6 +83,9 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Email:FileDirectory` | Where the `File` provider writes emails. Default `artifacts/emails` under the API project. |
 | `Email:MaxAttempts` / `Email:RetryDelaySeconds` | How often a failing email is tried (default 5 attempts, waiting 30 s, 2 min, 10 min, 1 h between them). |
 | `Email:DispatchIntervalMilliseconds` / `Email:DispatcherEnabled` | How often the background worker looks for emails to send, and whether it runs at all. |
+| `Auth:EmailVerification:TokenHours` | How long a verification link works. Default 24. |
+| `Auth:EmailVerification:ResendCooldownSeconds` | An account sent a link less than this long ago is not sent another. Default 60. |
+| `Auth:EmailVerification:ResendIpLimit` / `ResendIpWindowMinutes` | How many resend requests one IP may make per window before getting 429. Default 10 per 10 minutes. |
 
 Generate a signing key with `openssl ecparam -name prime256v1 -genkey -noout`. In Development and Testing a throwaway key
 is created at startup, so tokens stop working when the process restarts. Key rotation and publishing public keys (JWKS)
@@ -97,6 +100,22 @@ growing delays and logged; after the last attempt it is marked `Failed`. Switchi
 Logs mention an email's id, template and attempt number, never its address, token or link. The `email_outbox` row keeps the
 token only until the email is sent or given up on. In Development, open the files the `File` provider writes to follow a
 verification link.
+
+### Email verification
+
+A new account starts unverified and cannot log in (403 `email_not_verified`) until its email is verified:
+
+1. Signup creates the account and, in the same transaction, a verification token (stored only as a hash, valid 24 hours,
+   single use) and the queued email that carries it.
+2. The link in the email points at `Email:PublicBaseUrl` plus `/verify-email?token=...`. That page posts the token to
+   `POST /api/auth/email/verify`: 200 on success (and on an address that is already verified), 410 for an unknown,
+   expired or used link.
+3. `POST /api/auth/email/verify/resend` asks for a new link. It always answers 202 with the same body, whether or not the
+   email is registered, so it cannot be used to find out which addresses exist. It is limited by a per-account cooldown
+   and a per-IP rate limit (429).
+
+Behind a reverse proxy, the per-IP limit sees the proxy's address until forwarded headers are configured for the
+deployment.
 
 ## Adding a migration
 
