@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AuthService.Api.Features.Login;
+using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -64,6 +65,18 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
     /// <summary>Calls the real login endpoint (TEN-02).</summary>
     protected Task<HttpResponseMessage> LoginAsync(string? email, string? password, CancellationToken ct) =>
         Client.PostAsJsonAsync(LoginEndpoints.Route, new { email, password }, ct);
+
+    /// <summary>Logs in with the default password and returns the tokens, failing the test if login is refused.</summary>
+    protected async Task<LoginResponse> LoginForTokensAsync(string email, CancellationToken ct)
+    {
+        var response = await LoginAsync(email, DefaultPassword, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<LoginResponse>(Json, ct))!;
+    }
+
+    /// <summary>Calls the real refresh endpoint (TEN-03).</summary>
+    protected Task<HttpResponseMessage> RefreshAsync(string? refreshToken, CancellationToken ct) =>
+        Client.PostAsJsonAsync(RefreshEndpoints.Route, new { refreshToken }, ct);
 
     /// <summary>Signs up through the real endpoint, then marks the email verified so the account can log in.</summary>
     protected async Task<SignupResponse> SignUpVerifiedAsync(string tenantName, string email, CancellationToken ct)
