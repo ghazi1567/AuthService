@@ -10,6 +10,9 @@ public sealed class IdentityTokenOptions
     /// <summary>How long an identity access token is valid. 15 minutes by default.</summary>
     public int AccessTokenMinutes { get; set; } = 15;
 
+    /// <summary>How long a product's service token (APP-05) is valid. 10 minutes; the product asks for a new one when it expires.</summary>
+    public int ServiceTokenMinutes { get; set; } = 10;
+
     /// <summary>How long a refresh token is valid. 30 days (decision Q-09).</summary>
     public int RefreshTokenDays { get; set; } = 30;
 

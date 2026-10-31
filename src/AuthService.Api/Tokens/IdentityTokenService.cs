@@ -15,6 +15,9 @@ public sealed record IssuedRefreshToken(string Value, RefreshToken Entity);
 /// <summary>Creates the tokens a person receives at login.</summary>
 public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options, SigningKeyService signingKeys)
 {
+    /// <summary>The <c>aud</c> of service tokens. No product may use it as its own audience (see <c>ApplicationValidator</c>).</summary>
+    public const string ServiceAudience = "auth-service";
+
     private static readonly JsonWebTokenHandler Handler = new();
 
     /// <summary>
@@ -33,6 +36,36 @@ public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options,
             [
                 new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            ]),
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expiresAt.UtcDateTime,
+            SigningCredentials = new SigningCredentials(signingKeys.CurrentSigningKey, SecurityAlgorithms.EcdsaSha256),
+        };
+
+        return new AccessToken(Handler.CreateToken(descriptor), expiresAt);
+    }
+
+    /// <summary>
+    /// A product's service token (APP-05). It names the product (<c>app_id</c>, <c>client_id</c>) and carries the Auth Service's own
+    /// audience, so it is refused on every identity endpoint, and its <c>sub</c> is not a user id, so it can never be mistaken for
+    /// a person. It opens only the endpoints that take the service-token policy, which act on that product's own data.
+    /// </summary>
+    public AccessToken CreateServiceToken(Guid applicationId, string clientId, DateTimeOffset now)
+    {
+        var expiresAt = now.AddMinutes(options.Value.ServiceTokenMinutes);
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = options.Value.Issuer,
+            Audience = ServiceAudience,
+            Subject = new ClaimsIdentity(
+            [
+                new Claim(JwtRegisteredClaimNames.Sub, "app:" + applicationId),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+                new Claim(ServiceClaims.TokenUse, ServiceClaims.ServiceTokenUse),
+                new Claim(ServiceClaims.ApplicationId, applicationId.ToString()),
+                new Claim(ServiceClaims.ClientId, clientId),
             ]),
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,

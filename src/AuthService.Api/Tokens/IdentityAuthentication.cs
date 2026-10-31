@@ -18,6 +18,9 @@ public static class IdentityAuthentication
     /// <summary>An identity token whose user is a platform admin. Applied to every endpoint under <c>/api/auth/admin</c>.</summary>
     public const string PlatformAdminPolicyName = "PlatformAdmin";
 
+    /// <summary>A product's service token (APP-05). For the endpoints a product calls about its own data.</summary>
+    public const string ServicePolicyName = "ServiceToken";
+
     public static IServiceCollection AddIdentityTokenAuthentication(this IServiceCollection services)
     {
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
@@ -71,7 +74,15 @@ public static class IdentityAuthentication
 
         services.AddAuthorizationBuilder()
             .AddPolicy(PolicyName, policy => IdentityToken(policy))
-            .AddPolicy(PlatformAdminPolicyName, policy => IdentityToken(policy).AddRequirements(new PlatformAdminRequirement()));
+            .AddPolicy(PlatformAdminPolicyName, policy => IdentityToken(policy).AddRequirements(new PlatformAdminRequirement()))
+            .AddPolicy(ServicePolicyName, policy => policy
+                .RequireAuthenticatedUser()
+
+                // Only a token issued by the client-credentials grant: marked as a service token, for the Auth Service's own
+                // audience, and naming a product. An identity token has no audience, and a product token has the product's.
+                .RequireClaim(ServiceClaims.TokenUse, ServiceClaims.ServiceTokenUse)
+                .RequireClaim("aud", IdentityTokenService.ServiceAudience)
+                .RequireAssertion(context => context.User.GetApplicationId() is not null));
 
         services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
 

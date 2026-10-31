@@ -12,6 +12,7 @@ public static class ApplicationAdminEndpoints
         admin.MapPost("/applications", RegisterAsync);
         admin.MapPost("/applications/{applicationId:guid}/permissions", RegisterPermissionsAsync);
         admin.MapPut("/applications/{applicationId:guid}/active", SetActiveAsync);
+        admin.MapPost("/applications/{applicationId:guid}/secret/rotate", RotateSecretAsync);
         return admin;
     }
 
@@ -103,6 +104,39 @@ public static class ApplicationAdminEndpoints
             SetApplicationActiveResult.NoPermissions => ApiProblem.Create(StatusCodes.Status409Conflict, "no_permissions_registered",
                 "No permissions registered", "Register at least one permission for this application before activating it."),
 
+            _ => ApplicationNotFound(),
+        };
+    }
+
+    /// <summary>
+    /// A platform admin replaces a product's client secret (APP-05). The old secret keeps working for a grace period (24 hours by
+    /// default, or <c>graceHours</c> in the body; 0 cuts it off at once, for a leaked secret).
+    /// </summary>
+    private static async Task<IResult> RotateSecretAsync(
+        Guid applicationId,
+        RotateSecretRequest? request,
+        ClaimsPrincipal caller,
+        SecretRotationService rotation,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        if (request?.GraceHours is < 0 or > SecretRotationService.MaxGraceHours)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(RotateSecretRequest.GraceHours)] = [$"GraceHours must be between 0 and {SecretRotationService.MaxGraceHours}."],
+            });
+        }
+
+        var adminId = caller.GetUserId() ?? throw new InvalidOperationException("The platform-admin policy guarantees a user id.");
+        var result = await rotation.RotateAsync(adminId, applicationId, request?.GraceHours, cancellationToken);
+
+        // The response carries the new client secret, shown once: it must never be stored by a browser or proxy.
+        httpContext.Response.Headers.CacheControl = "no-store";
+
+        return result switch
+        {
+            RotateSecretResult.Rotated rotated => Results.Ok(rotated.Response),
             _ => ApplicationNotFound(),
         };
     }

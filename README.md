@@ -87,6 +87,9 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Email:MaxAttempts` / `Email:RetryDelaySeconds` | How often a failing email is tried (default 5 attempts, waiting 30 s, 2 min, 10 min, 1 h between them). |
 | `Email:DispatchIntervalMilliseconds` / `Email:DispatcherEnabled` | How often the background worker looks for emails to send, and whether it runs at all. |
 | `Auth:LoginProtection:MaxFailedAttempts` / `LockoutMinutes` | Wrong passwords in a row after which an account is locked, and for how long. Default 5 and 15. |
+| `Auth:Tokens:ServiceTokenMinutes` | How long a product's service token is valid. Default 10. |
+| `Auth:Applications:SecretGraceHours` | How long a product's old client secret keeps working after a rotation. Default 24. |
+| `Auth:Applications:TokenIpLimit` / `TokenIpWindowMinutes` | How many service-token requests one IP may make per window, across all products, before getting 429. Default 60 per minute. |
 | `Auth:LoginProtection:IpLimit` / `IpWindowMinutes` | How many login requests one IP may make per window, across all accounts, before getting 429. Default 20 per minute. |
 | `Auth:EmailVerification:TokenHours` | How long a verification link works. Default 24. |
 | `Auth:EmailVerification:ResendCooldownSeconds` | An account sent a link less than this long ago is not sent another. Default 60. |
@@ -197,6 +200,7 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
 | `POST /api/auth/admin/applications` | Register a product (see "Applications" below). |
 | `POST /api/auth/admin/applications/{id}/permissions` | Register or update a product's permission catalog. |
 | `PUT /api/auth/admin/applications/{id}/active` | Make a product available to subscribe to (`{"isActive": true}`), or withdraw it. |
+| `POST /api/auth/admin/applications/{id}/secret/rotate` | Replace a product's client secret; the old one keeps working for a grace period (see "Product client credentials"). |
 
 ### Applications (products)
 
@@ -212,7 +216,7 @@ A **product** (for example WhatsApp SaaS) is registered by a platform admin with
 - Registration also issues the product's **client ID** (`cl_...`) and **client secret**. The secret is in that one response and
   **nowhere else, ever**: only its hash is stored (in its own table, so rotation can keep an old secret alive for a grace period),
   it is never logged or audited, and the response is sent with `Cache-Control: no-store`. A lost secret is replaced by rotation, not
-  recovered. The endpoint that uses the credentials to get a service token, and secret rotation, are APP-05.
+  recovered (see "Product client credentials" below).
 - Registration is audit-logged under the admin, with the product's key as the detail.
 
 #### Permission catalog
@@ -235,6 +239,36 @@ entries per request).
   permission (otherwise **409** `no_permissions_registered`). `false` withdraws it. Repeating either is harmless, and only real
   changes are audited.
 - Registering permissions, activating and deactivating are each audit-logged under the admin, with the product's key as the detail.
+
+#### Product client credentials
+
+A product calls the Auth Service as itself with the **client ID** and **client secret** it was given at registration (OAuth 2.0
+client-credentials style).
+
+```bash
+curl -X POST https://auth.example.com/api/auth/token \
+  -d grant_type=client_credentials -d client_id=cl_... -d client_secret=...
+```
+
+The body can be the form above or JSON with the same three fields. The reply is `{"access_token", "token_type": "Bearer", "expires_in": 600}`
+(10 minutes; ask again when it expires), sent with `Cache-Control: no-store`.
+
+- Wrong secret, unknown client and an expired secret all get the **same 401** `invalid_client`, so the reply never says which. A
+  missing field is **400** `invalid_request`, any other grant **400** `unsupported_grant_type`. Requests are rate limited per IP
+  (`Auth:Applications:TokenIpLimit`, 429). Neither the client ID nor the secret is logged.
+- A product that is still inactive can get a token: it has to be able to call the Auth Service before it is offered to tenants.
+- A **service token** names the product (`app_id`, `client_id`, `token_use: service`) and carries the audience `auth-service`
+  (reserved: no product may register it). Its `sub` is `app:<id>`, never a user id. So it is refused with **403** on every identity
+  and admin endpoint, and an identity or product token is refused on the service endpoints. Which product it is comes only from
+  the verified token, never from the request. `GET /api/auth/applications/me` returns the calling product's own record. The
+  subscription, seat-limit and API-key endpoints of SUB and KEY use the same `ServiceToken` policy.
+- A token already issued stays valid until it expires (10 minutes), even if its secret has since been rotated out.
+
+**Rotating the secret.** A platform admin calls `POST /api/auth/admin/applications/{id}/secret/rotate`. It returns the new secret
+once (never again, `no-store`) and `previousSecretsExpireAt`. The old secret keeps working until then: 24 hours by default
+(`Auth:Applications:SecretGraceHours`), or `{"graceHours": n}` in the body (0 to 720). **`graceHours: 0` cuts the old secret off at
+once, for a leaked secret.** Rotating again never extends an older secret's life. Unknown product is **404**. Rotation is
+audit-logged under the admin with the product's key as the detail; no secret is ever recorded. Only hashes are stored.
 
 ### Calling protected endpoints
 

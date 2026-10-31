@@ -112,7 +112,7 @@ public sealed class PermissionCatalogService(AuthDbContext db, AuditLog audit, T
         // Registrations of one product are serialised by a row lock, so two simultaneous ones cannot both insert the same new key.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        var application = await LockApplicationAsync(applicationId, cancellationToken);
+        var application = await db.LockApplicationAsync(applicationId, cancellationToken);
         if (application is null)
         {
             return new RegisterPermissionsResult.ApplicationNotFound();
@@ -183,7 +183,7 @@ public sealed class PermissionCatalogService(AuthDbContext db, AuditLog audit, T
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-        var application = await LockApplicationAsync(applicationId, cancellationToken);
+        var application = await db.LockApplicationAsync(applicationId, cancellationToken);
         if (application is null)
         {
             return new SetApplicationActiveResult.ApplicationNotFound();
@@ -205,8 +205,4 @@ public sealed class PermissionCatalogService(AuthDbContext db, AuditLog audit, T
         await transaction.CommitAsync(cancellationToken);
         return new SetApplicationActiveResult.Updated(new ApplicationStatusResponse(application.Id, application.Key, application.IsActive));
     }
-
-    private Task<Application?> LockApplicationAsync(Guid applicationId, CancellationToken cancellationToken) =>
-        db.Applications.FromSqlInterpolated($"SELECT * FROM applications WHERE id = {applicationId} FOR UPDATE")
-            .SingleOrDefaultAsync(cancellationToken);
 }

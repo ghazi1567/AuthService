@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using AuthService.Api.Common;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Configurations;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -68,6 +69,11 @@ public static partial class ApplicationValidator
         {
             errors[nameof(RegisterApplicationRequest.JwtAudience)] =
                 [$"JWT audience must be at most {MaxAudienceLength} characters: letters, digits and . _ : / - only, no spaces."];
+        }
+        else if (string.Equals(audience, IdentityTokenService.ServiceAudience, StringComparison.OrdinalIgnoreCase))
+        {
+            // Service tokens carry this audience; a product using it could be handed one as if it were its own token.
+            errors[nameof(RegisterApplicationRequest.JwtAudience)] = [$"JWT audience '{IdentityTokenService.ServiceAudience}' is reserved."];
         }
 
         if (errors.Count > 0)
