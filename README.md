@@ -176,7 +176,7 @@ read (`GET /api/auth/tenants/me/audit`), which needs tenant-scoped tokens (TOK-0
 ### Platform admins
 
 A few operations belong to whoever runs the platform, not to any tenant: rotating the signing keys, reading the whole audit log,
-and (coming next) registering products. They live under **`/api/auth/admin/*`** and need a **platform admin**: a user with the
+and registering products. They live under **`/api/auth/admin/*`** and need a **platform admin**: a user with the
 `is_platform_admin` flag set.
 
 - **The flag can only be set in the database.** No endpoint and no request field can change it, and no request or response type
@@ -194,6 +194,24 @@ and (coming next) registering products. They live under **`/api/auth/admin/*`** 
 |---|---|
 | `POST /api/auth/admin/signing-keys/rotate` | Emergency rotation: a new key signs now and the old one leaves the JWKS at once, so tokens it signed stop validating (including the caller's own). |
 | `GET /api/auth/admin/audit` | The whole audit log, newest first, across all tenants. Filters: `action`, `tenantId`, `actorId`. Paging: `limit` (1 to 200, default 50), then pass the returned `next` values back as `before` and `beforeId`. Reading it is itself audited. |
+| `POST /api/auth/admin/applications` | Register a product (see "Applications" below). |
+
+### Applications (products)
+
+A **product** (for example WhatsApp SaaS) is registered by a platform admin with `POST /api/auth/admin/applications`, sending a
+`key`, a display `name` and a `jwtAudience`.
+
+- **`key`** is a short stable name: lowercase letters, digits and hyphens, up to 63 characters, starting and ending with a letter
+  or digit. It is trimmed and lowercased, and unique across the platform (a duplicate gets **409** `application_key_taken`).
+- **`jwtAudience`** is the `aud` value its tokens will carry. It is unique too (**409** `audience_taken`), so no two products can
+  ever accept each other's tokens.
+- A new product is **inactive** until its permission catalog is registered (APP-02): a tenant cannot subscribe to a product that has
+  nothing to grant.
+- Registration also issues the product's **client ID** (`cl_...`) and **client secret**. The secret is in that one response and
+  **nowhere else, ever**: only its hash is stored (in its own table, so rotation can keep an old secret alive for a grace period),
+  it is never logged or audited, and the response is sent with `Cache-Control: no-store`. A lost secret is replaced by rotation, not
+  recovered. The endpoint that uses the credentials to get a service token, and secret rotation, are APP-05.
+- Registration is audit-logged under the admin, with the product's key as the detail.
 
 ### Calling protected endpoints
 

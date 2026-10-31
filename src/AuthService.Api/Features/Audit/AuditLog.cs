@@ -12,7 +12,7 @@ namespace AuthService.Api.Features.Audit;
 public sealed partial class AuditLog(AuthDbContext db, IHttpContextAccessor httpContextAccessor, TimeProvider timeProvider)
 {
     /// <summary>
-    /// Adds an entry. <paramref name="detail"/> is a short code (lowercase letters, digits, dots, underscores): a rule that
+    /// Adds an entry. <paramref name="detail"/> is a short code (lowercase letters, digits, dots, underscores, hyphens): a rule that
     /// cannot be met by a password, token or other secret, so one cannot be recorded by mistake.
     /// </summary>
     public void Record(string action, AuditActor actor, Guid? tenantId = null, string? detail = null)
@@ -22,7 +22,7 @@ public sealed partial class AuditLog(AuthDbContext db, IHttpContextAccessor http
         if (detail is not null && !DetailPattern().IsMatch(detail))
         {
             throw new ArgumentException(
-                "An audit detail must be a short code: lowercase letters, digits, dots and underscores, at most 64 characters.",
+                "An audit detail must be a short code: lowercase letters, digits, dots, underscores and hyphens, at most 64 characters.",
                 nameof(detail));
         }
 
@@ -39,6 +39,6 @@ public sealed partial class AuditLog(AuthDbContext db, IHttpContextAccessor http
         });
     }
 
-    [GeneratedRegex("^[a-z0-9_.]{1,64}$")]
+    [GeneratedRegex("^[a-z0-9_.-]{1,64}$")]
     private static partial Regex DetailPattern();
 }
