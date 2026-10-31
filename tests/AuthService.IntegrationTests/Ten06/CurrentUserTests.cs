@@ -188,35 +188,4 @@ public sealed class CurrentUserTests(PostgresContainerFixture postgres) : AuthAp
         (await GetAsync(CurrentUserEndpoints.Route, token, ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
 
-    private SecurityKey ServiceSigningKey()
-    {
-        using var scope = Harness.CreateScope();
-        return scope.ServiceProvider.GetRequiredService<SigningKeyProvider>().Key;
-    }
-
-    private static string CreateToken(
-        Guid userId,
-        SecurityKey key,
-        TimeSpan expiresIn,
-        string issuer = "AuthService",
-        string? audience = null)
-    {
-        var now = DateTime.UtcNow;
-
-        // Expired tokens need an issue time before their expiry, so shift the whole token back instead of just the expiry.
-        var issuedAt = expiresIn < TimeSpan.Zero ? now + expiresIn - TimeSpan.FromMinutes(1) : now;
-
-        var descriptor = new SecurityTokenDescriptor
-        {
-            Issuer = issuer,
-            Audience = audience,
-            Subject = new ClaimsIdentity([new Claim(JwtRegisteredClaimNames.Sub, userId.ToString())]),
-            IssuedAt = issuedAt,
-            NotBefore = issuedAt,
-            Expires = now + expiresIn,
-            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.EcdsaSha256),
-        };
-
-        return new JsonWebTokenHandler().CreateToken(descriptor);
-    }
 }

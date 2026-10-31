@@ -1,4 +1,5 @@
 using AuthService.Api.Features.EmailVerification;
+using AuthService.Api.Features.Tenants;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Configurations;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -37,14 +38,6 @@ public sealed class SignupService(
 
         var now = timeProvider.GetUtcNow();
 
-        var tenant = new Tenant
-        {
-            Id = Guid.CreateVersion7(),
-            Name = signup.TenantName,
-            Status = TenantStatus.Active,
-            CreatedAt = now,
-        };
-
         // EmailVerifiedAt stays null: the new user starts unverified and cannot log in until they open the emailed link.
         var user = new User
         {
@@ -55,34 +48,8 @@ public sealed class SignupService(
         };
         user.PasswordHash = passwordHasher.HashPassword(user, signup.Password);
 
-        var membership = new TenantMembership
-        {
-            Id = Guid.CreateVersion7(),
-            TenantId = tenant.Id,
-            UserId = user.Id,
-            Status = MembershipStatus.Active,
-            CreatedAt = now,
-        };
-
-        var ownerRole = new Role
-        {
-            Id = Guid.CreateVersion7(),
-            TenantId = tenant.Id,
-            Name = Role.OwnerName,
-            IsBuiltIn = true,
-            CreatedAt = now,
-        };
-
-        var ownerAssignment = new MembershipRole
-        {
-            Id = Guid.CreateVersion7(),
-            TenantId = tenant.Id,
-            MembershipId = membership.Id,
-            RoleId = ownerRole.Id,
-            AssignedAt = now,
-        };
-
-        db.AddRange(tenant, user, membership, ownerRole, ownerAssignment);
+        db.Add(user);
+        var provisioned = db.AddTenantWithOwner(user.Id, signup.TenantName, now);
 
         // Queued in the same save, so the email exists only if the account does.
         emailVerification.Issue(user.Id, user.Email, now);
@@ -96,7 +63,8 @@ public sealed class SignupService(
             return new SignupResult.EmailAlreadyRegistered();
         }
 
-        return new SignupResult.Created(new SignupResponse(tenant.Id, user.Id, membership.Id, user.Email));
+        return new SignupResult.Created(
+            new SignupResponse(provisioned.Tenant.Id, user.Id, provisioned.Membership.Id, user.Email));
     }
 
     private static bool IsEmailConflict(DbUpdateException exception) =>
