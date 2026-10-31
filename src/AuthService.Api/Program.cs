@@ -177,6 +177,7 @@ builder.Services.AddScoped<ServiceTokenService>();
 builder.Services.AddScoped<SecretRotationService>();
 builder.Services.AddScoped<SubscribeTenantService>();
 builder.Services.AddScoped<SeatLimitService>();
+builder.Services.AddScoped<SubscriptionStatusService>();
 
 var app = builder.Build();
 

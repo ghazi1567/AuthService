@@ -45,8 +45,7 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
 
         // Requests for the same tenant and product, such as a retry arriving while the first is still running, take turns.
         // The unique index would stop a duplicate row anyway, but this makes the second request see the first one's result.
-        await db.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({"subscription:" + tenantId + ":" + applicationId}, 0))", cancellationToken);
+        await db.LockSubscriptionAsync(tenantId, applicationId, cancellationToken);
 
         var application = await db.Applications.AsNoTracking()
             .Where(candidate => candidate.Id == applicationId)
