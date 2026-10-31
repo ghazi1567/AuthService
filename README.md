@@ -259,6 +259,22 @@ tenants to itself. A tenant's own people cannot subscribe themselves (403).
   retries, and the product's callback URL, arrive with SUB-06; until then events wait in the outbox.
 - Subscribing is audit-logged with the product as the actor and the tenant it concerns.
 
+#### Seat limits
+
+A product sets how many people may use it in a tenant, when the tenant's plan changes, with
+`PATCH /api/auth/tenants/{tenantId}/subscriptions/{applicationId}/seats` and a body of `{"maxSeats": 25}`. Billing stays in the
+product; only the number crosses. Called with the product's **service token**, never a user's: a tenant user, an admin or a
+product token gets 403, no token 401.
+
+- `maxSeats` must be in the body: a whole number of at least 1, or `null` for unlimited. A missing field, `0`, a fraction, a
+  string or anything else is **400**, so a mistyped field name can never silently remove a tenant's limit.
+- **Lowering it below current usage is accepted** (200): people who already have access keep it, and only new grants are blocked
+  until usage is back under the limit (SUB-05). The call never fails because of how many seats are in use.
+- The `applicationId` in the path must be the caller's own. Another product's subscription, a tenant that never subscribed and a
+  tenant that does not exist all get the same **404** `subscription_not_found`, so a product learns nothing about the others.
+- The change is audit-logged with the product as the actor and the tenant it concerns. It works on a Suspended or Cancelled
+  subscription too, and changes only the limit.
+
 #### Listing products for tenants
 
 `GET /api/auth/applications` with any signed-in person's identity token returns the products a tenant can connect, for the "connect a

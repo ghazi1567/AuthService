@@ -163,14 +163,6 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
         }
     }
 
-    private async Task<SubscriptionResponse> ToResponseAsync(TenantApplicationSubscription subscription, CancellationToken cancellationToken)
-    {
-        // Counted from the database, after the owner's access was saved, so the response is what is really stored.
-        var seatsUsed = await db.ApplicationAccess.CountAsync(
-            access => access.TenantId == subscription.TenantId && access.ApplicationId == subscription.ApplicationId, cancellationToken);
-
-        return new SubscriptionResponse(
-            subscription.TenantId, subscription.ApplicationId, subscription.Status.ToString(), subscription.MaxSeats, seatsUsed,
-            subscription.CreatedAt, subscription.UpdatedAt);
-    }
+    private Task<SubscriptionResponse> ToResponseAsync(TenantApplicationSubscription subscription, CancellationToken cancellationToken) =>
+        db.ToResponseAsync(subscription, cancellationToken);
 }

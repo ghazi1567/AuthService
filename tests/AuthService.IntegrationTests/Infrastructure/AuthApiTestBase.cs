@@ -297,6 +297,46 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
 
     protected sealed record ProblemSummary(int Status, string? Title, string? Detail, string? Code);
 
+    /// <summary>A product as it arrives in real life: registered, with a catalog, active, and holding a service token.</summary>
+    protected sealed record TestProduct(Guid Id, string Key, string ClientId, string ClientSecret, string ServiceToken);
+
+    /// <summary>Registers a product through the admin API, gives it a one-permission catalog, activates it and signs it in.</summary>
+    protected async Task<TestProduct> CreateActiveProductAsync(string adminToken, string key, CancellationToken ct)
+    {
+        var registered = await PostAsync("/api/auth/admin/applications", new { key, name = key, jwtAudience = key + "-api" }, adminToken, ct);
+        registered.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var product = (await registered.Content.ReadFromJsonAsync<JsonElement>(Json, ct));
+        var id = product.GetProperty("id").GetGuid();
+        var clientId = product.GetProperty("clientId").GetString()!;
+        var clientSecret = product.GetProperty("clientSecret").GetString()!;
+
+        (await PostAsync($"/api/auth/admin/applications/{id}/permissions",
+            new { permissions = new[] { new { key = "thing.use", label = "Use the thing" } } }, adminToken, ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await PutAsync($"/api/auth/admin/applications/{id}/active", new { isActive = true }, adminToken, ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var token = await PostAsync("/api/auth/token",
+            new { grant_type = "client_credentials", client_id = clientId, client_secret = clientSecret }, null, ct);
+        token.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var accessToken = (await token.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("access_token").GetString()!;
+
+        return new TestProduct(id, key, clientId, clientSecret, accessToken);
+    }
+
+    /// <summary>Sends a PATCH with a raw JSON body, for tests that need to say exactly what is on the wire.</summary>
+    protected Task<HttpResponseMessage> PatchJsonAsync(string path, string rawJson, string? bearerToken, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Patch, path)
+        {
+            Content = new StringContent(rawJson, System.Text.Encoding.UTF8, "application/json"),
+        };
+        if (bearerToken is not null)
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+        }
+
+        return Client.SendAsync(request, ct);
+    }
+
     /// <summary>
     /// Marks an email as verified directly in the database. Email verification (TEN-11) is not built yet, and login
     /// refuses unverified users, so tests that need a working login use this after signing up.
