@@ -176,6 +176,7 @@ builder.Services.Configure<ApplicationCredentialOptions>(builder.Configuration.G
 builder.Services.AddScoped<ServiceTokenService>();
 builder.Services.AddScoped<SecretRotationService>();
 builder.Services.AddScoped<SubscribeTenantService>();
+builder.Services.AddScoped<SeatLimitService>();
 
 var app = builder.Build();
 

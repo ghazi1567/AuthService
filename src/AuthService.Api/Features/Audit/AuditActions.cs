@@ -38,6 +38,9 @@ public static class AuditActions
     /// <summary>A product subscribed a tenant to itself (SUB-01). The actor is the product, the tenant is the subscribed tenant, the detail is the product's key.</summary>
     public const string TenantSubscribed = "auth.subscription.subscribed";
 
-    public const string SigningKeyCreated ="auth.signing_key.created";
+    /// <summary>A product changed a tenant's seat limit (SUB-04). The actor is the product, the tenant is the one concerned, the detail is the product's key.</summary>
+    public const string SeatLimitChanged = "auth.subscription.seat_limit_changed";
+
+    public const string SigningKeyCreated = "auth.signing_key.created";
     public const string SigningKeyRotated = "auth.signing_key.rotated";
 }

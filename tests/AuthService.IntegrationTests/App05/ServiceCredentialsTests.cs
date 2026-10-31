@@ -88,9 +88,9 @@ public sealed class ServiceCredentialsTests(PostgresContainerFixture postgres) :
     }
 
     [Fact]
-    public async Task APP_TC13_AProductsServiceTokenOnlyReachesThatProductsOwnData()
+    public async Task APP05_AServiceTokenNeverAddressesAnotherProductsRecord()
     {
-        // The seat-limit endpoints this case names arrive with SUB-02. What holds now is the rule they will rely on: the
+        // The rule every product-side endpoint relies on (APP_TC13 itself is tested with the seat limit, SUB-04): the
         // product comes only from the verified token, so A's token can never address B.
         var ct = TestContext.Current.CancellationToken;
         var (_, adminToken) = await CreatePlatformAdminAsync(AdminEmail, ct);
