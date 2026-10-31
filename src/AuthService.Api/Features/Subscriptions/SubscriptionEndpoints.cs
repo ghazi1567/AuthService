@@ -9,6 +9,10 @@ public static class SubscriptionEndpoints
 
     public const string SeatsRoute = "/api/auth/tenants/{tenantId:guid}/subscriptions/{applicationId:guid}/seats";
 
+    public const string StatusRoute = "/api/auth/tenants/{tenantId:guid}/subscriptions/{applicationId:guid}";
+
+    public static string StatusRouteFor(Guid tenantId, Guid applicationId) => $"/api/auth/tenants/{tenantId}/subscriptions/{applicationId}";
+
     public static string RouteFor(Guid tenantId) => $"/api/auth/tenants/{tenantId}/subscriptions";
 
     public static string SeatsRouteFor(Guid tenantId, Guid applicationId) => $"/api/auth/tenants/{tenantId}/subscriptions/{applicationId}/seats";
@@ -18,7 +22,48 @@ public static class SubscriptionEndpoints
         // Called by the product itself (service token). The product is always the caller's own, from the verified token.
         app.MapPost(Route, SubscribeAsync).RequireAuthorization(IdentityAuthentication.ServicePolicyName);
         app.MapPatch(SeatsRoute, SetSeatLimitAsync).RequireAuthorization(IdentityAuthentication.ServicePolicyName);
+        app.MapPatch(StatusRoute, SetStatusAsync).RequireAuthorization(IdentityAuthentication.ServicePolicyName);
         return app;
+    }
+
+    /// <summary>
+    /// A product suspends or cancels a tenant's subscription (SUB-02). Like the seat limit, the application in the path must be
+    /// the caller's own, and anything else is reported as not found.
+    /// </summary>
+    private static async Task<IResult> SetStatusAsync(
+        Guid tenantId,
+        Guid applicationId,
+        SetSubscriptionStatusRequest? request,
+        System.Security.Claims.ClaimsPrincipal caller,
+        SubscriptionStatusService statuses,
+        CancellationToken cancellationToken)
+    {
+        if (!SubscriptionStatusValidator.TryRead(request, out var status))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(SetSubscriptionStatusRequest.Status)] = ["Status must be Suspended or Cancelled. To make a subscription Active again, subscribe the tenant again."],
+            });
+        }
+
+        var callerApplicationId = caller.GetApplicationId() ?? throw new InvalidOperationException("The service-token policy guarantees an application id.");
+        if (applicationId != callerApplicationId)
+        {
+            return SubscriptionNotFound();
+        }
+
+        var result = await statuses.SetAsync(applicationId, tenantId, status, cancellationToken);
+
+        return result switch
+        {
+            SetSubscriptionStatusResult.Updated updated => Results.Ok(updated.Subscription),
+            SetSubscriptionStatusResult.Unchanged unchanged => Results.Ok(unchanged.Subscription),
+
+            SetSubscriptionStatusResult.AlreadyCancelled => ApiProblem.Create(StatusCodes.Status409Conflict, "subscription_cancelled",
+                "Subscription cancelled", "A cancelled subscription cannot be suspended. Subscribe the tenant again to start a new one."),
+
+            _ => SubscriptionNotFound(),
+        };
     }
 
     /// <summary>

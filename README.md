@@ -259,6 +259,23 @@ tenants to itself. A tenant's own people cannot subscribe themselves (403).
   retries, and the product's callback URL, arrive with SUB-06; until then events wait in the outbox.
 - Subscribing is audit-logged with the product as the actor and the tenant it concerns.
 
+#### Suspending and cancelling
+
+A product stops a tenant's access with `PATCH /api/auth/tenants/{tenantId}/subscriptions/{applicationId}` and a body of
+`{"status": "Suspended"}` or `{"status": "Cancelled"}` (not case sensitive), called with its **service token**. Anything else is
+**400**, including `Active`: a tenant becomes Active again by being subscribed again (see above), not by this call.
+
+- **New access stops at the next token exchange** (TOK-01 returns 403 for a Suspended or Cancelled subscription). Tokens already
+  issued are **not** revoked; they run out within their short life and cannot be renewed. A product that must cut access sooner
+  checks the subscription itself. This is by design, not a bug.
+- **Everyone's seat is kept**, so subscribing the tenant again restores all of its people at once.
+- An `ApplicationUnsubscribed` event (with the new `status`) is queued for the product in the same transaction as the change.
+- Setting the status a subscription already has is a no-op: 200, no second event. Suspended can become Cancelled. **Cancelled
+  cannot become Suspended** (**409** `subscription_cancelled`); it ends there until the tenant is subscribed again.
+- Like the seat limit, the application must be the caller's own: another product's subscription, a tenant that never subscribed and
+  an unknown tenant all get the same **404** `subscription_not_found`. A tenant user, an admin or a product token gets 403.
+- Audit-logged (`auth.subscription.suspended` / `cancelled`) with the product as the actor and the tenant it concerns.
+
 #### Seat limits
 
 A product sets how many people may use it in a tenant, when the tenant's plan changes, with
