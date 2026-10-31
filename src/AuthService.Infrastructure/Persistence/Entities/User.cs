@@ -19,5 +19,14 @@ public sealed class User
     /// <summary>Null until the email address is verified (TEN-11). A new signup starts unverified.</summary>
     public DateTimeOffset? EmailVerifiedAt { get; set; }
 
+    /// <summary>
+    /// Wrong passwords entered since the last correct one (TEN-12). Reset to zero when the account is locked and on a
+    /// correct password.
+    /// </summary>
+    public int FailedLoginCount { get; set; }
+
+    /// <summary>Login is refused until this time. Null when the account is not locked.</summary>
+    public DateTimeOffset? LockedUntil { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }

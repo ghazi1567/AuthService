@@ -5,10 +5,11 @@ namespace AuthService.Api.Features.Login;
 public static class LoginEndpoints
 {
     public const string Route = "/api/auth/login";
+    public const string RateLimitPolicy = "login";
 
     public static IEndpointRouteBuilder MapLogin(this IEndpointRouteBuilder app)
     {
-        app.MapPost(Route, LoginAsync).AllowAnonymous();
+        app.MapPost(Route, LoginAsync).AllowAnonymous().RequireRateLimiting(RateLimitPolicy);
         return app;
     }
 

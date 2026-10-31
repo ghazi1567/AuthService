@@ -31,6 +31,10 @@ public sealed class AuthApiFactory(string connectionString, HarnessOptions optio
 
                 // No cooldown between verification emails by default, so tests can ask for a new link straight away.
                 ["Auth:EmailVerification:ResendCooldownSeconds"] = "0",
+
+                // A generous per-IP login limit by default (every in-process request shares one address), so only the
+                // tests about the limit ever hit it.
+                ["Auth:LoginProtection:IpLimit"] = "1000",
             };
 
             foreach (var (key, value) in options.Settings)
