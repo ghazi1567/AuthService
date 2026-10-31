@@ -161,7 +161,7 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
     protected SecurityKey ServiceSigningKey()
     {
         using var scope = Harness.CreateScope();
-        return scope.ServiceProvider.GetRequiredService<SigningKeyProvider>().Key;
+        return scope.ServiceProvider.GetRequiredService<SigningKeyService>().CurrentSigningKey;
     }
 
     /// <summary>

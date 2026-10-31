@@ -27,6 +27,8 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
 
+    public DbSet<SigningKey> SigningKeys => Set<SigningKey>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // citext backs case-insensitive columns such as User.Email (see TEN-01 / AUTH-8).

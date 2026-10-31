@@ -20,7 +20,7 @@ public static class IdentityAuthentication
 
         // Configured when first needed, so it uses the signing key and settings the running service really has.
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-            .Configure<SigningKeyProvider, IOptions<IdentityTokenOptions>>((bearer, signingKey, tokenOptions) =>
+            .Configure<SigningKeyService, IOptions<IdentityTokenOptions>>((bearer, signingKeys, tokenOptions) =>
             {
                 // Keep claim names as issued ("sub"), not renamed to long Microsoft claim types.
                 bearer.MapInboundClaims = false;
@@ -29,7 +29,10 @@ public static class IdentityAuthentication
                 {
                     RequireSignedTokens = true,
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = signingKey.Key,
+
+                    // The key is chosen by the token's kid among the keys currently published, so a token signed by the
+                    // previous key still validates during the rotation overlap and not after it.
+                    IssuerSigningKeyResolver = (_, _, kid, _) => signingKeys.GetValidationKeys(kid),
 
                     // Only the algorithm we sign with, so a token cannot pick a weaker one.
                     ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],

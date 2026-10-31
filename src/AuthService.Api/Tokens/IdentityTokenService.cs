@@ -13,7 +13,7 @@ public sealed record AccessToken(string Value, DateTimeOffset ExpiresAt);
 public sealed record IssuedRefreshToken(string Value, RefreshToken Entity);
 
 /// <summary>Creates the tokens a person receives at login.</summary>
-public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options, SigningKeyProvider signingKey)
+public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options, SigningKeyService signingKeys)
 {
     private static readonly JsonWebTokenHandler Handler = new();
 
@@ -37,7 +37,7 @@ public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options,
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,
             Expires = expiresAt.UtcDateTime,
-            SigningCredentials = new SigningCredentials(signingKey.Key, SecurityAlgorithms.EcdsaSha256),
+            SigningCredentials = new SigningCredentials(signingKeys.CurrentSigningKey, SecurityAlgorithms.EcdsaSha256),
         };
 
         return new AccessToken(Handler.CreateToken(descriptor), expiresAt);

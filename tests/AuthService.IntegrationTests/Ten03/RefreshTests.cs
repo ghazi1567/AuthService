@@ -45,7 +45,7 @@ public sealed class RefreshTests(PostgresContainerFixture postgres) : AuthApiTes
             {
                 ValidIssuer = "AuthService",
                 ValidateAudience = false,
-                IssuerSigningKey = scope.ServiceProvider.GetRequiredService<SigningKeyProvider>().Key,
+                IssuerSigningKey = scope.ServiceProvider.GetRequiredService<SigningKeyService>().CurrentSigningKey,
             });
         validation.IsValid.ShouldBeTrue(validation.Exception?.Message);
         new JsonWebToken(refreshed.AccessToken).Subject.ShouldBe(account.UserId.ToString());
