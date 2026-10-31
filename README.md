@@ -88,6 +88,9 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:EmailVerification:TokenHours` | How long a verification link works. Default 24. |
 | `Auth:EmailVerification:ResendCooldownSeconds` | An account sent a link less than this long ago is not sent another. Default 60. |
 | `Auth:EmailVerification:ResendIpLimit` / `ResendIpWindowMinutes` | How many resend requests one IP may make per window before getting 429. Default 10 per 10 minutes. |
+| `Auth:PasswordReset:TokenMinutes` | How long a password reset link works. Default 60. |
+| `Auth:PasswordReset:RequestCooldownSeconds` | An account sent a reset link less than this long ago is not sent another. Default 60. |
+| `Auth:PasswordReset:IpLimit` / `IpWindowMinutes` | How many forgot or reset requests one IP may make per window before getting 429. Default 10 per 10 minutes. |
 
 Generate a signing key with `openssl ecparam -name prime256v1 -genkey -noout`. In Development and Testing a throwaway key
 is created at startup, so tokens stop working when the process restarts. Key rotation and publishing public keys (JWKS)
@@ -129,6 +132,23 @@ issuer and the expiry (with 30 seconds of clock skew), and accepts only the algo
 - A correctly signed token that carries an audience (a product token, TOK-01) is refused with **403** on identity endpoints.
 - Who the caller is comes only from the token's `sub` claim, never from the path or query string, so a request cannot ask for
   someone else's data by passing an id.
+
+### Password reset
+
+Someone who forgot their password recovers it through an emailed single-use link:
+
+1. `POST /api/auth/password/forgot` with an email always answers 202 with the same body, whether or not the email is
+   registered, so it cannot be used to find out which addresses exist. If an account exists, a reset token (stored only as a
+   hash, valid 60 minutes, single use) is saved and the email is queued, in the same transaction.
+2. The link points at `Email:PublicBaseUrl` plus `/reset-password?token=...`. That page posts the token and a new password to
+   `POST /api/auth/password/reset`: 200 on success, 410 for an unknown, expired or used link, 400 for a password that breaks
+   the rules (8 to 128 characters), which does not use the link up.
+3. A successful reset sets the new password, clears any lockout and run of wrong passwords, **signs the person out
+   everywhere** (every refresh token is revoked), and retires their other outstanding reset links.
+
+Both endpoints are limited per IP address (429), and an account is not sent a new link more often than the cooldown allows,
+so a stranger cannot flood someone's inbox. A reset is logged by user id, never by email. The audit log (AUD-01) will record
+it too once it exists.
 
 ### Email verification
 

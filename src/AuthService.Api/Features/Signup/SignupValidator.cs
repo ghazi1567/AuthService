@@ -11,8 +11,6 @@ public static class SignupValidator
     public const int MaxTenantNameLength = 200;
     public const int MaxDisplayNameLength = 200;
     public const int MaxEmailLength = 254;
-    public const int MinPasswordLength = 8;
-    public const int MaxPasswordLength = 128;
 
     public static bool TryValidate(
         SignupRequest request,
@@ -42,16 +40,10 @@ public static class SignupValidator
             errors[nameof(SignupRequest.Email)] = ["Email is not a valid email address."];
         }
 
-        // No composition rules (NIST SP 800-63B): length is what matters. Not trimmed; spaces are valid password characters.
         var password = request.Password;
-        if (string.IsNullOrEmpty(password))
+        if (PasswordPolicy.Validate(password) is { } passwordError)
         {
-            errors[nameof(SignupRequest.Password)] = ["Password is required."];
-        }
-        else if (password.Length is < MinPasswordLength or > MaxPasswordLength)
-        {
-            errors[nameof(SignupRequest.Password)] =
-                [$"Password must be between {MinPasswordLength} and {MaxPasswordLength} characters."];
+            errors[nameof(SignupRequest.Password)] = [passwordError];
         }
 
         var displayName = string.IsNullOrWhiteSpace(request.DisplayName) ? null : request.DisplayName.Trim();

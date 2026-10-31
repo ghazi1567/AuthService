@@ -35,6 +35,10 @@ public sealed class AuthApiFactory(string connectionString, HarnessOptions optio
                 // A generous per-IP login limit by default (every in-process request shares one address), so only the
                 // tests about the limit ever hit it.
                 ["Auth:LoginProtection:IpLimit"] = "1000",
+
+                // Likewise for password reset: no cooldown between requests and a high per-IP limit by default.
+                ["Auth:PasswordReset:RequestCooldownSeconds"] = "0",
+                ["Auth:PasswordReset:IpLimit"] = "1000",
             };
 
             foreach (var (key, value) in options.Settings)

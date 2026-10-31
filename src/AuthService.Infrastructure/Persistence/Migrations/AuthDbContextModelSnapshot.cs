@@ -160,6 +160,47 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("membership_roles", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_password_reset_tokens");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_password_reset_tokens_token_hash");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_password_reset_tokens_user_id_created_at");
+
+                    b.ToTable("password_reset_tokens", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -388,6 +429,16 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_membership_roles_roles_tenant_id_role_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.PasswordResetToken", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_password_reset_tokens_users_user_id");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RefreshToken", b =>
