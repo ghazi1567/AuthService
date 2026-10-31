@@ -2,6 +2,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
+using AuthService.Api.Email;
+using AuthService.Api.Email.Providers;
+using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
@@ -47,8 +51,11 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
 
     protected TestDatabase Database => Harness.Database;
 
+    /// <summary>Override to start this test class's service with different configuration or services.</summary>
+    protected virtual HarnessOptions? Options => null;
+
     public async ValueTask InitializeAsync() =>
-        _harness = await AuthApiHarness.CreateAsync(Postgres, TestContext.Current.CancellationToken);
+        _harness = await AuthApiHarness.CreateAsync(Postgres, TestContext.Current.CancellationToken, Options);
 
     public async ValueTask DisposeAsync()
     {
@@ -61,6 +68,49 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
     /// <summary>Calls the real signup endpoint (TEN-01). Parameters are nullable so tests can send incomplete requests.</summary>
     protected Task<HttpResponseMessage> SignUpAsync(string? tenantName, string? email, string? password, CancellationToken ct) =>
         Client.PostAsJsonAsync(SignupEndpoints.Route, new { tenantName, email, password }, ct);
+
+    /// <summary>Every email the service has sent so far. Override when a test replaces the in-memory email provider.</summary>
+    protected virtual IReadOnlyList<EmailMessage> SentEmails
+    {
+        get
+        {
+            using var scope = Harness.CreateScope();
+            return scope.ServiceProvider.GetRequiredService<InMemoryEmailSender>().Sent;
+        }
+    }
+
+    /// <summary>
+    /// Waits for the <paramref name="nth"/> verification email sent to <paramref name="email"/> and returns the token in
+    /// its link, exactly as a person would copy it from the message.
+    /// </summary>
+    protected async Task<string> WaitForVerificationTokenAsync(string email, int nth = 1)
+    {
+        string? token = null;
+
+        await Eventually.UntilAsync(
+            () =>
+            {
+                var emails = SentEmails.Where(message => message.To == email && message.Subject == "Verify your email address").ToList();
+                if (emails.Count < nth)
+                {
+                    return false;
+                }
+
+                token = Uri.UnescapeDataString(Regex.Match(emails[nth - 1].TextBody, @"token=([^\s&]+)").Groups[1].Value);
+                return true;
+            },
+            $"verification email #{nth} to {email} was sent");
+
+        return token!;
+    }
+
+    /// <summary>Calls the real verify endpoint (TEN-11), as the page behind the emailed link does.</summary>
+    protected Task<HttpResponseMessage> VerifyEmailLinkAsync(string? token, CancellationToken ct) =>
+        Client.PostAsJsonAsync(EmailVerificationEndpoints.VerifyRoute, new { token }, ct);
+
+    /// <summary>Calls the real resend endpoint (TEN-11).</summary>
+    protected Task<HttpResponseMessage> ResendVerificationAsync(string? email, CancellationToken ct) =>
+        Client.PostAsJsonAsync(EmailVerificationEndpoints.ResendRoute, new { email }, ct);
 
     /// <summary>Calls the real login endpoint (TEN-02).</summary>
     protected Task<HttpResponseMessage> LoginAsync(string? email, string? password, CancellationToken ct) =>

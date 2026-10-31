@@ -81,6 +81,47 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("email_outbox", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.EmailVerificationToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_email_verification_tokens");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_email_verification_tokens_token_hash");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_email_verification_tokens_user_id_created_at");
+
+                    b.ToTable("email_verification_tokens", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipRole", b =>
                 {
                     b.Property<Guid>("Id")
@@ -310,6 +351,16 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ux_users_email");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.EmailVerificationToken", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_email_verification_tokens_users_user_id");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipRole", b =>
