@@ -10,6 +10,8 @@ public static class ApplicationAdminEndpoints
     public static RouteGroupBuilder MapApplicationsAdmin(this RouteGroupBuilder admin)
     {
         admin.MapPost("/applications", RegisterAsync);
+        admin.MapPost("/applications/{applicationId:guid}/permissions", RegisterPermissionsAsync);
+        admin.MapPut("/applications/{applicationId:guid}/active", SetActiveAsync);
         return admin;
     }
 
@@ -45,4 +47,66 @@ public static class ApplicationAdminEndpoints
                 "Application key already registered", "An application with this key is already registered."),
         };
     }
+
+    /// <summary>
+    /// A platform admin registers or updates a product's permission catalog (APP-02). Re-registering a key updates it in place,
+    /// so existing grants of it are untouched.
+    /// </summary>
+    private static async Task<IResult> RegisterPermissionsAsync(
+        Guid applicationId,
+        RegisterPermissionsRequest request,
+        ClaimsPrincipal caller,
+        PermissionCatalogService catalog,
+        CancellationToken cancellationToken)
+    {
+        if (!PermissionCatalogValidator.TryValidate(request, out var valid, out var errors))
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        var adminId = caller.GetUserId() ?? throw new InvalidOperationException("The platform-admin policy guarantees a user id.");
+        var result = await catalog.RegisterAsync(adminId, applicationId, valid, cancellationToken);
+
+        return result switch
+        {
+            // 201 when the request added permissions, 200 when it only updated or repeated ones already there.
+            RegisterPermissionsResult.Registered registered => Results.Json(registered.Response,
+                statusCode: registered.Response.Created > 0 ? StatusCodes.Status201Created : StatusCodes.Status200OK),
+
+            _ => ApplicationNotFound(),
+        };
+    }
+
+    /// <summary>A platform admin makes a product available to subscribe to, or withdraws it (APP-02).</summary>
+    private static async Task<IResult> SetActiveAsync(
+        Guid applicationId,
+        SetApplicationActiveRequest request,
+        ClaimsPrincipal caller,
+        PermissionCatalogService catalog,
+        CancellationToken cancellationToken)
+    {
+        if (request.IsActive is null)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(SetApplicationActiveRequest.IsActive)] = ["IsActive is required."],
+            });
+        }
+
+        var adminId = caller.GetUserId() ?? throw new InvalidOperationException("The platform-admin policy guarantees a user id.");
+        var result = await catalog.SetActiveAsync(adminId, applicationId, request.IsActive.Value, cancellationToken);
+
+        return result switch
+        {
+            SetApplicationActiveResult.Updated updated => Results.Ok(updated.Status),
+
+            SetApplicationActiveResult.NoPermissions => ApiProblem.Create(StatusCodes.Status409Conflict, "no_permissions_registered",
+                "No permissions registered", "Register at least one permission for this application before activating it."),
+
+            _ => ApplicationNotFound(),
+        };
+    }
+
+    private static IResult ApplicationNotFound() =>
+        ApiProblem.Create(StatusCodes.Status404NotFound, "application_not_found", "Application not found", "No application has this id.");
 }

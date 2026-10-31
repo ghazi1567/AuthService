@@ -157,6 +157,18 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
         return Client.SendAsync(request, ct);
     }
 
+    /// <summary>Calls an endpoint with PUT and a JSON body, sending <paramref name="bearerToken"/> as the access token when there is one.</summary>
+    protected Task<HttpResponseMessage> PutAsync(string path, object body, string? bearerToken, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, path) { Content = JsonContent.Create(body) };
+        if (bearerToken is not null)
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+        }
+
+        return Client.SendAsync(request, ct);
+    }
+
     /// <summary>The key this running service signs its tokens with, so a test can make a token the service will accept.</summary>
     protected SecurityKey ServiceSigningKey()
     {
