@@ -43,22 +43,15 @@ public static class LoginEndpoints
         {
             LoginResult.Succeeded succeeded => Results.Ok(succeeded.Response),
 
-            LoginResult.AccountDisabled => Problem(StatusCodes.Status403Forbidden, "account_disabled", "Account disabled",
-                "This account has been disabled."),
+            LoginResult.AccountDisabled => ApiProblem.Create(StatusCodes.Status403Forbidden, "account_disabled",
+                "Account disabled", "This account has been disabled."),
 
-            LoginResult.EmailNotVerified => Problem(StatusCodes.Status403Forbidden, "email_not_verified", "Email not verified",
-                "Verify your email address before logging in."),
+            LoginResult.EmailNotVerified => ApiProblem.Create(StatusCodes.Status403Forbidden, "email_not_verified",
+                "Email not verified", "Verify your email address before logging in."),
 
             // One response for every kind of bad credentials, so it never reveals whether an email exists.
-            _ => Problem(StatusCodes.Status401Unauthorized, "invalid_credentials", "Invalid credentials",
-                "The email or password is incorrect."),
+            _ => ApiProblem.Create(StatusCodes.Status401Unauthorized, "invalid_credentials",
+                "Invalid credentials", "The email or password is incorrect."),
         };
     }
-
-    private static IResult Problem(int statusCode, string code, string title, string detail) =>
-        Results.Problem(
-            statusCode: statusCode,
-            title: title,
-            detail: detail,
-            extensions: new Dictionary<string, object?> { ["code"] = code });
 }
