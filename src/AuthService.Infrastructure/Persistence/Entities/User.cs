@@ -28,5 +28,12 @@ public sealed class User
     /// <summary>Login is refused until this time. Null when the account is not locked.</summary>
     public DateTimeOffset? LockedUntil { get; set; }
 
+    /// <summary>
+    /// Whether this person operates the platform (APP-04): registers products, rotates signing keys, reads the whole audit log.
+    /// False for everyone by default and settable only directly in the database: no endpoint and no request field can change it.
+    /// It grants no access to any tenant's data.
+    /// </summary>
+    public bool IsPlatformAdmin { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }

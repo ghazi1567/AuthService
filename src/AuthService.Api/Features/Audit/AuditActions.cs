@@ -19,6 +19,9 @@ public static class AuditActions
     /// <summary>A refresh token that had already been used was presented again, so its whole session family was revoked.</summary>
     public const string RefreshTokenReuseDetected = "auth.refresh_token.reuse_detected";
 
+    /// <summary>A platform admin read the audit log. Reading the log is itself an admin action worth tracing.</summary>
+    public const string AdminAuditRead = "auth.admin.audit_read";
+
     public const string SigningKeyCreated = "auth.signing_key.created";
     public const string SigningKeyRotated = "auth.signing_key.rotated";
 }

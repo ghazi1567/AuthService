@@ -23,6 +23,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.EmailVerifiedAt);
         builder.Property(user => user.FailedLoginCount).IsRequired();
         builder.Property(user => user.LockedUntil);
+        builder.Property(user => user.IsPlatformAdmin).IsRequired().HasDefaultValue(false);
         builder.Property(user => user.CreatedAt).IsRequired();
     }
 }

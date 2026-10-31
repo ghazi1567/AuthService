@@ -72,7 +72,7 @@ public sealed class SigningKeyRotation(AuthDbContext db, KeyEncryption encryptio
     /// stops signing and leaves the JWKS at once. Tokens signed by them stop validating immediately, which is the point
     /// when a key may be compromised.
     /// </summary>
-    public async Task RotateNowAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    public async Task RotateNowAsync(DateTimeOffset now, AuditActor actor, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await TakeLockAsync(cancellationToken);
@@ -92,8 +92,7 @@ public sealed class SigningKeyRotation(AuthDbContext db, KeyEncryption encryptio
 
         db.SigningKeys.Add(NewKey(now, publishFrom: now, signFrom: now));
 
-        // Until the platform-admin endpoint exists (APP-04) nobody can trigger this over HTTP, so the actor is the system.
-        audit.Record(AuditActions.SigningKeyRotated, AuditActor.System, detail: "emergency");
+        audit.Record(AuditActions.SigningKeyRotated, actor, detail: "emergency");
 
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
