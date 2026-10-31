@@ -1,3 +1,4 @@
+using AuthService.Api.Features.Accounts;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -53,8 +54,7 @@ public sealed class LoginService(
                 select new MembershipSummary(tenant.Id, tenant.Name, membership.Status))
             .ToListAsync(cancellationToken);
 
-        // "Disabled" is a property of memberships (TEN-07). A person with no usable membership left cannot log in.
-        if (memberships.Count > 0 && memberships.All(membership => membership.Status == MembershipStatus.Disabled))
+        if (AccountAccess.IsDisabled(memberships.ConvertAll(membership => membership.Status)))
         {
             return new LoginResult.AccountDisabled();
         }

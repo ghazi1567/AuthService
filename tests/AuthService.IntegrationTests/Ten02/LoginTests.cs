@@ -21,12 +21,7 @@ namespace AuthService.IntegrationTests.Ten02;
 /// </summary>
 public sealed class LoginTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
 {
-    private const string Password = "correct horse battery";
-
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerOptions.Web)
-    {
-        Converters = { new JsonStringEnumConverter() },
-    };
+    private const string Password = DefaultPassword;
 
     [Fact]
     public async Task AUTH_TC5_LoginWithCorrectCredentialsReturnsTokensAndMemberships()
@@ -229,57 +224,4 @@ public sealed class LoginTests(PostgresContainerFixture postgres) : AuthApiTestB
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
-    private Task<HttpResponseMessage> LoginAsync(string? email, string? password, CancellationToken ct) =>
-        Client.PostAsJsonAsync(LoginEndpoints.Route, new { email, password }, ct);
-
-    private async Task<SignupResponse> SignUpVerifiedAsync(string tenantName, string email, CancellationToken ct)
-    {
-        var response = await SignUpAsync(tenantName, email, Password, ct);
-        response.StatusCode.ShouldBe(HttpStatusCode.Created);
-        var account = (await response.Content.ReadFromJsonAsync<SignupResponse>(Json, ct))!;
-
-        await VerifyEmailAsync(email, ct);
-        return account;
-    }
-
-    private async Task SetMembershipStatusesAsync(string email, MembershipStatus status, CancellationToken ct) =>
-        await WithDbAsync(db => db.TenantMemberships
-            .Where(membership => db.Users.Any(user => user.Email == email && user.Id == membership.UserId))
-            .ExecuteUpdateAsync(setters => setters.SetProperty(membership => membership.Status, status), ct));
-
-    private async Task AddMembershipAsync(Guid userId, Guid tenantId, MembershipStatus status, CancellationToken ct) =>
-        await WithDbAsync(
-            async db =>
-            {
-                db.TenantMemberships.Add(new TenantMembership
-                {
-                    Id = Guid.CreateVersion7(),
-                    TenantId = tenantId,
-                    UserId = userId,
-                    Status = status,
-                    CreatedAt = DateTimeOffset.UtcNow,
-                });
-                await db.SaveChangesAsync(ct);
-            });
-
-    private async Task WithDbAsync(Func<AuthDbContext, Task> action)
-    {
-        await using var scope = Harness.CreateScope();
-        await action(scope.ServiceProvider.GetRequiredService<AuthDbContext>());
-    }
-
-    private static async Task<ProblemSummary> ReadProblemAsync(HttpResponseMessage response, CancellationToken ct)
-    {
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        var root = document.RootElement;
-
-        return new ProblemSummary(
-            root.GetProperty("status").GetInt32(),
-            root.GetProperty("title").GetString(),
-            root.GetProperty("detail").GetString(),
-            root.GetProperty("code").GetString());
-    }
-
-    /// <summary>The parts of an error response that must not differ between "wrong password" and "no such user".</summary>
-    private sealed record ProblemSummary(int Status, string? Title, string? Detail, string? Code);
 }

@@ -45,7 +45,11 @@ public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options,
     }
 
     /// <summary>Starts a new refresh-token family, as happens at login.</summary>
-    public IssuedRefreshToken CreateRefreshToken(Guid userId, DateTimeOffset now)
+    public IssuedRefreshToken CreateRefreshToken(Guid userId, DateTimeOffset now) =>
+        CreateRefreshToken(userId, Guid.CreateVersion7(), now);
+
+    /// <summary>Issues the next token in an existing family, as happens when a refresh token is rotated.</summary>
+    public IssuedRefreshToken CreateRefreshToken(Guid userId, Guid familyId, DateTimeOffset now)
     {
         var value = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
 
@@ -53,7 +57,7 @@ public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options,
         {
             Id = Guid.CreateVersion7(),
             UserId = userId,
-            FamilyId = Guid.CreateVersion7(),
+            FamilyId = familyId,
             TokenHash = Hash(value),
             CreatedAt = now,
             ExpiresAt = now.AddDays(options.Value.RefreshTokenDays),

@@ -1,6 +1,11 @@
+using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Signup;
 using AuthService.Infrastructure.Persistence;
+using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -21,6 +26,15 @@ namespace AuthService.IntegrationTests.Infrastructure;
 /// </example>
 public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyncLifetime
 {
+    /// <summary>The password every helper-created account uses.</summary>
+    protected const string DefaultPassword = "correct horse battery";
+
+    /// <summary>Reads API responses: web defaults, with enums written by name like the API does.</summary>
+    protected static readonly JsonSerializerOptions Json = new(JsonSerializerOptions.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     private AuthApiHarness? _harness;
 
     protected PostgresContainerFixture Postgres { get; } = postgres;
@@ -46,6 +60,64 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
     /// <summary>Calls the real signup endpoint (TEN-01). Parameters are nullable so tests can send incomplete requests.</summary>
     protected Task<HttpResponseMessage> SignUpAsync(string? tenantName, string? email, string? password, CancellationToken ct) =>
         Client.PostAsJsonAsync(SignupEndpoints.Route, new { tenantName, email, password }, ct);
+
+    /// <summary>Calls the real login endpoint (TEN-02).</summary>
+    protected Task<HttpResponseMessage> LoginAsync(string? email, string? password, CancellationToken ct) =>
+        Client.PostAsJsonAsync(LoginEndpoints.Route, new { email, password }, ct);
+
+    /// <summary>Signs up through the real endpoint, then marks the email verified so the account can log in.</summary>
+    protected async Task<SignupResponse> SignUpVerifiedAsync(string tenantName, string email, CancellationToken ct)
+    {
+        var response = await SignUpAsync(tenantName, email, DefaultPassword, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var account = (await response.Content.ReadFromJsonAsync<SignupResponse>(Json, ct))!;
+
+        await VerifyEmailAsync(email, ct);
+        return account;
+    }
+
+    /// <summary>Runs <paramref name="action"/> against the running service's own database context, in a fresh scope.</summary>
+    protected async Task WithDbAsync(Func<AuthDbContext, Task> action)
+    {
+        await using var scope = Harness.CreateScope();
+        await action(scope.ServiceProvider.GetRequiredService<AuthDbContext>());
+    }
+
+    /// <summary>Sets the status of every membership belonging to the person with this email.</summary>
+    protected Task SetMembershipStatusesAsync(string email, MembershipStatus status, CancellationToken ct) =>
+        WithDbAsync(db => db.TenantMemberships
+            .Where(membership => db.Users.Any(user => user.Email == email && user.Id == membership.UserId))
+            .ExecuteUpdateAsync(setters => setters.SetProperty(membership => membership.Status, status), ct));
+
+    /// <summary>Adds a membership directly in the database (TEN-09, which creates them through the API, is not built yet).</summary>
+    protected Task AddMembershipAsync(Guid userId, Guid tenantId, MembershipStatus status, CancellationToken ct) =>
+        WithDbAsync(async db =>
+        {
+            db.TenantMemberships.Add(new TenantMembership
+            {
+                Id = Guid.CreateVersion7(),
+                TenantId = tenantId,
+                UserId = userId,
+                Status = status,
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        });
+
+    /// <summary>Reads an error response, keeping the parts that must not differ between failures that look alike to a caller.</summary>
+    protected static async Task<ProblemSummary> ReadProblemAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        var root = document.RootElement;
+
+        return new ProblemSummary(
+            root.GetProperty("status").GetInt32(),
+            root.GetProperty("title").GetString(),
+            root.GetProperty("detail").GetString(),
+            root.GetProperty("code").GetString());
+    }
+
+    protected sealed record ProblemSummary(int Status, string? Title, string? Detail, string? Code);
 
     /// <summary>
     /// Marks an email as verified directly in the database. Email verification (TEN-11) is not built yet, and login
