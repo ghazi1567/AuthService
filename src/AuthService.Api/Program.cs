@@ -8,6 +8,7 @@ using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Logout;
+using AuthService.Api.Features.PasswordReset;
 using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
 using AuthService.Api.Features.Tenants;
@@ -60,6 +61,10 @@ builder.Services.AddHostedService<EmailDispatcher>();
 // Login protection (TEN-12).
 builder.Services.Configure<LoginProtectionOptions>(builder.Configuration.GetSection(LoginProtectionOptions.SectionName));
 
+// Password reset (TEN-10).
+builder.Services.Configure<PasswordResetOptions>(builder.Configuration.GetSection(PasswordResetOptions.SectionName));
+builder.Services.AddScoped<PasswordResetService>();
+
 // Email verification (TEN-11).
 builder.Services.Configure<EmailVerificationOptions>(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
 builder.Services.AddScoped<EmailVerificationService>();
@@ -85,6 +90,21 @@ builder.Services.AddRateLimiter(limiter =>
     limiter.AddPolicy(LoginEndpoints.RateLimitPolicy, httpContext =>
     {
         var settings = httpContext.RequestServices.GetRequiredService<IOptions<LoginProtectionOptions>>().Value;
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = settings.IpLimit,
+                Window = TimeSpan.FromMinutes(settings.IpWindowMinutes),
+                QueueLimit = 0,
+            });
+    });
+
+    // Asking for and using password reset links is limited per IP address.
+    limiter.AddPolicy(PasswordResetEndpoints.RateLimitPolicy, httpContext =>
+    {
+        var settings = httpContext.RequestServices.GetRequiredService<IOptions<PasswordResetOptions>>().Value;
 
         return RateLimitPartition.GetFixedWindowLimiter(
             httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -140,6 +160,7 @@ app.MapRefresh();
 app.MapLogout();
 app.MapCurrentUser();
 app.MapCreateTenant();
+app.MapPasswordReset();
 
 app.Run();
 

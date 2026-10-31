@@ -17,4 +17,16 @@ public static class RefreshTokenExtensions
         db.RefreshTokens
             .Where(token => token.FamilyId == familyId && token.RevokedAt == null)
             .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, now), cancellationToken);
+
+    /// <summary>
+    /// Ends every login session of one person on every device, for example after a password reset. Safe to repeat.
+    /// </summary>
+    public static Task<int> RevokeAllRefreshTokensAsync(
+        this AuthDbContext db,
+        Guid userId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken) =>
+        db.RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, now), cancellationToken);
 }

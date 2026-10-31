@@ -8,6 +8,7 @@ using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Login;
+using AuthService.Api.Features.PasswordReset;
 using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
 using AuthService.Api.Tokens;
@@ -87,14 +88,14 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
     /// Waits for the <paramref name="nth"/> verification email sent to <paramref name="email"/> and returns the token in
     /// its link, exactly as a person would copy it from the message.
     /// </summary>
-    protected async Task<string> WaitForVerificationTokenAsync(string email, int nth = 1)
+    protected async Task<string> WaitForEmailTokenAsync(string email, string subject, int nth = 1)
     {
         string? token = null;
 
         await Eventually.UntilAsync(
             () =>
             {
-                var emails = SentEmails.Where(message => message.To == email && message.Subject == "Verify your email address").ToList();
+                var emails = SentEmails.Where(message => message.To == email && message.Subject == subject).ToList();
                 if (emails.Count < nth)
                 {
                     return false;
@@ -103,10 +104,26 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
                 token = Uri.UnescapeDataString(Regex.Match(emails[nth - 1].TextBody, @"token=([^\s&]+)").Groups[1].Value);
                 return true;
             },
-            $"verification email #{nth} to {email} was sent");
+            $"email '{subject}' #{nth} to {email} was sent");
 
         return token!;
     }
+
+    /// <summary>The token in the <paramref name="nth"/> verification email sent to <paramref name="email"/> (TEN-11).</summary>
+    protected Task<string> WaitForVerificationTokenAsync(string email, int nth = 1) =>
+        WaitForEmailTokenAsync(email, "Verify your email address", nth);
+
+    /// <summary>The token in the <paramref name="nth"/> password-reset email sent to <paramref name="email"/> (TEN-10).</summary>
+    protected Task<string> WaitForResetTokenAsync(string email, int nth = 1) =>
+        WaitForEmailTokenAsync(email, "Reset your password", nth);
+
+    /// <summary>Calls the real "forgot password" endpoint (TEN-10).</summary>
+    protected Task<HttpResponseMessage> ForgotPasswordAsync(string? email, CancellationToken ct) =>
+        Client.PostAsJsonAsync(PasswordResetEndpoints.ForgotRoute, new { email }, ct);
+
+    /// <summary>Calls the real password-reset endpoint (TEN-10), as the page behind the emailed link does.</summary>
+    protected Task<HttpResponseMessage> ResetPasswordAsync(string? token, string? newPassword, CancellationToken ct) =>
+        Client.PostAsJsonAsync(PasswordResetEndpoints.ResetRoute, new { token, newPassword }, ct);
 
     /// <summary>Calls the real verify endpoint (TEN-11), as the page behind the emailed link does.</summary>
     protected Task<HttpResponseMessage> VerifyEmailLinkAsync(string? token, CancellationToken ct) =>
