@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text;
 using AuthService.Api.Features.Admin;
+using AuthService.Api.Features.Applications;
 using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.Tenants;
 using AuthService.Api.Tokens;
@@ -24,8 +25,17 @@ public sealed class PlatformAdminTests(PostgresContainerFixture postgres) : Auth
     private const string AdminEmail = "ops@platform.test";
     private const string UserEmail = "owner@acme.com";
 
-    [Fact(Skip = "Enabled once APP-01 (register an application) exists.")]
-    public Task APP_TC9_APlatformAdminRegistersAnApplication() => Task.CompletedTask;
+    [Fact]
+    public async Task APP_TC9_APlatformAdminRegistersAnApplication()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (_, token) = await CreatePlatformAdminAsync(AdminEmail, ct);
+
+        var response = await PostAsync(ApplicationAdminEndpoints.Route,
+            new { key = "whatsapp-saas", name = "WhatsApp SaaS", jwtAudience = "whatsapp-saas-api" }, token, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.Created);
+    }
 
     [Fact]
     public async Task APP_TC10_TheFlagCannotBeSetThroughAnyApi()

@@ -195,6 +195,8 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
 | `POST /api/auth/admin/signing-keys/rotate` | Emergency rotation: a new key signs now and the old one leaves the JWKS at once, so tokens it signed stop validating (including the caller's own). |
 | `GET /api/auth/admin/audit` | The whole audit log, newest first, across all tenants. Filters: `action`, `tenantId`, `actorId`. Paging: `limit` (1 to 200, default 50), then pass the returned `next` values back as `before` and `beforeId`. Reading it is itself audited. |
 | `POST /api/auth/admin/applications` | Register a product (see "Applications" below). |
+| `POST /api/auth/admin/applications/{id}/permissions` | Register or update a product's permission catalog. |
+| `PUT /api/auth/admin/applications/{id}/active` | Make a product available to subscribe to (`{"isActive": true}`), or withdraw it. |
 
 ### Applications (products)
 
@@ -212,6 +214,27 @@ A **product** (for example WhatsApp SaaS) is registered by a platform admin with
   it is never logged or audited, and the response is sent with `Cache-Control: no-store`. A lost secret is replaced by rotation, not
   recovered. The endpoint that uses the credentials to get a service token, and secret rotation, are APP-05.
 - Registration is audit-logged under the admin, with the product's key as the detail.
+
+#### Permission catalog
+
+A product owns a **catalog** of the actions it can control, such as `campaign.create`. A platform admin registers it with
+`POST /api/auth/admin/applications/{id}/permissions` and a body of `{"permissions": [{"key", "label", "description"}]}` (1 to 200
+entries per request).
+
+- A **key** is 1 to 100 lowercase letters, digits and `. _ -`, trimmed and lowercased. It is unique **within its product**, not
+  across the platform, so two products can both have `report.export`. A key repeated inside one request, or any invalid entry,
+  rejects the whole request with **400** and registers nothing.
+- The call is an upsert. A new key creates a permission (**201** when the request added any). An existing key is **updated in
+  place**, keeping its id, which is what roles will refer to, so grants of it survive a relabel (**200** when nothing new was added).
+  An unchanged entry is left untouched.
+- Registering **never removes** a permission. A key a product stops using stays in the catalog, because a role may still grant it.
+  The response lists the whole catalog after the change, with how many entries were created, updated and unchanged.
+- An unknown product id gets **404** `application_not_found`. Registrations of one product are serialised with a row lock, so two
+  simultaneous ones cannot insert the same key twice.
+- `PUT /api/auth/admin/applications/{id}/active` with `{"isActive": true}` activates the product, but only once it has at least one
+  permission (otherwise **409** `no_permissions_registered`). `false` withdraws it. Repeating either is harmless, and only real
+  changes are audited.
+- Registering permissions, activating and deactivating are each audit-logged under the admin, with the product's key as the detail.
 
 ### Calling protected endpoints
 

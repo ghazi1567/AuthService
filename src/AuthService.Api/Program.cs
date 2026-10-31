@@ -155,6 +155,7 @@ builder.Services.AddScoped<LogoutService>();
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<CreateTenantService>();
 builder.Services.AddScoped<RegisterApplicationService>();
+builder.Services.AddScoped<PermissionCatalogService>();
 
 var app = builder.Build();
 
