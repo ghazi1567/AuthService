@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using AuthService.Api.Email;
+using AuthService.Api.Email.Providers;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Logout;
 using AuthService.Api.Features.Refresh;
@@ -31,6 +33,19 @@ builder.Services.Configure<IdentityTokenOptions>(builder.Configuration.GetSectio
 builder.Services.AddSingleton<SigningKeyProvider>();
 builder.Services.AddSingleton<IdentityTokenService>();
 
+// Email (NTF-01): queued in the database, sent by a background worker through whichever provider is configured.
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.AddHttpClient(BrevoEmailSender.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri("https://api.brevo.com/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddSingleton<InMemoryEmailSender>();
+builder.Services.AddSingleton<IEmailSender>(EmailSenderFactory.Create);
+builder.Services.AddScoped<EmailOutbox>();
+builder.Services.AddScoped<EmailDeliveryService>();
+builder.Services.AddHostedService<EmailDispatcher>();
+
 builder.Services.AddScoped<SignupService>();
 builder.Services.AddScoped<LoginService>();
 builder.Services.AddScoped<RefreshService>();
@@ -40,6 +55,9 @@ var app = builder.Build();
 
 // Create the signing key now so a missing key stops the deployment instead of failing the first login.
 app.Services.GetRequiredService<SigningKeyProvider>();
+
+// Likewise, an unsupported or incomplete email provider setting stops the deployment instead of failing the first email.
+app.Services.GetRequiredService<IEmailSender>();
 
 app.UseExceptionHandler();
 
