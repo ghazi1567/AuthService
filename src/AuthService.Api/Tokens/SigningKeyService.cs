@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using AuthService.Api.Features.Audit;
 using AuthService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -88,7 +89,7 @@ public sealed class SigningKeyService(
     }
 
     /// <summary>Emergency rotation (see <see cref="SigningKeyRotation.RotateNowAsync"/>), then reloads at once.</summary>
-    public async Task RotateNowAsync(CancellationToken cancellationToken)
+    public async Task RotateNowAsync(AuditActor actor, CancellationToken cancellationToken)
     {
         await _refreshLock.WaitAsync(cancellationToken);
         try
@@ -96,7 +97,7 @@ public sealed class SigningKeyService(
             await using var scope = scopeFactory.CreateAsyncScope();
             var now = timeProvider.GetUtcNow();
 
-            await scope.ServiceProvider.GetRequiredService<SigningKeyRotation>().RotateNowAsync(now, cancellationToken);
+            await scope.ServiceProvider.GetRequiredService<SigningKeyRotation>().RotateNowAsync(now, actor, cancellationToken);
             await LoadAsync(scope.ServiceProvider.GetRequiredService<AuthDbContext>(), now, cancellationToken);
         }
         finally

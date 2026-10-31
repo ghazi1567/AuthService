@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.Jwks;
 using AuthService.Api.Tokens;
 using AuthService.IntegrationTests.Infrastructure;
@@ -239,7 +240,7 @@ public sealed class KeyRotationTests(PostgresContainerFixture postgres) : AuthAp
     private async Task RotateNowAsync(CancellationToken ct)
     {
         await using var scope = Harness.CreateScope();
-        await scope.ServiceProvider.GetRequiredService<SigningKeyService>().RotateNowAsync(ct);
+        await scope.ServiceProvider.GetRequiredService<SigningKeyService>().RotateNowAsync(AuditActor.System, ct);
     }
 
     private async Task<int> KeyCountAsync()

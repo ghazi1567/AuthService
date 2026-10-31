@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using AuthService.Api.Common;
 using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
+using AuthService.Api.Features.Admin;
 using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
@@ -177,6 +178,11 @@ app.MapCurrentUser();
 app.MapCreateTenant();
 app.MapPasswordReset();
 app.MapJwks();
+
+// Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
+var admin = app.MapAdminGroup();
+admin.MapSigningKeyAdmin();
+admin.MapAuditAdmin();
 
 app.Run();
 

@@ -116,7 +116,7 @@ token already issued suddenly stops validating:
 
 If rotation is overdue (the service was down), the next key still waits the full 24 hours before signing. An **emergency
 rotation** replaces the key immediately and removes the old one from the JWKS at once, invalidating the tokens it signed. It
-exists as a service method; the endpoint that triggers it needs the platform-admin story (APP-04) and arrives with it.
+is triggered by a platform admin with `POST /api/auth/admin/signing-keys/rotate` (see "Platform admins" below).
 
 Changing `KeyEncryptionKey` makes the stored keys unreadable. Re-encrypting them under a new secret is not built yet.
 
@@ -170,8 +170,30 @@ invitations, API keys, subscriptions, seat limits, platform-admin actions) are r
 - **The IP is the caller's as the service sees it**: behind a reverse proxy, the proxy's address, until forwarded headers are
   configured for the deployment.
 
-Not built yet: the two endpoints that read the log. The tenant one (`GET /api/auth/tenants/me/audit`) needs tenant-scoped tokens
-(TOK-01) and role permissions; the platform-admin one (`GET /api/auth/admin/audit`) needs the platform-admin flag (APP-04).
+A platform admin reads the whole log with `GET /api/auth/admin/audit` (see "Platform admins" below). Not built yet: the tenant-scoped
+read (`GET /api/auth/tenants/me/audit`), which needs tenant-scoped tokens (TOK-01) and role permissions.
+
+### Platform admins
+
+A few operations belong to whoever runs the platform, not to any tenant: rotating the signing keys, reading the whole audit log,
+and (coming next) registering products. They live under **`/api/auth/admin/*`** and need a **platform admin**: a user with the
+`is_platform_admin` flag set.
+
+- **The flag can only be set in the database.** No endpoint and no request field can change it, and no request or response type
+  has a field for it. Everyone starts as `false`. To make someone an admin, run SQL against the database, for example
+  `UPDATE users SET is_platform_admin = true WHERE email = 'ops@example.com';`.
+- **It is checked on every request, not stored in the token.** Granting or revoking it takes effect immediately, even for a token
+  already issued, and no token can carry the privilege.
+- **It opens the admin area and nothing else.** An admin is an ordinary user everywhere else, and gets no access to any tenant's data.
+- **The policy is applied to the whole `/api/auth/admin` group**, so an endpoint added there cannot be left open by accident. A test
+  checks that every endpoint under that path requires it.
+- No token gets 401. A token that is not an identity token (it carries an audience) or whose user is not an admin gets 403.
+- Every admin action is audit-logged under the admin's own identity.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/auth/admin/signing-keys/rotate` | Emergency rotation: a new key signs now and the old one leaves the JWKS at once, so tokens it signed stop validating (including the caller's own). |
+| `GET /api/auth/admin/audit` | The whole audit log, newest first, across all tenants. Filters: `action`, `tenantId`, `actorId`. Paging: `limit` (1 to 200, default 50), then pass the returned `next` values back as `before` and `beforeId`. Reading it is itself audited. |
 
 ### Calling protected endpoints
 

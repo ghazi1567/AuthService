@@ -1,5 +1,6 @@
 using AuthService.Api.Common;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -13,6 +14,9 @@ namespace AuthService.Api.Tokens;
 public static class IdentityAuthentication
 {
     public const string PolicyName = "IdentityToken";
+
+    /// <summary>An identity token whose user is a platform admin. Applied to every endpoint under <c>/api/auth/admin</c>.</summary>
+    public const string PlatformAdminPolicyName = "PlatformAdmin";
 
     public static IServiceCollection AddIdentityTokenAuthentication(this IServiceCollection services)
     {
@@ -65,13 +69,19 @@ public static class IdentityAuthentication
                 };
             });
 
-        services.AddAuthorizationBuilder().AddPolicy(PolicyName, policy => policy
-            .RequireAuthenticatedUser()
-            .RequireClaim("sub")
+        services.AddAuthorizationBuilder()
+            .AddPolicy(PolicyName, policy => IdentityToken(policy))
+            .AddPolicy(PlatformAdminPolicyName, policy => IdentityToken(policy).AddRequirements(new PlatformAdminRequirement()));
 
-            // A token with an audience belongs to one product (TOK-01) and must not work on identity endpoints.
-            .RequireAssertion(context => !context.User.HasClaim(claim => claim.Type == "aud")));
+        services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
 
         return services;
     }
+
+    private static AuthorizationPolicyBuilder IdentityToken(AuthorizationPolicyBuilder policy) => policy
+        .RequireAuthenticatedUser()
+        .RequireClaim("sub")
+
+        // A token with an audience belongs to one product (TOK-01) and must not work on identity endpoints.
+        .RequireAssertion(context => !context.User.HasClaim(claim => claim.Type == "aud"));
 }

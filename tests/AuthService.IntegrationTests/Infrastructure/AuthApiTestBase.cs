@@ -194,6 +194,27 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
         return new JsonWebTokenHandler().CreateToken(descriptor);
     }
 
+    /// <summary>
+    /// Sets or clears the platform-admin flag directly in the database, which is the only way it can ever be changed: no
+    /// endpoint does it.
+    /// </summary>
+    protected Task SetPlatformAdminAsync(string email, bool isPlatformAdmin, CancellationToken ct) =>
+        WithDbAsync(async db =>
+        {
+            var changed = await db.Users
+                .Where(user => user.Email == email)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(user => user.IsPlatformAdmin, isPlatformAdmin), ct);
+            changed.ShouldBe(1, $"no user with email '{email}'");
+        });
+
+    /// <summary>Signs up a verified user, makes them a platform admin in the database, and returns their access token.</summary>
+    protected async Task<(SignupResponse Account, string AccessToken)> CreatePlatformAdminAsync(string email, CancellationToken ct)
+    {
+        var account = await SignUpVerifiedAsync("Platform Ops", email, ct);
+        await SetPlatformAdminAsync(email, true, ct);
+        return (account, (await LoginForTokensAsync(email, ct)).AccessToken);
+    }
+
     /// <summary>Calls the real login endpoint (TEN-02).</summary>
     protected Task<HttpResponseMessage> LoginAsync(string? email, string? password, CancellationToken ct) =>
         Client.PostAsJsonAsync(LoginEndpoints.Route, new { email, password }, ct);
