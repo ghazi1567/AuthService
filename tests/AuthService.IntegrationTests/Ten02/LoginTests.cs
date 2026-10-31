@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AuthService.Api.Features.Accounts;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Signup;
 using AuthService.Api.Tokens;

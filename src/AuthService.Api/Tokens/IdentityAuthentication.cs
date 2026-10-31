@@ -1,0 +1,74 @@
+using AuthService.Api.Common;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
+
+namespace AuthService.Api.Tokens;
+
+/// <summary>
+/// Bearer authentication for the identity tokens issued at login and refresh. An identity token names the user only: it has
+/// no tenant, no permissions and no audience. Endpoints that take it use <see cref="PolicyName"/>.
+/// </summary>
+public static class IdentityAuthentication
+{
+    public const string PolicyName = "IdentityToken";
+
+    public static IServiceCollection AddIdentityTokenAuthentication(this IServiceCollection services)
+    {
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+
+        // Configured when first needed, so it uses the signing key and settings the running service really has.
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<SigningKeyProvider, IOptions<IdentityTokenOptions>>((bearer, signingKey, tokenOptions) =>
+            {
+                // Keep claim names as issued ("sub"), not renamed to long Microsoft claim types.
+                bearer.MapInboundClaims = false;
+
+                bearer.TokenValidationParameters = new TokenValidationParameters
+                {
+                    RequireSignedTokens = true,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = signingKey.Key,
+
+                    // Only the algorithm we sign with, so a token cannot pick a weaker one.
+                    ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],
+
+                    ValidateIssuer = true,
+                    ValidIssuer = tokenOptions.Value.Issuer,
+
+                    // Identity tokens have no audience. Product tokens do, and are refused by the policy below.
+                    ValidateAudience = false,
+
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromSeconds(30),
+                    NameClaimType = JwtRegisteredClaimNames.Sub,
+                };
+
+                bearer.Events = new JwtBearerEvents
+                {
+                    // The same problem response as every other error, instead of an empty 401.
+                    OnChallenge = async context =>
+                    {
+                        context.HandleResponse();
+                        context.Response.Headers.WWWAuthenticate = JwtBearerDefaults.AuthenticationScheme;
+                        await ApiProblem.Create(
+                                StatusCodes.Status401Unauthorized,
+                                "unauthorized",
+                                "Unauthorized",
+                                "A valid access token is required.")
+                            .ExecuteAsync(context.HttpContext);
+                    },
+                };
+            });
+
+        services.AddAuthorizationBuilder().AddPolicy(PolicyName, policy => policy
+            .RequireAuthenticatedUser()
+            .RequireClaim("sub")
+
+            // A token with an audience belongs to one product (TOK-01) and must not work on identity endpoints.
+            .RequireAssertion(context => !context.User.HasClaim(claim => claim.Type == "aud")));
+
+        return services;
+    }
+}

@@ -118,6 +118,18 @@ Login is protected against password guessing in two ways:
 The lockout is logged by user id, never by email. The audit log (AUD-01) will record it too once it exists, and password
 reset (TEN-10) will clear the count.
 
+### Calling protected endpoints
+
+Endpoints that act as the logged-in person (for example `GET /api/auth/users/me`) take the **identity access token** that login
+and refresh return, as `Authorization: Bearer <token>`. The service checks the signature (with its own signing key), the
+issuer and the expiry (with 30 seconds of clock skew), and accepts only the algorithm it signs with.
+
+- No token, a malformed one, an expired one, or one signed by another key or issuer gets **401** with code `unauthorized` and a
+  `WWW-Authenticate: Bearer` header.
+- A correctly signed token that carries an audience (a product token, TOK-01) is refused with **403** on identity endpoints.
+- Who the caller is comes only from the token's `sub` claim, never from the path or query string, so a request cannot ask for
+  someone else's data by passing an id.
+
 ### Email verification
 
 A new account starts unverified and cannot log in (403 `email_not_verified`) until its email is verified:

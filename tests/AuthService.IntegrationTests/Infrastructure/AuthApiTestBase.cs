@@ -112,6 +112,18 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
     protected Task<HttpResponseMessage> ResendVerificationAsync(string? email, CancellationToken ct) =>
         Client.PostAsJsonAsync(EmailVerificationEndpoints.ResendRoute, new { email }, ct);
 
+    /// <summary>Calls an endpoint with GET, sending <paramref name="bearerToken"/> as the access token when there is one.</summary>
+    protected Task<HttpResponseMessage> GetAsync(string path, string? bearerToken, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, path);
+        if (bearerToken is not null)
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+        }
+
+        return Client.SendAsync(request, ct);
+    }
+
     /// <summary>Calls the real login endpoint (TEN-02).</summary>
     protected Task<HttpResponseMessage> LoginAsync(string? email, string? password, CancellationToken ct) =>
         Client.PostAsJsonAsync(LoginEndpoints.Route, new { email, password }, ct);
