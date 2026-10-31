@@ -87,7 +87,5 @@ public sealed class RefreshService(AuthDbContext db, IdentityTokenService tokens
     }
 
     private Task<int> RevokeFamilyAsync(Guid familyId, DateTimeOffset now, CancellationToken cancellationToken) =>
-        db.RefreshTokens
-            .Where(token => token.FamilyId == familyId && token.RevokedAt == null)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, now), cancellationToken);
+        db.RevokeRefreshTokenFamilyAsync(familyId, now, cancellationToken);
 }

@@ -178,16 +178,6 @@ public sealed class RefreshTests(PostgresContainerFixture postgres) : AuthApiTes
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
-    private Task<HttpResponseMessage> RefreshAsync(string? refreshToken, CancellationToken ct) =>
-        Client.PostAsJsonAsync(RefreshEndpoints.Route, new { refreshToken }, ct);
-
-    private async Task<LoginResponse> LoginForTokensAsync(string email, CancellationToken ct)
-    {
-        var response = await LoginAsync(email, DefaultPassword, ct);
-        response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return (await response.Content.ReadFromJsonAsync<LoginResponse>(Json, ct))!;
-    }
-
     private async Task<List<RefreshToken>> LoadTokensAsync(CancellationToken ct)
     {
         await using var scope = Harness.CreateScope();

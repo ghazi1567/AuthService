@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using AuthService.Api.Features.Login;
+using AuthService.Api.Features.Logout;
 using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
 using AuthService.Api.Tokens;
@@ -33,6 +34,7 @@ builder.Services.AddSingleton<IdentityTokenService>();
 builder.Services.AddScoped<SignupService>();
 builder.Services.AddScoped<LoginService>();
 builder.Services.AddScoped<RefreshService>();
+builder.Services.AddScoped<LogoutService>();
 
 var app = builder.Build();
 
@@ -45,6 +47,7 @@ app.MapGet("/", () => "AuthService");
 app.MapSignup();
 app.MapLogin();
 app.MapRefresh();
+app.MapLogout();
 
 app.Run();
 
