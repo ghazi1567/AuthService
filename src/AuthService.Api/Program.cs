@@ -6,6 +6,7 @@ using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
 using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
+using AuthService.Api.Features.Jwks;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Logout;
 using AuthService.Api.Features.PasswordReset;
@@ -39,7 +40,12 @@ builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 builder.Services.Configure<IdentityTokenOptions>(builder.Configuration.GetSection(IdentityTokenOptions.SectionName));
-builder.Services.AddSingleton<SigningKeyProvider>();
+
+// Signing keys (TOK-02): stored encrypted in the database, rotated on a schedule, published at /.well-known/jwks.json.
+builder.Services.AddSingleton<KeyEncryption>();
+builder.Services.AddSingleton<SigningKeyService>();
+builder.Services.AddScoped<SigningKeyRotation>();
+builder.Services.AddHostedService<SigningKeyWorker>();
 builder.Services.AddSingleton<IdentityTokenService>();
 
 // Bearer authentication for identity tokens (TEN-06 onwards).
@@ -141,8 +147,9 @@ builder.Services.AddScoped<CreateTenantService>();
 
 var app = builder.Build();
 
-// Create the signing key now so a missing key stops the deployment instead of failing the first login.
-app.Services.GetRequiredService<SigningKeyProvider>();
+// Load the signing keys now, creating the first one on a new database, so a missing key-encryption secret or an unreachable
+// database stops the deployment instead of failing the first login.
+await app.Services.GetRequiredService<SigningKeyService>().RefreshAsync(app.Lifetime.ApplicationStopping);
 
 // Likewise, an unsupported or incomplete email provider setting stops the deployment instead of failing the first email.
 app.Services.GetRequiredService<IEmailSender>();
@@ -161,6 +168,7 @@ app.MapLogout();
 app.MapCurrentUser();
 app.MapCreateTenant();
 app.MapPasswordReset();
+app.MapJwks();
 
 app.Run();
 

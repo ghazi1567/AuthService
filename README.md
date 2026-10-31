@@ -72,7 +72,9 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | Setting | Meaning |
 |---|---|
 | `ConnectionStrings:AuthDb` | PostgreSQL connection string. Set in `appsettings.Development.json` for local runs. |
-| `Auth:Tokens:SigningKeyPem` | EC (P-256) private key, in PEM form, that signs tokens. **Required outside Development and Testing**: the API refuses to start without it. Pass it as a secret (`Auth__Tokens__SigningKeyPem`), never in a committed file. |
+| `Auth:Tokens:KeyEncryptionKey` | The secret that encrypts signing keys before they are stored: 32 random bytes, base64 (`openssl rand -base64 32`). **Required outside Development and Testing**: the API refuses to start without it. Pass it as a secret (`Auth__Tokens__KeyEncryptionKey`), never in a committed file. **Losing it means losing every stored signing key.** |
+| `Auth:Tokens:SigningKeyRotationDays` / `SigningKeyPrePublishHours` / `SigningKeyPostRetireHours` | How long a key signs (default 90 days), how long before that it is published (24 h), and how long it stays published after (24 h). |
+| `Auth:Tokens:SigningKeyRefreshSeconds` | How often each instance reloads the keys and checks whether it is time to rotate. Default 60. |
 | `Auth:Tokens:Issuer` | `iss` claim of issued tokens. Default `AuthService`. |
 | `Auth:Tokens:AccessTokenMinutes` | Identity access token lifetime. Default 15. |
 | `Auth:Tokens:RefreshTokenDays` | Refresh token lifetime. Default 30. |
@@ -92,9 +94,30 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:PasswordReset:RequestCooldownSeconds` | An account sent a reset link less than this long ago is not sent another. Default 60. |
 | `Auth:PasswordReset:IpLimit` / `IpWindowMinutes` | How many forgot or reset requests one IP may make per window before getting 429. Default 10 per 10 minutes. |
 
-Generate a signing key with `openssl ecparam -name prime256v1 -genkey -noout`. In Development and Testing a throwaway key
-is created at startup, so tokens stop working when the process restarts. Key rotation and publishing public keys (JWKS)
-arrive with TOK-02.
+### Signing keys and the JWKS
+
+Tokens are signed (ES256) with keys the service creates and keeps itself, in the `signing_keys` table, so every instance agrees
+on them. The private half is encrypted (AES-256-GCM) with `Auth:Tokens:KeyEncryptionKey` and is never stored or logged in plain
+text. In Development and Testing a fixed, publicly known encryption key is used, so a development database survives restarts;
+it is worthless for anything real, which is why production must set its own.
+
+The public keys are published, with no authentication, at **`GET /.well-known/jwks.json`**, so product APIs can check a token's
+signature locally. The `kid` in a token's header names the key that signed it.
+
+Keys rotate on a schedule, and the timing is chosen so no token is ever signed by a key a product has not been told about, and no
+token already issued suddenly stops validating:
+
+1. A new key is **published 24 hours before it starts signing**. Every instance reloads the keys about once a minute, so all of
+   them, and every product that caches the JWKS (5 minutes), know the key long before a token carries it.
+2. Every **90 days** the new key takes over signing.
+3. The previous key **stays published for 24 hours after** it stops signing, so tokens issued just before the switch still validate
+   (identity tokens last 15 minutes).
+
+If rotation is overdue (the service was down), the next key still waits the full 24 hours before signing. An **emergency
+rotation** replaces the key immediately and removes the old one from the JWKS at once, invalidating the tokens it signed. It
+exists as a service method; the endpoint that triggers it needs the platform-admin story (APP-04) and arrives with it.
+
+Changing `KeyEncryptionKey` makes the stored keys unreadable. Re-encrypting them under a new secret is not built yet.
 
 ### Email
 

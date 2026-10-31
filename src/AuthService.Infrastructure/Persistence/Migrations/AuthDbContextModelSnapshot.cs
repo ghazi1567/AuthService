@@ -286,6 +286,65 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("roles", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.SigningKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("EncryptedPrivateKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("encrypted_private_key");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key_id");
+
+                    b.Property<string>("PublicKeyX")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("public_key_x");
+
+                    b.Property<string>("PublicKeyY")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("public_key_y");
+
+                    b.Property<DateTimeOffset>("PublishFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("publish_from");
+
+                    b.Property<DateTimeOffset?>("PublishUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("publish_until");
+
+                    b.Property<DateTimeOffset>("SignFrom")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sign_from");
+
+                    b.Property<DateTimeOffset?>("SignUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sign_until");
+
+                    b.HasKey("Id")
+                        .HasName("pk_signing_keys");
+
+                    b.HasIndex("KeyId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_signing_keys_key_id");
+
+                    b.ToTable("signing_keys", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Tenant", b =>
                 {
                     b.Property<Guid>("Id")

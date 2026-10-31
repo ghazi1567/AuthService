@@ -49,7 +49,7 @@ public sealed class LoginTests(PostgresContainerFixture postgres) : AuthApiTestB
             {
                 ValidIssuer = "AuthService",
                 ValidateAudience = false,
-                IssuerSigningKey = scope.ServiceProvider.GetRequiredService<SigningKeyProvider>().Key,
+                IssuerSigningKey = scope.ServiceProvider.GetRequiredService<SigningKeyService>().CurrentSigningKey,
             });
         validation.IsValid.ShouldBeTrue(validation.Exception?.Message);
 
