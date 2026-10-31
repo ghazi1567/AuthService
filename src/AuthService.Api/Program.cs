@@ -10,6 +10,7 @@ using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Logout;
 using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
+using AuthService.Api.Features.Tenants;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -116,6 +117,7 @@ builder.Services.AddScoped<LoginService>();
 builder.Services.AddScoped<RefreshService>();
 builder.Services.AddScoped<LogoutService>();
 builder.Services.AddScoped<CurrentUserService>();
+builder.Services.AddScoped<CreateTenantService>();
 
 var app = builder.Build();
 
@@ -137,6 +139,7 @@ app.MapLogin();
 app.MapRefresh();
 app.MapLogout();
 app.MapCurrentUser();
+app.MapCreateTenant();
 
 app.Run();
 

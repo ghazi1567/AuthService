@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -9,10 +10,13 @@ using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Signup;
+using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 
 namespace AuthService.IntegrationTests.Infrastructure;
 
@@ -122,6 +126,55 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
         }
 
         return Client.SendAsync(request, ct);
+    }
+
+    /// <summary>Calls an endpoint with POST and a JSON body, sending <paramref name="bearerToken"/> as the access token when there is one.</summary>
+    protected Task<HttpResponseMessage> PostAsync(string path, object body, string? bearerToken, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
+        if (bearerToken is not null)
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+        }
+
+        return Client.SendAsync(request, ct);
+    }
+
+    /// <summary>The key this running service signs its tokens with, so a test can make a token the service will accept.</summary>
+    protected SecurityKey ServiceSigningKey()
+    {
+        using var scope = Harness.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<SigningKeyProvider>().Key;
+    }
+
+    /// <summary>
+    /// Makes a signed identity-style token for <paramref name="userId"/>, to try tokens a real login would never produce:
+    /// expired, signed by another key, from another issuer, or carrying an audience (a product token).
+    /// </summary>
+    protected static string CreateToken(
+        Guid userId,
+        SecurityKey key,
+        TimeSpan expiresIn,
+        string issuer = "AuthService",
+        string? audience = null)
+    {
+        var now = DateTime.UtcNow;
+
+        // Expired tokens need an issue time before their expiry, so shift the whole token back instead of just the expiry.
+        var issuedAt = expiresIn < TimeSpan.Zero ? now + expiresIn - TimeSpan.FromMinutes(1) : now;
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = issuer,
+            Audience = audience,
+            Subject = new ClaimsIdentity([new Claim(JwtRegisteredClaimNames.Sub, userId.ToString())]),
+            IssuedAt = issuedAt,
+            NotBefore = issuedAt,
+            Expires = now + expiresIn,
+            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.EcdsaSha256),
+        };
+
+        return new JsonWebTokenHandler().CreateToken(descriptor);
     }
 
     /// <summary>Calls the real login endpoint (TEN-02).</summary>
