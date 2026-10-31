@@ -48,8 +48,24 @@ public sealed class IntegrationHarnessTests(PostgresContainerFixture postgres) :
         (await CountProbeRowsAsync(other, ct)).ShouldBe(5L);
     }
 
-    [Fact(Skip = "Enabled once TEN-02 (login) and TOK-01 (token exchange) exist.")]
-    public Task TST_TC8_HarnessLogsInAndExchangesATokenThroughRealEndpoints() => Task.CompletedTask;
+    [Fact]
+    public async Task TST_TC8_HarnessLogsInAndExchangesATokenThroughRealEndpoints()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // A product is set up by an admin and subscribes a tenant; the tenant's owner then logs in and trades the identity
+        // session for a product token. Every step is a real HTTP call carrying a real token.
+        var (_, adminToken) = await CreatePlatformAdminAsync("ops@platform.test", ct);
+        var product = await CreateActiveProductAsync(adminToken, "whatsapp-saas", ct);
+        var owner = await SignUpVerifiedAsync("Acme Ltd", "owner@acme.com", ct);
+        (await PostAsync($"/api/auth/tenants/{owner.TenantId}/subscriptions", new { }, product.ServiceToken, ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        var login = await LoginForTokensAsync("owner@acme.com", ct);
+
+        var exchange = await PostAsync("/api/auth/token/exchange", new { tenantId = owner.TenantId, applicationId = product.Id }, login.AccessToken, ct);
+
+        exchange.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await exchange.Content.ReadAsStringAsync(ct)).ShouldContain("accessToken");
+    }
 
     private static async Task WriteProbeRowsAsync(AuthApiHarness harness, int rows, CancellationToken ct)
     {

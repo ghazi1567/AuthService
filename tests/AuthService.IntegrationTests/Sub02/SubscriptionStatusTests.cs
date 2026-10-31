@@ -12,7 +12,7 @@ namespace AuthService.IntegrationTests.Sub02;
 /// <summary>
 /// SUB-02 (AUTH-19) Unsubscribe / Suspend Tenant Application Access, through the real
 /// <c>PATCH /api/auth/tenants/{tenantId}/subscriptions/{applicationId}</c> called with a product's service token.
-/// Test method names start with their Test Case ID (SUB_TC4..SUB_TC6) per the workbook convention.
+/// Test method names start with their Test Case ID (SUB_TC4) per the workbook convention; SUB_TC5 and SUB_TC6 need token exchange and are in the TOK-01 tests.
 /// </summary>
 public sealed class SubscriptionStatusTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
 {
@@ -49,12 +49,6 @@ public sealed class SubscriptionStatusTests(PostgresContainerFixture postgres) :
             entry.Detail.ShouldBe("whatsapp-saas");
         });
     }
-
-    [Fact(Skip = "Enabled once Token Exchange (TOK-01) exists: it must return 403 for a Suspended or Cancelled subscription.")]
-    public Task SUB_TC5_TokenExchangeForAJustSuspendedApplicationIsRejectedWith403() => Task.CompletedTask;
-
-    [Fact(Skip = "Enabled once Token Exchange (TOK-01) exists: a product token issued before the suspension stays valid until it expires.")]
-    public Task SUB_TC6_APreSuspensionAccessTokenKeepsWorkingUntilItExpires() => Task.CompletedTask;
 
     // The tests below have no workbook Test Case ID yet: the spec's acceptance criteria cover them.
 

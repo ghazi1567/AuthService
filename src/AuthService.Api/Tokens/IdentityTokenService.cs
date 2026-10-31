@@ -76,6 +76,39 @@ public sealed class IdentityTokenService(IOptions<IdentityTokenOptions> options,
         return new AccessToken(Handler.CreateToken(descriptor), expiresAt);
     }
 
+    /// <summary>
+    /// A product token (TOK-01): for one person, in one tenant, for one product. <c>aud</c> is the product's audience and
+    /// <c>tid</c> the tenant; <c>permissions</c> lists <c>key:Level</c> for that product only, such as
+    /// <c>campaign.create:Full</c>. Nothing from another product or another tenant is ever in it.
+    /// </summary>
+    public AccessToken CreateProductToken(
+        Guid userId, Guid tenantId, string audience, IReadOnlyCollection<string> permissions, DateTimeOffset now)
+    {
+        var expiresAt = now.AddMinutes(options.Value.ProductTokenMinutes);
+
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Issuer = options.Value.Issuer,
+            Audience = audience,
+            Subject = new ClaimsIdentity(
+            [
+                new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            ]),
+            Claims = new Dictionary<string, object>
+            {
+                [ProductClaims.TenantId] = tenantId.ToString(),
+                [ProductClaims.Permissions] = permissions.ToArray(),
+            },
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expiresAt.UtcDateTime,
+            SigningCredentials = new SigningCredentials(signingKeys.CurrentSigningKey, SecurityAlgorithms.EcdsaSha256),
+        };
+
+        return new AccessToken(Handler.CreateToken(descriptor), expiresAt);
+    }
+
     /// <summary>Starts a new refresh-token family, as happens at login.</summary>
     public IssuedRefreshToken CreateRefreshToken(Guid userId, DateTimeOffset now) =>
         CreateRefreshToken(userId, Guid.CreateVersion7(), now);
