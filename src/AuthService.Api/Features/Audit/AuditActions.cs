@@ -35,6 +35,9 @@ public static class AuditActions
     public const string ApplicationActivated = "auth.application.activated";
     public const string ApplicationDeactivated = "auth.application.deactivated";
 
-    public const string SigningKeyCreated = "auth.signing_key.created";
+    /// <summary>A product subscribed a tenant to itself (SUB-01). The actor is the product, the tenant is the subscribed tenant, the detail is the product's key.</summary>
+    public const string TenantSubscribed = "auth.subscription.subscribed";
+
+    public const string SigningKeyCreated ="auth.signing_key.created";
     public const string SigningKeyRotated = "auth.signing_key.rotated";
 }

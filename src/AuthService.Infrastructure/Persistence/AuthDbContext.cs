@@ -37,6 +37,12 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<Permission> Permissions => Set<Permission>();
 
+    public DbSet<TenantApplicationSubscription> Subscriptions => Set<TenantApplicationSubscription>();
+
+    public DbSet<MembershipApplicationAccess> ApplicationAccess => Set<MembershipApplicationAccess>();
+
+    public DbSet<WebhookOutboxMessage> WebhookOutbox => Set<WebhookOutboxMessage>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // citext backs case-insensitive columns such as User.Email (see TEN-01 / AUTH-8).

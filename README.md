@@ -240,6 +240,25 @@ entries per request).
   changes are audited.
 - Registering permissions, activating and deactivating are each audit-logged under the admin, with the product's key as the detail.
 
+### Subscriptions
+
+A tenant gets to use a product through a **subscription**. A product subscribes a tenant to itself with
+`POST /api/auth/tenants/{tenantId}/subscriptions`, called with its **service token** (see "Product client credentials"), typically
+from its own onboarding or checkout flow. The body is optional: `{"maxSeats": 3}` limits how many people can have access (at least
+1; left out means unlimited). The product is always the caller's own, from the verified token, so a product can only subscribe
+tenants to itself. A tenant's own people cannot subscribe themselves (403).
+
+- **201** with the subscription (`status`, `maxSeats`, `seatsUsed`) for a new one. A product that is not active gets **400**
+  `application_not_active`, an unknown tenant **404**, and a suspended tenant **409** `tenant_suspended`.
+- **Idempotent.** Subscribing a tenant that is already Active returns **200**, creates no second row, queues no second event and
+  leaves the seat limit alone (changing it is SUB-04's call). A tenant that was Suspended or Cancelled and subscribes again is
+  Active again on the limit it sends, reusing its one row.
+- **The Owner gets access at once**, and counts as the first seat. Other members get access later (SUB-05).
+- **An `ApplicationSubscribed` event is queued for the product** in the `webhook_outbox` table, in the same transaction as the
+  subscription: if the subscription fails, no event exists. Its id is the event id the product deduplicates on. Signed delivery with
+  retries, and the product's callback URL, arrive with SUB-06; until then events wait in the outbox.
+- Subscribing is audit-logged with the product as the actor and the tenant it concerns.
+
 #### Listing products for tenants
 
 `GET /api/auth/applications` with any signed-in person's identity token returns the products a tenant can connect, for the "connect a
