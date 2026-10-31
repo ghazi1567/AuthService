@@ -27,9 +27,6 @@ public sealed class LogoutTests(PostgresContainerFixture postgres) : AuthApiTest
         (await ReadProblemAsync(refresh, ct)).Code.ShouldBe("invalid_refresh_token");
     }
 
-    [Fact(Skip = "Enabled once TOK-01 (token exchange) exists and issues product access tokens.")]
-    public Task AUTH_TC27_ProductAccessTokenIssuedBeforeLogoutStaysValidUntilItExpires() => Task.CompletedTask;
-
     [Fact]
     public async Task AUTH_TC28_LogoutOnOneDeviceLeavesTheOtherDevicesSessionWorking()
     {

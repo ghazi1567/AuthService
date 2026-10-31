@@ -88,6 +88,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Email:DispatchIntervalMilliseconds` / `Email:DispatcherEnabled` | How often the background worker looks for emails to send, and whether it runs at all. |
 | `Auth:LoginProtection:MaxFailedAttempts` / `LockoutMinutes` | Wrong passwords in a row after which an account is locked, and for how long. Default 5 and 15. |
 | `Auth:Tokens:ServiceTokenMinutes` | How long a product's service token is valid. Default 10. |
+| `Auth:Tokens:ProductTokenMinutes` | How long a product token (token exchange) is valid. Default 15. It bounds how stale the permissions inside can get. |
 | `Auth:Applications:SecretGraceHours` | How long a product's old client secret keeps working after a rotation. Default 24. |
 | `Auth:Applications:TokenIpLimit` / `TokenIpWindowMinutes` | How many service-token requests one IP may make per window, across all products, before getting 429. Default 60 per minute. |
 | `Auth:LoginProtection:IpLimit` / `IpWindowMinutes` | How many login requests one IP may make per window, across all accounts, before getting 429. Default 20 per minute. |
@@ -239,6 +240,40 @@ entries per request).
   permission (otherwise **409** `no_permissions_registered`). `false` withdraws it. Repeating either is harmless, and only real
   changes are audited.
 - Registering permissions, activating and deactivating are each audit-logged under the admin, with the product's key as the detail.
+
+### Token exchange (product tokens)
+
+A logged-in person gets into one product, in one tenant, by trading their identity session for a **product token**:
+`POST /api/auth/token/exchange` with an identity access token and a body of `{"tenantId": "...", "applicationId": "..."}`. The
+reply is `{"accessToken", "tokenType": "Bearer", "expiresIn": 900}`, sent with `Cache-Control: no-store`. A product token, a
+service token or no token cannot be exchanged (403 / 401), and who is asking comes only from the verified token.
+
+It is refused with **403** `exchange_denied` unless **all** of these hold, read fresh from the database on every exchange:
+
+1. The caller has an **Active** membership in the tenant (none, Invited and Disabled are refused) and the tenant is not suspended.
+2. The tenant has an **Active subscription** to the product, and the product is active.
+3. The membership has an **access grant** (a seat) for the product. Roles that grant permissions are not enough on their own.
+
+Every refusal is the same response, so a caller cannot tell a real tenant or product from an invented one. A missing id is **400**.
+
+**The token** lives 15 minutes (`Auth:Tokens:ProductTokenMinutes`) and is signed with the same key as every other token, so a
+product validates it locally against the JWKS. It is for exactly one product and one tenant:
+
+| Claim | Value |
+|---|---|
+| `aud` | the product's JWT audience (and no other) |
+| `tid` | the tenant (and no other) |
+| `sub` | the person |
+| `permissions` | an array of `key:Level` strings for **this product only**, for example `["campaign.create:Full", "campaign.read:ReadOnly"]`; permissions at level `None` are left out |
+| `iss`, `iat`, `nbf`, `exp`, `jti` | as for other tokens |
+
+Levels are `None`, `ReadOnly`, `CreateRead` and `Full`, widest last. A person with several roles gets the **highest** level any of
+them grants for each permission (there are no deny rules). The built-in **Owner** role holds `Full` on the product's whole
+catalog as it is at exchange time, with no grants stored, so a permission added later is in the Owner's next token. Grants from
+custom roles are merged in once roles exist (ROL).
+
+Nothing is revoked early: a token already issued stays valid until it expires (a suspension, a revoked seat, a role change or a
+logout take effect at the next exchange). That is by design; the 15-minute life bounds how stale it can get.
 
 ### Subscriptions
 

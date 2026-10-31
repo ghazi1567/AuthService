@@ -18,7 +18,7 @@ namespace AuthService.IntegrationTests.App04;
 /// <summary>
 /// APP-04 (AUTH-131) Platform-admin Access: an <c>IsPlatformAdmin</c> flag, settable only in the database, that opens everything
 /// under <c>/api/auth/admin</c> and nothing else.
-/// Test method names start with their Test Case ID (APP_TC9..APP_TC11) per the workbook convention.
+/// Test method names start with their Test Case ID (APP_TC9, APP_TC10) per the workbook convention; APP_TC11 needs token exchange and is in the TOK-01 tests.
 /// </summary>
 public sealed class PlatformAdminTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
 {
@@ -68,9 +68,6 @@ public sealed class PlatformAdminTests(PostgresContainerFixture postgres) : Auth
             .SelectMany(type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance), (type, property) => $"{type.Name}.{property.Name}")
             .ShouldNotContain(name => name.Contains("PlatformAdmin", StringComparison.OrdinalIgnoreCase));
     }
-
-    [Fact(Skip = "Enabled once TOK-01 (token exchange) exists: a platform admin must get 403 asking for a token for a tenant they are not in.")]
-    public Task APP_TC11_APlatformAdminCannotGetATokenForATenantTheyAreNotIn() => Task.CompletedTask;
 
     // The tests below have no workbook Test Case ID yet: the spec's acceptance criteria cover them.
 
