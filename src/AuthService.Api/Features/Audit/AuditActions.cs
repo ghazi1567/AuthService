@@ -25,6 +25,9 @@ public static class AuditActions
     /// <summary>A platform admin registered a product. The detail is the product's key.</summary>
     public const string ApplicationRegistered = "auth.application.registered";
 
+    /// <summary>A platform admin replaced a product's client secret. The detail is the product's key; no secret is ever recorded.</summary>
+    public const string ApplicationSecretRotated = "auth.application.secret_rotated";
+
     /// <summary>A platform admin registered or updated a product's permission catalog. The detail is the product's key.</summary>
     public const string PermissionsRegistered = "auth.application.permissions_registered";
 

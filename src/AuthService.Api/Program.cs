@@ -132,6 +132,21 @@ builder.Services.AddRateLimiter(limiter =>
             });
     });
 
+    // Service-token requests are limited per IP address across all products.
+    limiter.AddPolicy(ServiceTokenEndpoints.RateLimitPolicy, httpContext =>
+    {
+        var settings = httpContext.RequestServices.GetRequiredService<IOptions<ApplicationCredentialOptions>>().Value;
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = settings.TokenIpLimit,
+                Window = TimeSpan.FromMinutes(settings.TokenIpWindowMinutes),
+                QueueLimit = 0,
+            });
+    });
+
     limiter.AddPolicy(EmailVerificationEndpoints.ResendRateLimitPolicy, httpContext =>
     {
         // Read per request, so configuration added after startup (test overrides) still applies.
@@ -156,6 +171,9 @@ builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<CreateTenantService>();
 builder.Services.AddScoped<RegisterApplicationService>();
 builder.Services.AddScoped<PermissionCatalogService>();
+builder.Services.Configure<ApplicationCredentialOptions>(builder.Configuration.GetSection(ApplicationCredentialOptions.SectionName));
+builder.Services.AddScoped<ServiceTokenService>();
+builder.Services.AddScoped<SecretRotationService>();
 
 var app = builder.Build();
 
@@ -181,6 +199,8 @@ app.MapCurrentUser();
 app.MapCreateTenant();
 app.MapPasswordReset();
 app.MapJwks();
+app.MapServiceToken();
+app.MapCurrentApplication();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
 var admin = app.MapAdminGroup();
