@@ -77,13 +77,7 @@ public sealed class LoginService(
         }
 
         // Past this point the password was right, so telling the person why they cannot log in leaks nothing to a guesser.
-        var memberships = await (
-                from membership in db.TenantMemberships
-                join tenant in db.Tenants on membership.TenantId equals tenant.Id
-                where membership.UserId == user.Id
-                orderby tenant.Name, tenant.Id
-                select new MembershipSummary(tenant.Id, tenant.Name, membership.Status))
-            .ToListAsync(cancellationToken);
+        var memberships = await db.ListMembershipsAsync(user.Id, cancellationToken);
 
         if (AccountAccess.IsDisabled(memberships.ConvertAll(membership => membership.Status)))
         {

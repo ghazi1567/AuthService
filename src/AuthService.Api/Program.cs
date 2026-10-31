@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using AuthService.Api.Common;
 using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
+using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Logout;
@@ -38,6 +39,9 @@ builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.C
 builder.Services.Configure<IdentityTokenOptions>(builder.Configuration.GetSection(IdentityTokenOptions.SectionName));
 builder.Services.AddSingleton<SigningKeyProvider>();
 builder.Services.AddSingleton<IdentityTokenService>();
+
+// Bearer authentication for identity tokens (TEN-06 onwards).
+builder.Services.AddIdentityTokenAuthentication();
 
 // Email (NTF-01): queued in the database, sent by a background worker through whichever provider is configured.
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
@@ -111,6 +115,7 @@ builder.Services.AddScoped<SignupService>();
 builder.Services.AddScoped<LoginService>();
 builder.Services.AddScoped<RefreshService>();
 builder.Services.AddScoped<LogoutService>();
+builder.Services.AddScoped<CurrentUserService>();
 
 var app = builder.Build();
 
@@ -122,6 +127,8 @@ app.Services.GetRequiredService<IEmailSender>();
 
 app.UseExceptionHandler();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/", () => "AuthService");
 app.MapSignup();
@@ -129,6 +136,7 @@ app.MapEmailVerification();
 app.MapLogin();
 app.MapRefresh();
 app.MapLogout();
+app.MapCurrentUser();
 
 app.Run();
 

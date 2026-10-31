@@ -16,6 +16,7 @@
 
   <ItemGroup Label="Tokens">
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.22.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup Label="Testing">
