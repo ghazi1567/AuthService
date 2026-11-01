@@ -319,6 +319,31 @@ tenants to itself. A tenant's own people cannot subscribe themselves (403).
   retries, and the product's callback URL, arrive with SUB-06; until then events wait in the outbox.
 - Subscribing is audit-logged with the product as the actor and the tenant it concerns.
 
+### Roles
+
+A tenant defines its own roles, and a role grants **permissions at a level**. `POST /api/auth/roles` creates one, called with a
+**tenant-admin token** that holds `roles.manage` at `Full` (the Owner role does):
+
+```json
+{ "name": "Marketer",
+  "permissions": [ { "applicationId": "...", "permission": "campaign.create", "level": "CreateRead" } ] }
+```
+
+- **Levels** are `None`, `ReadOnly`, `CreateRead` and `Full` (by name; numbers are refused). A grant is a level, never a yes or no.
+  `None` is stored but gives no access.
+- **Name:** required, up to 100 characters, trimmed, and unique **per tenant** ignoring case (**409** `role_name_taken`), so
+  "support" cannot sit beside "Support", or "owner" beside the built-in Owner. Two tenants can use the same name.
+- **Permissions** may be left out (a role that only carries access). Each is a product id plus a permission key from that
+  product's catalog. The key is matched ignoring case. A grant is refused with **400**, creating nothing, if:
+  - the tenant has no **Active** subscription to the product (Suspended and Cancelled do not count; the Auth Service's own product
+    is always allowed), or the product id does not exist: both give the same answer, so ids cannot be probed;
+  - the key is not in that product's catalog (a typo would otherwise be a role that silently does nothing);
+  - it repeats a product and permission already in the request, or the level is not one of the four.
+- The tenant and the person come from the token. The creation is audit-logged (`auth.role.created`, with the role id).
+- **What a role is for:** a member who holds roles gets, in their next token exchange, every permission those roles grant for the
+  requested product, at the **highest** level any of them grants (there are no deny rules). Nothing from another product or tenant
+  is in the token. Until roles can be assigned through the API (ROL-05) the assignment is made in the database.
+
 #### Listing a tenant's subscriptions
 
 A tenant admin sees the tenant's subscriptions with `GET /api/auth/tenants/me/subscriptions`, called with a **tenant-admin token**

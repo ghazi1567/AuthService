@@ -93,7 +93,7 @@ public sealed class TokenExchangeService(
     /// <summary>
     /// The highest level the member holds for each permission of this one product. The built-in Owner role holds Full on the
     /// product's whole catalog as it is right now, with no grants stored, so a permission added later is covered at once.
-    /// Grants from custom roles are merged in here by ROL-01.
+    /// Grants from custom roles (ROL-01) are merged in, highest level per permission.
     /// </summary>
     private async Task<Dictionary<string, AccessLevel>> ResolvePermissionsAsync(
         Guid tenantId, Guid membershipId, Guid applicationId, CancellationToken cancellationToken)
@@ -117,6 +117,25 @@ public sealed class TokenExchangeService(
             foreach (var key in catalog)
             {
                 effective[key] = AccessLevel.Full;
+            }
+        }
+
+        // Grants from every role the member holds, for this product only. Where several roles grant the same permission, the
+        // highest level wins; there are no deny rules, so another role can never take access away.
+        var grants = await (
+            from assignment in db.MembershipRoles
+            join grant in db.RolePermissions on new { assignment.TenantId, assignment.RoleId } equals new { grant.TenantId, grant.RoleId }
+            join permission in db.Permissions on grant.PermissionId equals permission.Id
+            where assignment.TenantId == tenantId && assignment.MembershipId == membershipId && permission.ApplicationId == applicationId
+            select new { permission.Key, grant.Level })
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        foreach (var grant in grants)
+        {
+            if (!effective.TryGetValue(grant.Key, out var current) || grant.Level > current)
+            {
+                effective[grant.Key] = grant.Level;
             }
         }
 

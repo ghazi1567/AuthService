@@ -38,6 +38,9 @@ public static class AuditActions
     /// <summary>A product subscribed a tenant to itself (SUB-01). The actor is the product, the tenant is the subscribed tenant, the detail is the product's key.</summary>
     public const string TenantSubscribed = "auth.subscription.subscribed";
 
+    /// <summary>A tenant admin created a role (ROL-01). The actor is the admin, the tenant is theirs, the detail is the role id.</summary>
+    public const string RoleCreated = "auth.role.created";
+
     /// <summary>A product suspended or cancelled a tenant's subscription (SUB-02). The actor is the product, the tenant is the one concerned, the detail is the product's key.</summary>
     public const string SubscriptionSuspended = "auth.subscription.suspended";
     public const string SubscriptionCancelled = "auth.subscription.cancelled";
