@@ -226,7 +226,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/", () => "AuthService");
+app.MapGet("/", () => "AuthService").AllowAnonymous();
 app.MapSignup();
 app.MapEmailVerification();
 app.MapLogin();

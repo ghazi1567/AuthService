@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         });
 
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<JwksDocumentRetriever>();
         services.AddSingleton(provider =>
         {
@@ -50,7 +51,7 @@ public static class ServiceCollectionExtensions
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-            .Configure<IOptions<AuthServiceAuthorizationOptions>, JwksConfigurationManager>((bearer, settings, keys) =>
+            .Configure<IOptions<AuthServiceAuthorizationOptions>, JwksConfigurationManager, TimeProvider>((bearer, settings, keys, time) =>
             {
                 var options = settings.Value;
 
@@ -80,6 +81,15 @@ public static class ServiceCollectionExtensions
                     ValidateLifetime = true,
                     RequireExpirationTime = true,
                     ClockSkew = TimeSpan.FromSeconds(options.ClockSkewSeconds),
+
+                    // Judged on the product's own TimeProvider if it registers one (so a test can move the clock), otherwise the system clock.
+                    LifetimeValidator = (notBefore, expires, _, parameters) =>
+                    {
+                        var now = time.GetUtcNow().UtcDateTime;
+                        return expires is { } expiry
+                            && expiry >= now - parameters.ClockSkew
+                            && (notBefore is not { } start || start <= now + parameters.ClockSkew);
+                    },
                     NameClaimType = AuthServiceClaims.Subject,
                 };
 
