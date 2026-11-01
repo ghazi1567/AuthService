@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/AuthService.Api/AuthService.Api.csproj" />
+    <Project Path="src/AuthService.Authorization/AuthService.Authorization.csproj" />
     <Project Path="src/AuthService.Infrastructure/AuthService.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
