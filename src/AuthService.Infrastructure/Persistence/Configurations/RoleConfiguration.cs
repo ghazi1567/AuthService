@@ -6,6 +6,8 @@ namespace AuthService.Infrastructure.Persistence.Configurations;
 
 public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
 {
+    public const string UniqueNamePerTenantIndexName = "ix_roles_tenant_id_name";
+
     public void Configure(EntityTypeBuilder<Role> builder)
     {
         builder.HasKey(role => role.Id);
@@ -17,9 +19,10 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.HasOne<Tenant>().WithMany().HasForeignKey(role => role.TenantId).OnDelete(DeleteBehavior.Restrict);
 
         // Role names are unique per tenant, not globally.
-        builder.HasIndex(role => new { role.TenantId, role.Name }).IsUnique();
+        builder.HasIndex(role => new { role.TenantId, role.Name }).IsUnique().HasDatabaseName(UniqueNamePerTenantIndexName);
 
-        builder.Property(role => role.Name).HasMaxLength(100).IsRequired();
+        // citext: "Admin" and "admin" are the same name, so a custom role cannot pass for another, such as the built-in Owner.
+        builder.Property(role => role.Name).HasColumnType("citext").HasMaxLength(100).IsRequired();
         builder.Property(role => role.IsBuiltIn).IsRequired();
         builder.Property(role => role.CreatedAt).IsRequired();
     }

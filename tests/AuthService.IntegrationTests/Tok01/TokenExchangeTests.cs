@@ -15,15 +15,12 @@ namespace AuthService.IntegrationTests.Tok01;
 /// TOK-01 (AUTH-26) Token Exchange, through the real <c>POST /api/auth/token/exchange</c> with the identity token of a logged-in
 /// person. Grants from custom roles arrive with ROL-01, so the cases that need them are placeholders; the built-in Owner role,
 /// which holds Full on a product's whole catalog, is exercised here.
-/// Test method names start with their Test Case ID (TOK_TC1..TOK_TC5, TOK_TC15..TOK_TC18) per the workbook convention.
+/// Test method names start with their Test Case ID (TOK_TC2..TOK_TC5, TOK_TC16..TOK_TC18; TOK_TC1 and TOK_TC15 need roles and are in the ROL-01 tests) per the workbook convention.
 /// </summary>
 public sealed class TokenExchangeTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
 {
     private const string AdminEmail = "ops@platform.test";
     private const string OwnerEmail = "owner@acme.com";
-
-    [Fact(Skip = "Enabled once ROL-01 and ROL-05 exist: permissions must match the RolePermission rows of all the caller's roles.")]
-    public Task TOK_TC1_ExchangeForASubscribedApplicationEmbedsThePermissionsOfAllTheCallersRolesForThatApplicationOnly() => Task.CompletedTask;
 
     [Fact]
     public async Task TOK_TC2_ExchangeForAnApplicationWithNoActiveSubscriptionIsRejectedWith403()
@@ -88,9 +85,6 @@ public sealed class TokenExchangeTests(PostgresContainerFixture postgres) : Auth
 
     [Fact(Skip = "Enabled once ROL-03 exists: a token issued after a role's permissions change reflects them; an earlier token is unaffected.")]
     public Task TOK_TC5_ExchangeRightAfterARolesPermissionsChangedReflectsTheChange() => Task.CompletedTask;
-
-    [Fact(Skip = "Enabled once ROL-01 and ROL-05 exist: a member holding roles in two products gets only the requested product's permissions.")]
-    public Task TOK_TC15_AMultiRoleTokenHoldsOnlyTheRequestedApplicationsPermissions() => Task.CompletedTask;
 
     [Fact]
     public async Task TOK_TC16_ExchangeWithoutAnAccessGrantIsRejectedWith403()

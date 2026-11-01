@@ -506,7 +506,7 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
+                        .HasColumnType("citext")
                         .HasColumnName("name");
 
                     b.Property<Guid>("TenantId")
@@ -524,6 +524,46 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_roles_tenant_id_name");
 
                     b.ToTable("roles", (string)null);
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RolePermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("level");
+
+                    b.Property<Guid>("PermissionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("permission_id");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("role_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_role_permissions");
+
+                    b.HasIndex("PermissionId")
+                        .HasDatabaseName("ix_role_permissions_permission_id");
+
+                    b.HasIndex("RoleId", "PermissionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_role_permissions_role_id_permission_id");
+
+                    b.HasIndex("TenantId", "RoleId")
+                        .HasDatabaseName("ix_role_permissions_tenant_id_role_id");
+
+                    b.ToTable("role_permissions", (string)null);
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.SigningKey", b =>
@@ -906,6 +946,24 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_roles_tenants_tenant_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RolePermission", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Permission", null)
+                        .WithMany()
+                        .HasForeignKey("PermissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_role_permissions_permissions_permission_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Role", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RoleId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_role_permissions_roles_tenant_id_role_id");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.TenantApplicationSubscription", b =>

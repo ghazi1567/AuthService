@@ -19,6 +19,8 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<MembershipRole> MembershipRoles => Set<MembershipRole>();
 
+    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     public DbSet<EmailOutboxMessage> EmailOutbox => Set<EmailOutboxMessage>();
