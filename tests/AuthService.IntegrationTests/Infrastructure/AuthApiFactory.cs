@@ -36,6 +36,9 @@ public sealed class AuthApiFactory(string connectionString, HarnessOptions optio
                 // tests about the limit ever hit it.
                 ["Auth:LoginProtection:IpLimit"] = "1000",
 
+                // Likewise for token exchange, limited per person: high unless a test is about the limit.
+                ["Auth:TokenExchange:UserLimit"] = "1000",
+
                 // The audit retention worker deletes old entries at startup and on a schedule. Off by default so a test that
                 // plants old entries and calls the job itself cannot race the worker; the worker has its own test.
                 ["Auth:Audit:RetentionEnabled"] = "false",

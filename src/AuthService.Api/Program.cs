@@ -165,6 +165,26 @@ builder.Services.AddRateLimiter(limiter =>
             });
     });
 
+    // Token exchange is limited per signed-in person, so one looping client cannot starve the database for everyone else (and a
+    // person is not penalised for sharing an address). Authentication runs before the limiter for this; a caller with no valid
+    // token is limited per IP address instead.
+    limiter.AddPolicy(TokenExchangeEndpoints.RateLimitPolicy, httpContext =>
+    {
+        var settings = httpContext.RequestServices.GetRequiredService<IOptions<TokenExchangeOptions>>().Value;
+        var partition = httpContext.User.GetUserId() is { } userId
+            ? $"user:{userId}"
+            : $"ip:{httpContext.Connection.RemoteIpAddress}";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partition,
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = settings.UserLimit,
+                Window = TimeSpan.FromMinutes(settings.UserWindowMinutes),
+                QueueLimit = 0,
+            });
+    });
+
     limiter.AddPolicy(EmailVerificationEndpoints.ResendRateLimitPolicy, httpContext =>
     {
         // Read per request, so configuration added after startup (test overrides) still applies.
@@ -196,6 +216,7 @@ builder.Services.AddScoped<SubscribeTenantService>();
 builder.Services.AddScoped<SeatLimitService>();
 builder.Services.AddScoped<SubscriptionStatusService>();
 builder.Services.AddScoped<PermissionResolver>();
+builder.Services.Configure<TokenExchangeOptions>(builder.Configuration.GetSection(TokenExchangeOptions.SectionName));
 builder.Services.AddScoped<TokenExchangeService>();
 builder.Services.AddScoped<BuiltInApplicationSync>();
 builder.Services.AddScoped<CreateRoleService>();
@@ -238,8 +259,11 @@ if (proxy.IsConfigured)
 }
 
 app.UseExceptionHandler();
-app.UseRateLimiter();
+
+// Authentication comes first so a limit can be per person (token exchange). A token is checked locally, with no database call, so
+// this costs a rate-limited request almost nothing.
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapGet("/", () => "AuthService").AllowAnonymous();

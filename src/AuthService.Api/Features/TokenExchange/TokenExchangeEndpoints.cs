@@ -7,10 +7,12 @@ public static class TokenExchangeEndpoints
 {
     public const string Route = "/api/auth/token/exchange";
 
+    public const string RateLimitPolicy = "token-exchange";
+
     public static IEndpointRouteBuilder MapTokenExchange(this IEndpointRouteBuilder app)
     {
         // Needs an identity token: a product token or service token cannot be traded for another one.
-        app.MapPost(Route, ExchangeAsync).RequireAuthorization(IdentityAuthentication.PolicyName);
+        app.MapPost(Route, ExchangeAsync).RequireAuthorization(IdentityAuthentication.PolicyName).RequireRateLimiting(RateLimitPolicy);
         return app;
     }
 
