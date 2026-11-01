@@ -28,6 +28,7 @@ public sealed class ApplicationConfiguration : IEntityTypeConfiguration<Applicat
         builder.HasIndex(application => application.ClientId).IsUnique();
 
         builder.Property(application => application.IsActive).IsRequired();
+        builder.Property(application => application.IsBuiltIn).IsRequired().HasDefaultValue(false);
         builder.Property(application => application.CreatedAt).IsRequired();
     }
 }

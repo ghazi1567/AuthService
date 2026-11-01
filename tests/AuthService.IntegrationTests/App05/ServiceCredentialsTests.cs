@@ -450,7 +450,7 @@ public sealed class ServiceCredentialsTests(PostgresContainerFixture postgres) :
             new { key = "sneaky", name = "Sneaky", jwtAudience = IdentityTokenService.ServiceAudience }, adminToken, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        await WithDbAsync(async db => (await db.Applications.CountAsync(ct)).ShouldBe(0));
+        await WithDbAsync(async db => (await db.Applications.Where(application => !application.IsBuiltIn).CountAsync(ct)).ShouldBe(0));
     }
 
     private static string RotateRoute(Guid applicationId) => $"{ApplicationAdminEndpoints.Route}/{applicationId}/secret/rotate";

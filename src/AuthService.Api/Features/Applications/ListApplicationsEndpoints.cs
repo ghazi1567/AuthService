@@ -25,7 +25,7 @@ public static class ListApplicationsEndpoints
     {
         // A product that is not active (no catalog yet, or withdrawn) has nothing to subscribe to, so it is not offered.
         var applications = await db.Applications.AsNoTracking()
-            .Where(application => application.IsActive)
+            .Where(application => application.IsActive && !application.IsBuiltIn)
             .OrderBy(application => application.Name).ThenBy(application => application.Key)
             .Select(application => new ApplicationSummary(application.Id, application.Key, application.Name))
             .ToListAsync(cancellationToken);
