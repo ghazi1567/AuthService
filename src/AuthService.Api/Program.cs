@@ -6,6 +6,7 @@ using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
 using AuthService.Api.Features.Admin;
 using AuthService.Api.Features.Applications;
+using AuthService.Api.Features.ApiKeys;
 using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.BuiltIn;
 using AuthService.Api.Features.CurrentUser;
@@ -190,6 +191,7 @@ builder.Services.AddScoped<SecretRotationService>();
 builder.Services.AddScoped<SubscribeTenantService>();
 builder.Services.AddScoped<SeatLimitService>();
 builder.Services.AddScoped<SubscriptionStatusService>();
+builder.Services.AddScoped<PermissionResolver>();
 builder.Services.AddScoped<TokenExchangeService>();
 builder.Services.AddScoped<BuiltInApplicationSync>();
 builder.Services.AddScoped<CreateRoleService>();
@@ -199,6 +201,9 @@ builder.Services.AddScoped<MemberAccessService>();
 builder.Services.AddScoped<MembersService>();
 builder.Services.Configure<InvitationOptions>(builder.Configuration.GetSection(InvitationOptions.SectionName));
 builder.Services.AddScoped<InviteUserService>();
+builder.Services.Configure<ApiKeyOptions>(builder.Configuration.GetSection(ApiKeyOptions.SectionName));
+builder.Services.AddScoped<ApiKeyService>();
+builder.Services.AddScoped<ApiKeyValidationService>();
 builder.Services.AddScoped<AcceptInvitationService>();
 
 var app = builder.Build();
@@ -243,6 +248,7 @@ app.MapRoles();
 app.MapMemberAccess();
 app.MapMembers();
 app.MapInvitations();
+app.MapApiKeys();
 app.MapTenantAudit();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.

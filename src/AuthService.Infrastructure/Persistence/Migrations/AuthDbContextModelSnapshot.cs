@@ -23,6 +23,122 @@ namespace AuthService.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApiKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("KeyId")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)")
+                        .HasColumnName("key_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("SecretHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("secret_hash");
+
+                    b.Property<string>("SecretSalt")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("secret_salt");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_api_keys");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("ak_api_keys_tenant_id_id");
+
+                    b.HasIndex("ApplicationId")
+                        .HasDatabaseName("ix_api_keys_application_id");
+
+                    b.HasIndex("CreatedByUserId")
+                        .HasDatabaseName("ix_api_keys_created_by_user_id");
+
+                    b.HasIndex("KeyId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_api_keys_key_id");
+
+                    b.HasIndex("TenantId")
+                        .HasDatabaseName("ix_api_keys_tenant_id");
+
+                    b.ToTable("api_keys", (string)null);
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApiKeyPermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApiKeyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("api_key_id");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("level");
+
+                    b.Property<Guid>("PermissionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("permission_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_api_key_permissions");
+
+                    b.HasIndex("PermissionId")
+                        .HasDatabaseName("ix_api_key_permissions_permission_id");
+
+                    b.HasIndex("ApiKeyId", "PermissionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_api_key_permissions_api_key_id_permission_id");
+
+                    b.HasIndex("TenantId", "ApiKeyId")
+                        .HasDatabaseName("ix_api_key_permissions_tenant_id_api_key_id");
+
+                    b.ToTable("api_key_permissions", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Application", b =>
                 {
                     b.Property<Guid>("Id")
@@ -922,6 +1038,47 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_webhook_outbox_status_next_attempt_at");
 
                     b.ToTable("webhook_outbox", (string)null);
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApiKey", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_api_keys_applications_application_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_keys_users_created_by_user_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_keys_tenants_tenant_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApiKeyPermission", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Permission", null)
+                        .WithMany()
+                        .HasForeignKey("PermissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_key_permissions_permissions_permission_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.ApiKey", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ApiKeyId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_api_key_permissions_api_keys_tenant_id_api_key_id");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationSecret", b =>

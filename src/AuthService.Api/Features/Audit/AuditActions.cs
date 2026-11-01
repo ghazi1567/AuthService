@@ -50,6 +50,11 @@ public static class AuditActions
     /// <summary>A tenant admin created a role (ROL-01). The actor is the admin, the tenant is theirs, the detail is the role id.</summary>
     public const string RoleCreated = "auth.role.created";
 
+    /// <summary>A tenant admin created, rotated or revoked an API key (KEY-01, KEY-02). The detail is the key's id; the key itself is never recorded.</summary>
+    public const string ApiKeyCreated = "auth.apikey.created";
+    public const string ApiKeyRotated = "auth.apikey.rotated";
+    public const string ApiKeyRevoked = "auth.apikey.revoked";
+
     /// <summary>A tenant admin changed or deleted a role (ROL-03, ROL-04). The actor is the admin, the tenant is theirs, the detail is the role id.</summary>
     public const string RoleUpdated = "auth.role.updated";
     public const string RoleDeleted = "auth.role.deleted";
