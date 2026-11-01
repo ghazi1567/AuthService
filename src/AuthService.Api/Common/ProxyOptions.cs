@@ -26,12 +26,17 @@ public sealed class ProxyOptions
     /// </summary>
     public int ForwardLimit { get; set; } = 1;
 
-    public bool IsConfigured => TrustedProxies.Length > 0 || TrustedNetworks.Length > 0;
+    /// <summary>A blank entry counts as not set: hosting platforms often pass an empty variable for a setting that is not used.</summary>
+    private IEnumerable<string> Proxies => TrustedProxies.Where(value => !string.IsNullOrWhiteSpace(value));
+
+    private IEnumerable<string> Networks => TrustedNetworks.Where(value => !string.IsNullOrWhiteSpace(value));
+
+    public bool IsConfigured => Proxies.Any() || Networks.Any();
 
     /// <summary>Reasons the settings are unusable, so a typo stops the deployment instead of silently trusting nothing (or everything).</summary>
     public IEnumerable<string> Problems()
     {
-        foreach (var address in TrustedProxies)
+        foreach (var address in Proxies)
         {
             if (!IPAddress.TryParse(address, out _))
             {
@@ -39,7 +44,7 @@ public sealed class ProxyOptions
             }
         }
 
-        foreach (var network in TrustedNetworks)
+        foreach (var network in Networks)
         {
             if (!IPNetwork.TryParse(network, out _))
             {
@@ -65,12 +70,12 @@ public sealed class ProxyOptions
         // The defaults trust loopback; only what is listed here is trusted.
         options.KnownProxies.Clear();
         options.KnownIPNetworks.Clear();
-        foreach (var address in TrustedProxies)
+        foreach (var address in Proxies)
         {
             options.KnownProxies.Add(IPAddress.Parse(address));
         }
 
-        foreach (var network in TrustedNetworks)
+        foreach (var network in Networks)
         {
             options.KnownIPNetworks.Add(IPNetwork.Parse(network));
         }

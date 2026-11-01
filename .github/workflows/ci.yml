@@ -60,3 +60,19 @@ jobs:
           path: TestResults/*.trx
           if-no-files-found: ignore
           retention-days: 14
+
+  # The deployment images must keep building (docs/deployment.md). Nothing is pushed anywhere.
+  docker-images:
+    name: Build images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Build the API image
+        run: docker build --tag authservice-api .
+
+      - name: Build the migration image
+        run: docker build --target migrate --tag authservice-migrate .

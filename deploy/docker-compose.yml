@@ -1,0 +1,65 @@
+# An example of running AuthService on one machine: PostgreSQL, the one-off migration job and the API.
+# It is a starting point, not a requirement: any host that runs containers can use the same two images.
+#
+#   cp deploy/.env.example deploy/.env      # then fill it in (never commit deploy/.env)
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#
+# The API listens on 127.0.0.1:8080 only. Put a reverse proxy that terminates HTTPS in front of it and list that proxy in
+# Auth__Proxy__TrustedProxies__0 so rate limits and audit entries see the real client address.
+name: authservice
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth -d auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Runs once per deployment and exits. The API never migrates on startup.
+  migrate:
+    build:
+      context: ..
+      target: migrate
+    command: ["--connection", "Host=db;Port=5432;Database=auth;Username=auth;Password=${POSTGRES_PASSWORD}"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ..
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ConnectionStrings__AuthDb: Host=db;Port=5432;Database=auth;Username=auth;Password=${POSTGRES_PASSWORD};GSS Encryption Mode=Disable
+      Auth__Tokens__KeyEncryptionKey: ${AUTH_KEY_ENCRYPTION_KEY:?Set AUTH_KEY_ENCRYPTION_KEY in deploy/.env}
+      Auth__Tokens__Issuer: ${AUTH_ISSUER:-AuthService}
+      Email__Provider: ${EMAIL_PROVIDER:-Brevo}
+      Email__BrevoApiKey: ${BREVO_API_KEY:-}
+      Email__FromAddress: ${EMAIL_FROM_ADDRESS:-}
+      Email__FromName: ${EMAIL_FROM_NAME:-Auth Service}
+      Email__PublicBaseUrl: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in deploy/.env}
+      Auth__Proxy__TrustedProxies__0: ${TRUSTED_PROXY:-}
+      # One line per database command is too chatty for production; warnings and errors still show.
+      Logging__LogLevel__Microsoft.EntityFrameworkCore: Warning
+      # The service stores nothing with ASP.NET data protection, so its "keys may not persist" warning is noise.
+      Logging__LogLevel__Microsoft.AspNetCore.DataProtection: Error
+      # Only used when EMAIL_PROVIDER=File (a trial run): the container user cannot write under /app.
+      Email__FileDirectory: /tmp/emails
+
+volumes:
+  dbdata:

@@ -38,6 +38,20 @@ public sealed class ForwardedHeadersSettingsTests(PostgresContainerFixture postg
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ABlankProxySettingCountsAsNotSetSoAnEmptyEnvironmentVariableIsHarmless(string blank)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var harness = await StartAsync(
+            new Dictionary<string, string?> { ["Auth:Proxy:TrustedProxies:0"] = blank, ["Auth:Proxy:TrustedNetworks:0"] = blank }, ct);
+
+        await SignUpFromAsync(harness, "a@acme.com", peer: "10.0.0.5", forwardedFor: "198.51.100.9", ct);
+
+        (await SignupIpsAsync(harness, ct)).ShouldBe(["10.0.0.5"], "nothing is configured, so the header is not read");
+    }
+
+    [Theory]
     [InlineData("Auth:Proxy:TrustedProxies:0", "not-an-ip")]
     [InlineData("Auth:Proxy:TrustedNetworks:0", "10.0.0.0/99")]
     [InlineData("Auth:Proxy:TrustedNetworks:0", "10.0.0.5")]

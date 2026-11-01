@@ -15,8 +15,12 @@ This service is deployed on its own and owns its own PostgreSQL database.
 ```
 src/AuthService.Api/               ASP.NET Core host
 src/AuthService.Infrastructure/    AuthDbContext, shared DB registration, EF Core migrations
+src/AuthService.Authorization/     The package a product installs to enforce Auth Service tokens
+Dockerfile, deploy/                API and migration images, and an example docker-compose
 tests/AuthService.IntegrationTests/ Real-database integration tests (Testcontainers)
 ```
+
+Deploying it (images, settings, first run, releases): [docs/deployment.md](docs/deployment.md).
 
 ## Prerequisites
 
