@@ -90,6 +90,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Tokens:ServiceTokenMinutes` | How long a product's service token is valid. Default 10. |
 | `Auth:Tokens:ProductTokenMinutes` | How long a product token (token exchange) is valid. Default 15. It bounds how stale the permissions inside can get. |
 | `Auth:Invitations:TokenDays` | How long an invitation link works. Default 7. |
+| `Auth:ApiKeys:RotationGraceHours` | How long an API key keeps working after it is rotated. Default 24. |
 | `Auth:Webhooks:RetryWindowHours` / `RetryDelaySeconds` / `TimeoutSeconds` | How long a webhook is retried (default 24 hours), the delays between tries (default 1 min, 5 min, 30 min, 2 h, 6 h, 12 h) and how long to wait for a product to answer (10 s). |
 | `Auth:Webhooks:AllowPrivateAddresses` | Allows plain `http` and private callback addresses. Development and tests only; default off. |
 | `Auth:Webhooks:DispatcherEnabled` | Turns the webhook worker off, so events wait. Default on. |
@@ -374,6 +375,53 @@ Several instances can run at once without delivering one event twice at the same
   as `before` and `beforeId` for paging.
 - `POST /api/auth/admin/webhooks/{id}/resend` puts a **Failed** event back in the queue with a fresh 24 hours (anything else is
   **409** `webhook_not_failed`, an unknown id **404**). It is audit-logged (`auth.webhook.resent`).
+
+### API keys
+
+A tenant's own backend can call a product without a person logging in, using an **API key**. Keys are managed by a tenant admin with
+a **tenant-admin token** (see "Working on a tenant") and checked by the product through the Auth Service.
+
+**Creating a key.** `POST /api/auth/apikeys` (needs `apikeys.manage` at `Full`, which the Owner has):
+
+```json
+{ "name": "Billing backend", "applicationId": "...", "permissions": [ { "permission": "message.send", "level": "Full" } ] }
+```
+
+- The reply (**201**, `Cache-Control: no-store`) holds the **raw key**, such as `ak_3f9c...e1.Xk2...`, **once** and nowhere else.
+  It is never returned again, logged or audited. Only a **salted SHA-256 hash** is stored (every key has its own salt), and the key is
+  looked up by its public id (the 24 hex characters after `ak_`) and checked in constant time.
+- **Scope** is chosen at creation and never grows. `applicationId` names the **one product** the key may be used with, and the tenant
+  must be actively subscribed to it; `permissions` are keys from that product's catalog, each at a `level` (`ReadOnly`,
+  `CreateRead`, `Full`; left out means `Full`). A product needs at least one permission. Leave out both and you get a key that only
+  identifies the tenant and grants **nothing**. The Auth Service's own product cannot be used. An unknown or unsubscribed product, an
+  unknown permission, a repeat or a bad level is **400**.
+- **A key can never have more than the person making it.** Each permission must be within what that person's own roles grant, at
+  that level or lower, otherwise **403** `scope_exceeds_permissions`.
+- Audit-logged (`auth.apikey.created`, with the key's id).
+
+**Seeing keys.** `GET /api/auth/apikeys` and `GET /api/auth/apikeys/{id}` (need `apikeys.read`) show name, a masked key
+(`ak_3f9c1a2b...`), product, scope, `status` (`Active`, `Expiring` while being rotated out, `Expired`, `Revoked`) and times, never
+the raw key. A key of another tenant, or an unknown id, is **404**, never 403.
+
+**Revoking.** `DELETE /api/auth/apikeys/{id}` (needs `apikeys.manage`) ends a key at once (**204**; again is a no-op). Its next use is
+refused. It touches no person's login: keys and sessions are separate credentials.
+
+**Rotating.** `POST /api/auth/apikeys/{id}/rotate` (needs `apikeys.manage`; body optional `{"graceHours": 24}`, 0 to 720) returns a
+**new raw key once** (**201**) with the **same scope**. The old key keeps working for the grace period (24 hours by default,
+`Auth:ApiKeys:RotationGraceHours`) and then stops; `0` cuts it off at once, for a leaked key. Rotating again never extends an older
+key's life. A revoked or expired key cannot be rotated (**409** `api_key_not_active`). Rotation is audit-logged (`auth.apikey.rotated`).
+
+**Checking a key (for products).** A product sends what its client presented to
+`POST /api/auth/apikeys/validate`, with its **service token**: `{"key": "ak_...", "permission": "message.send", "level": "Full"}`
+(`permission` and `level` are optional; `level` defaults to `ReadOnly`).
+
+- **200** returns `{tenantId, keyId, name, applicationId, permissions}`: whose key it is and what it may do. The product must use that
+  tenant and nothing else.
+- **401** `invalid_api_key` for a key that is malformed, unknown, revoked, expired, belongs to a suspended tenant, or was made for
+  **another product**. It is one answer for all of them and means "no credential": a product must refuse the call, never treat it as
+  an anonymous or tenant-less caller.
+- **403** `outside_key_scope` when `permission` is not among the key's permissions at that level or above (a key for no product
+  grants nothing), and `subscription_not_active` when the tenant's subscription to the product is no longer active.
 
 ### Roles
 

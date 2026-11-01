@@ -23,6 +23,10 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<Invitation> Invitations => Set<Invitation>();
 
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+
+    public DbSet<ApiKeyPermission> ApiKeyPermissions => Set<ApiKeyPermission>();
+
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     public DbSet<EmailOutboxMessage> EmailOutbox => Set<EmailOutboxMessage>();

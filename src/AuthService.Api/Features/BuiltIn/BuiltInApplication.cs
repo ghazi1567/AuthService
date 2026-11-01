@@ -10,6 +10,8 @@ public static class PermissionKeys
 {
     public const string SubscriptionsRead = "subscriptions.read";
     public const string AuditRead = "audit.read";
+    public const string ApiKeysRead = "apikeys.read";
+    public const string ApiKeysManage = "apikeys.manage";
     public const string MembersRead = "members.read";
     public const string MembersManage = "members.manage";
     public const string MembersInvite = "members.invite";
@@ -48,6 +50,8 @@ public static class BuiltInApplication
     [
         new(PermissionKeys.SubscriptionsRead, "View subscriptions", "See which products the tenant is subscribed to, and how many seats are used."),
         new(PermissionKeys.AuditRead, "View the audit log", "Read the tenant's audit entries: who did what, and when."),
+        new(PermissionKeys.ApiKeysRead, "View API keys", "See the tenant's API keys, masked, and what each may do."),
+        new(PermissionKeys.ApiKeysManage, "Manage API keys", "Create, rotate and revoke the tenant's API keys."),
         new(PermissionKeys.MembersRead, "View members", "See who belongs to the tenant, their roles and the products they use."),
         new(PermissionKeys.MembersManage, "Manage members", "Enable and disable the memberships of the tenant's people."),
         new(PermissionKeys.MembersInvite, "Invite members", "Invite people into the tenant by email, with their first roles and product access."),
