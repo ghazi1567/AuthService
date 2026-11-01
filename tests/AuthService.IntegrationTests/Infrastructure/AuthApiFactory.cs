@@ -40,6 +40,12 @@ public sealed class AuthApiFactory(string connectionString, HarnessOptions optio
                 // plants old entries and calls the job itself cannot race the worker; the worker has its own test.
                 ["Auth:Audit:RetentionEnabled"] = "false",
 
+                // The webhook worker is off by default so queued events stay put for the tests that look at them; the tests about
+                // delivery turn it on and swap in a fake receiver. Callbacks may be plain http, as a test product has no certificate.
+                ["Auth:Webhooks:DispatcherEnabled"] = "false",
+                ["Auth:Webhooks:DispatchIntervalMilliseconds"] = "50",
+                ["Auth:Webhooks:AllowPrivateAddresses"] = "true",
+
                 // Likewise for password reset: no cooldown between requests and a high per-IP limit by default.
                 ["Auth:PasswordReset:RequestCooldownSeconds"] = "0",
                 ["Auth:PasswordReset:IpLimit"] = "1000",

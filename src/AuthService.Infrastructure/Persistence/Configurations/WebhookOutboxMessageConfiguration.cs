@@ -18,6 +18,8 @@ public sealed class WebhookOutboxMessageConfiguration : IEntityTypeConfiguration
         builder.Property(message => message.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(message => message.Attempts).IsRequired();
         builder.Property(message => message.NextAttemptAt).IsRequired();
+        builder.Property(message => message.DeadlineAt).IsRequired();
+        builder.Property(message => message.DeliveredAt);
         builder.Property(message => message.LastError).HasMaxLength(500);
         builder.Property(message => message.CreatedAt).IsRequired();
 

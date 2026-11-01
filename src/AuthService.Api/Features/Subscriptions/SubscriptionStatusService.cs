@@ -1,8 +1,9 @@
-using System.Text.Json;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.Webhooks;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AuthService.Api.Features.Subscriptions;
 
@@ -48,9 +49,9 @@ public static class SubscriptionStatusValidator
 /// SUB-02: a product suspends or cancels a tenant's access to it. New access stops at the next token exchange (TOK-01); tokens
 /// already issued are not revoked and run out within their short life. Who has a seat is kept, so reinstating restores everyone.
 /// </summary>
-public sealed class SubscriptionStatusService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
+public sealed class SubscriptionStatusService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider, IOptions<WebhookOptions> webhookOptions)
 {
-    public const string ApplicationUnsubscribedEvent = "ApplicationUnsubscribed";
+    public const string ApplicationUnsubscribedEvent = WebhookEvents.ApplicationUnsubscribed;
 
     public async Task<SetSubscriptionStatusResult> SetAsync(
         Guid applicationId, Guid tenantId, SubscriptionStatus status, CancellationToken cancellationToken)
@@ -80,25 +81,15 @@ public sealed class SubscriptionStatusService(AuthDbContext db, AuditLog audit, 
         subscription.UpdatedAt = now;
 
         // The event is written with the change, so the product is told if and only if the change happened.
-        var eventId = Guid.CreateVersion7();
-        db.WebhookOutbox.Add(new WebhookOutboxMessage
+        db.WebhookOutbox.Add(WebhookEvents.Create(applicationId, ApplicationUnsubscribedEvent, now, webhookOptions.Value.RetryWindowHours, eventId => new
         {
-            Id = eventId,
-            ApplicationId = applicationId,
-            EventType = ApplicationUnsubscribedEvent,
-            PayloadJson = JsonSerializer.Serialize(new
-            {
-                eventId,
-                eventType = ApplicationUnsubscribedEvent,
-                occurredAt = now,
-                tenantId,
-                applicationId,
-                status = status.ToString(),
-            }),
-            Status = WebhookStatus.Pending,
-            NextAttemptAt = now,
-            CreatedAt = now,
-        });
+            eventId,
+            eventType = ApplicationUnsubscribedEvent,
+            occurredAt = now,
+            tenantId,
+            applicationId,
+            status = status.ToString(),
+        }));
 
         var applicationKey = await db.Applications.AsNoTracking()
             .Where(application => application.Id == applicationId)

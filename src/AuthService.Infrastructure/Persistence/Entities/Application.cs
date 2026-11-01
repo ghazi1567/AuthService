@@ -33,5 +33,17 @@ public sealed class Application
     /// </summary>
     public bool IsBuiltIn { get; set; }
 
+    /// <summary>
+    /// Where the product wants to be told about subscriptions and cancellations (SUB-06). Registered by the product itself with its
+    /// service token. Null until it does, and events wait until then.
+    /// </summary>
+    public string? WebhookUrl { get; set; }
+
+    /// <summary>
+    /// The key events to this product are signed with, encrypted the same way signing keys are. Unlike a client secret it cannot
+    /// be a hash, since the service must use it; the product is shown it once, when it is created or rotated.
+    /// </summary>
+    public string? WebhookSecretProtected { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }

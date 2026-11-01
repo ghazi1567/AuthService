@@ -90,6 +90,9 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Tokens:ServiceTokenMinutes` | How long a product's service token is valid. Default 10. |
 | `Auth:Tokens:ProductTokenMinutes` | How long a product token (token exchange) is valid. Default 15. It bounds how stale the permissions inside can get. |
 | `Auth:Invitations:TokenDays` | How long an invitation link works. Default 7. |
+| `Auth:Webhooks:RetryWindowHours` / `RetryDelaySeconds` / `TimeoutSeconds` | How long a webhook is retried (default 24 hours), the delays between tries (default 1 min, 5 min, 30 min, 2 h, 6 h, 12 h) and how long to wait for a product to answer (10 s). |
+| `Auth:Webhooks:AllowPrivateAddresses` | Allows plain `http` and private callback addresses. Development and tests only; default off. |
+| `Auth:Webhooks:DispatcherEnabled` | Turns the webhook worker off, so events wait. Default on. |
 | `Auth:Applications:SecretGraceHours` | How long a product's old client secret keeps working after a rotation. Default 24. |
 | `Auth:Applications:TokenIpLimit` / `TokenIpWindowMinutes` | How many service-token requests one IP may make per window, across all products, before getting 429. Default 60 per minute. |
 | `Auth:LoginProtection:IpLimit` / `IpWindowMinutes` | How many login requests one IP may make per window, across all accounts, before getting 429. Default 20 per minute. |
@@ -325,9 +328,52 @@ tenants to itself. A tenant's own people cannot subscribe themselves (403).
   Active again on the limit it sends, reusing its one row.
 - **The Owner gets access at once**, and counts as the first seat. Other members get access later (SUB-05).
 - **An `ApplicationSubscribed` event is queued for the product** in the `webhook_outbox` table, in the same transaction as the
-  subscription: if the subscription fails, no event exists. Its id is the event id the product deduplicates on. Signed delivery with
-  retries, and the product's callback URL, arrive with SUB-06; until then events wait in the outbox.
+  subscription: if the subscription fails, no event exists. Its id is the event id the product deduplicates on. Delivery is
+  described under "Webhooks to products" below.
 - Subscribing is audit-logged with the product as the actor and the tenant it concerns.
+
+#### Webhooks to products
+
+When a tenant is subscribed (`ApplicationSubscribed`), or suspended or cancelled (`ApplicationUnsubscribed`, with the new `status`),
+the service tells the product. Events are written to the `webhook_outbox` table in the same transaction as the change, so an event
+exists if and only if the change does, and a background worker delivers them.
+
+**Registering where to send them.** A product calls, with its **service token**:
+
+- `PUT /api/auth/applications/me/webhook` with `{"url": "https://hooks.example.com/auth", "rotateSecret": false}`. The URL must be
+  **https** and a **public** address: `http`, `localhost`, private, link-local and `.internal` hosts, credentials and fragments are
+  **400**, and the address is checked again when it is called, so a name cannot later be pointed inside a network
+  (`Auth:Webhooks:AllowPrivateAddresses` relaxes this for development only). The first call creates the product's **signing
+  secret** (`whsec_...`) and returns it **once**, with `Cache-Control: no-store`; later calls return none unless
+  `"rotateSecret": true`, which replaces the secret at once (later events are signed with the new one). It is stored encrypted, never
+  logged, and never recorded in the audit log.
+- `GET /api/auth/applications/me/webhook` returns the URL and whether a secret exists.
+
+**What the product receives.** A `POST` with the JSON body (it holds `eventId`, `eventType`, `occurredAt`, `tenantId`,
+`applicationId` and the event's details) and these headers:
+
+| Header | Value |
+|---|---|
+| `X-Auth-Event-Id` | The event id, the same on every retry. **Use it to drop duplicates**: delivery is at-least-once. |
+| `X-Auth-Event-Type` | `ApplicationSubscribed` or `ApplicationUnsubscribed`. |
+| `X-Auth-Timestamp` | When this attempt was made, in Unix seconds. Reject one that is too old to stop replays. |
+| `X-Auth-Signature` | `v1=` and the lowercase hex HMAC-SHA256, with the signing secret, of `{timestamp}.{body}`. |
+
+Any **2xx** answer is success. Anything else (another status, a redirect, which is never followed, a timeout or a connection error)
+is a failure.
+
+**Retries.** A failed delivery is retried after 1 minute, 5 minutes, 30 minutes, 2 hours, 6 hours and then every 12 hours, until the
+event's **24-hour deadline** (`Auth:Webhooks:RetryWindowHours`). One last attempt is made at the deadline and then the event is
+marked **Failed**. An event whose product has registered no URL waits, and fails the same way if none arrives within the 24 hours.
+Several instances can run at once without delivering one event twice at the same time. Logs name only ids and outcomes, never a URL.
+
+**Platform admins** see and resend them:
+
+- `GET /api/auth/admin/webhooks` lists events newest first with `status` (Pending, Delivered or Failed), `attempts`, `lastError`
+  (such as `HTTP 503`), times and the product. Filters `status` and `applicationId`; `limit` 1 to 200 and the returned `next` values
+  as `before` and `beforeId` for paging.
+- `POST /api/auth/admin/webhooks/{id}/resend` puts a **Failed** event back in the queue with a fresh 24 hours (anything else is
+  **409** `webhook_not_failed`, an unknown id **404**). It is audit-logged (`auth.webhook.resent`).
 
 ### Roles
 

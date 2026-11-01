@@ -20,6 +20,7 @@ using AuthService.Api.Features.Refresh;
 using AuthService.Api.Features.Roles;
 using AuthService.Api.Features.Signup;
 using AuthService.Api.Features.Subscriptions;
+using AuthService.Api.Features.Webhooks;
 using AuthService.Api.Features.TokenExchange;
 using AuthService.Api.Features.Tenants;
 using AuthService.Api.Tokens;
@@ -72,6 +73,12 @@ builder.Services.AddSingleton<IEmailSender>(EmailSenderFactory.Create);
 builder.Services.AddScoped<EmailOutbox>();
 builder.Services.AddScoped<EmailDeliveryService>();
 builder.Services.AddHostedService<EmailDispatcher>();
+
+// Webhooks to products (SUB-06): signed, delivered from the outbox with retries.
+builder.Services.Configure<WebhookOptions>(builder.Configuration.GetSection(WebhookOptions.SectionName));
+builder.Services.AddWebhookHttpClient();
+builder.Services.AddScoped<WebhookDeliveryService>();
+builder.Services.AddHostedService<WebhookDispatcher>();
 
 // Login protection (TEN-12).
 builder.Services.Configure<LoginProtectionOptions>(builder.Configuration.GetSection(LoginProtectionOptions.SectionName));
@@ -226,6 +233,7 @@ app.MapPasswordReset();
 app.MapJwks();
 app.MapServiceToken();
 app.MapCurrentApplication();
+app.MapWebhookConfig();
 app.MapListApplications();
 app.MapSubscriptions();
 app.MapTokenExchange();
@@ -242,6 +250,7 @@ var admin = app.MapAdminGroup();
 admin.MapSigningKeyAdmin();
 admin.MapAuditAdmin();
 admin.MapApplicationsAdmin();
+admin.MapWebhooksAdmin();
 
 app.Run();
 
