@@ -77,6 +77,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Audit:RetentionDays` / `RetentionCheckSeconds` / `RetentionEnabled` | How long audit entries are kept (default 365 days), how often the cleanup job runs (default every 86,400 s, once a day, and once at startup), and whether it runs at all. |
 | `Auth:Tokens:SigningKeyRefreshSeconds` | How often each instance reloads the keys and checks whether it is time to rotate. Default 60. |
 | `Auth:Tokens:Issuer` | `iss` claim of issued tokens. Default `AuthService`. |
+| `Auth:Proxy:TrustedProxies` / `TrustedNetworks` / `ForwardLimit` | The reverse proxies in front of the service: addresses (`10.0.0.5`) and/or ranges (`10.0.0.0/8`), as arrays (`Auth__Proxy__TrustedProxies__0`). Only from these is `X-Forwarded-For` believed, and then the client address replaces the proxy's in per-IP rate limits and audit entries; from any other address the header is ignored. `ForwardLimit` (default 1, 1 to 10) is how many hops, counted from the right, to believe. **Leave unset if nothing sits in front, and set it whenever something does**: a typo stops the service from starting. |
 | `Auth:Tokens:AccessTokenMinutes` | Identity access token lifetime. Default 15. |
 | `Auth:Tokens:RefreshTokenDays` | Refresh token lifetime. Default 30. |
 | `Email:Provider` | Who sends email: `Brevo`, `File` (writes each email to a file) or `InMemory` (tests). **Required outside Development and Testing**, where it defaults to `File` and `InMemory`. |
@@ -148,8 +149,8 @@ Login is protected against password guessing in two ways:
   during a lock neither count nor extend it, and a right password clears the count. The check costs the same time whether or
   not the account is locked or exists.
 - **Per IP address:** one address may make a limited number of login requests per minute across all accounts, then gets 429
-  with `Retry-After`. Behind a reverse proxy this sees the proxy's address until forwarded headers are configured for the
-  deployment.
+  with `Retry-After`. Behind a reverse proxy, list the proxy in `Auth:Proxy` (see Configuration) so this is the client's address and not the
+  proxy's.
 
 The lockout is logged by user id, never by email. The audit log (AUD-01) will record it too once it exists, and password
 reset (TEN-10) will clear the count.
@@ -177,8 +178,8 @@ accepted, and reads of the tenant's own log. API-key events are recorded when th
   The application's own database user can still change the triggers, so for stronger protection give it `INSERT` and `SELECT`
   only on this table and run the retention job as a separate role.
 - **Kept for a year.** A daily job deletes entries older than `Auth:Audit:RetentionDays` (365).
-- **The IP is the caller's as the service sees it**: behind a reverse proxy, the proxy's address, until forwarded headers are
-  configured for the deployment.
+- **The IP is the caller's**: the connection's address, or, behind a proxy listed in `Auth:Proxy`, the client address it forwards; if the
+  proxy is not listed, the proxy's own address.
 
 A platform admin reads the whole log with `GET /api/auth/admin/audit` (see "Platform admins" below).
 
@@ -739,8 +740,8 @@ A new account starts unverified and cannot log in (403 `email_not_verified`) unt
    email is registered, so it cannot be used to find out which addresses exist. It is limited by a per-account cooldown
    and a per-IP rate limit (429).
 
-Behind a reverse proxy, the per-IP limit sees the proxy's address until forwarded headers are configured for the
-deployment.
+Behind a reverse proxy, list the proxy in `Auth:Proxy` (see Configuration) so the per-IP limit sees the client's address and not
+the proxy's.
 
 ## Adding a migration
 
