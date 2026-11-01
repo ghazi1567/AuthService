@@ -41,6 +41,10 @@ public static class AuditActions
     /// <summary>A tenant admin created a role (ROL-01). The actor is the admin, the tenant is theirs, the detail is the role id.</summary>
     public const string RoleCreated = "auth.role.created";
 
+    /// <summary>A tenant admin changed or deleted a role (ROL-03, ROL-04). The actor is the admin, the tenant is theirs, the detail is the role id.</summary>
+    public const string RoleUpdated = "auth.role.updated";
+    public const string RoleDeleted = "auth.role.deleted";
+
     /// <summary>A tenant admin replaced the roles a member holds (ROL-05). The actor is the admin, the tenant is theirs, the detail is the membership id.</summary>
     public const string MemberRolesChanged = "auth.membership.roles_changed";
 

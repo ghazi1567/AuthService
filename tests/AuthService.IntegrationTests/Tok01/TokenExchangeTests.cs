@@ -15,7 +15,7 @@ namespace AuthService.IntegrationTests.Tok01;
 /// TOK-01 (AUTH-26) Token Exchange, through the real <c>POST /api/auth/token/exchange</c> with the identity token of a logged-in
 /// person. Grants from custom roles arrive with ROL-01, so the cases that need them are placeholders; the built-in Owner role,
 /// which holds Full on a product's whole catalog, is exercised here.
-/// Test method names start with their Test Case ID (TOK_TC2..TOK_TC5, TOK_TC16..TOK_TC18; TOK_TC1 and TOK_TC15 need roles and are in the ROL-01 tests) per the workbook convention.
+/// Test method names start with their Test Case ID (TOK_TC2..TOK_TC4, TOK_TC16..TOK_TC18; TOK_TC1 and TOK_TC15 are in the ROL-01 tests, TOK_TC5 in the ROL-03 tests) per the workbook convention.
 /// </summary>
 public sealed class TokenExchangeTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
 {
@@ -82,9 +82,6 @@ public sealed class TokenExchangeTests(PostgresContainerFixture postgres) : Auth
         forX.Audiences.ShouldBe(["product-x-api"]);
         forY.Audiences.ShouldBe(["product-y-api"]);
     }
-
-    [Fact(Skip = "Enabled once ROL-03 exists: a token issued after a role's permissions change reflects them; an earlier token is unaffected.")]
-    public Task TOK_TC5_ExchangeRightAfterARolesPermissionsChangedReflectsTheChange() => Task.CompletedTask;
 
     [Fact]
     public async Task TOK_TC16_ExchangeWithoutAnAccessGrantIsRejectedWith403()

@@ -21,8 +21,26 @@ public sealed class AuditLogTests(PostgresContainerFixture postgres) : AuthApiTe
     private const string WrongPassword = "not the password";
     private const string NewPassword = "a brand new passphrase";
 
-    [Fact(Skip = "Enabled once ROL-03 (update a role's permissions) exists to produce the event.")]
-    public Task AUD_TC1_UpdatingARolesPermissionsCreatesOneAuditEntry() => Task.CompletedTask;
+    [Fact]
+    public async Task AUD_TC1_UpdatingARolesPermissionsCreatesOneAuditEntry()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var owner = await SignUpVerifiedAsync("Acme Ltd", "owner@acme.com", ct);
+        var token = await TenantTokenAsync((await LoginForTokensAsync("owner@acme.com", ct)).AccessToken, owner.TenantId, ct);
+        var created = await PostAsync("/api/auth/roles",
+            new { name = "Viewer", permissions = new[] { new { applicationId = AuthService.Api.Features.BuiltIn.BuiltInApplication.Id, permission = "roles.read", level = "Full" } } }, token, ct);
+        var roleId = (await created.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct)).GetProperty("id").GetGuid();
+
+        var update = await PatchJsonAsync($"/api/auth/roles/{roleId}",
+            $$"""{"permissions": [{"applicationId": "{{AuthService.Api.Features.BuiltIn.BuiltInApplication.Id}}", "permission": "roles.read", "level": "ReadOnly"}]}""", token, ct);
+
+        update.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await WithDbAsync(async db =>
+        {
+            var entry = await db.AuditEntries.AsNoTracking().SingleAsync(candidate => candidate.Action == AuditActions.RoleUpdated, ct);
+            (entry.ActorId, entry.TenantId, entry.Detail).ShouldBe((owner.UserId, owner.TenantId, roleId.ToString()));
+        });
+    }
 
     [Fact]
     public async Task AUD_TC2_AuditEntriesContainNoPasswordsTokensOrSecrets()

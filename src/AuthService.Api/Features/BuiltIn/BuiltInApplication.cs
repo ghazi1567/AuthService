@@ -9,6 +9,7 @@ public sealed record BuiltInPermission(string Key, string Label, string? Descrip
 public static class PermissionKeys
 {
     public const string SubscriptionsRead = "subscriptions.read";
+    public const string RolesRead = "roles.read";
     public const string RolesManage = "roles.manage";
     public const string RolesAssign = "roles.assign";
     public const string AccessManage = "access.manage";
@@ -42,6 +43,7 @@ public static class BuiltInApplication
     public static readonly IReadOnlyList<BuiltInPermission> Permissions =
     [
         new(PermissionKeys.SubscriptionsRead, "View subscriptions", "See which products the tenant is subscribed to, and how many seats are used."),
+        new(PermissionKeys.RolesRead, "View roles", "See the tenant's roles and what each one grants."),
         new(PermissionKeys.RolesManage, "Manage roles", "Create, change and delete the tenant's roles and decide what each role grants."),
         new(PermissionKeys.RolesAssign, "Assign roles", "Decide which roles each member of the tenant holds."),
         new(PermissionKeys.AccessManage, "Manage product access", "Give members access to the products the tenant subscribes to, which uses a seat, and take it away."),
