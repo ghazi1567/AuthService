@@ -185,6 +185,7 @@ builder.Services.AddScoped<TokenExchangeService>();
 builder.Services.AddScoped<BuiltInApplicationSync>();
 builder.Services.AddScoped<CreateRoleService>();
 builder.Services.AddScoped<AssignRolesService>();
+builder.Services.AddScoped<MemberAccessService>();
 
 var app = builder.Build();
 
@@ -224,6 +225,7 @@ app.MapTokenExchange();
 app.MapTenantProfile();
 app.MapListSubscriptions();
 app.MapRoles();
+app.MapMemberAccess();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
 var admin = app.MapAdminGroup();

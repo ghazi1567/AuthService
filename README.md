@@ -361,6 +361,28 @@ from the member's **next token exchange**; tokens already issued are not changed
   break this.
 - Audit-logged (`auth.membership.roles_changed`, with the membership id).
 
+#### Giving members access to a product (seats)
+
+Having a subscription is not enough for a person to use a product: they also need **access**, which takes one **seat**. Roles only
+decide what they can do once they are in. A tenant admin holding `access.manage` at `Full` (the Owner does) calls, with a
+tenant-admin token:
+
+- `PUT /api/auth/tenants/me/members/{membershipId}/applications/{applicationId}` to give access.
+- `DELETE` on the same path to take it away.
+
+- **Granting** locks the subscription row, counts the seats in use (members whose membership is **Invited or Active** and who have
+  access) and returns **409** `no_seat_available` when none is free, creating nothing. Two requests for the last seat can never both
+  succeed, and a change of the limit (SUB-04) takes turns with them. It returns **201** with `seatsUsed` and `maxSeats`;
+  granting access a member already has is a no-op (**200**).
+- The tenant must have an **Active** subscription to the product, otherwise **400** `application_not_subscribed` (an unknown
+  product, an unsubscribed one, a suspended one and the Auth Service's own product all give the same answer). A **Disabled**
+  membership cannot be given access (**409** `membership_disabled`).
+- A membership of another tenant, or one that does not exist, is **404**, never 403.
+- **Revoking** is always allowed, even on a suspended subscription, so seats can be freed. It returns **204**, also when there was
+  nothing to revoke. It takes effect at the member's **next token exchange**, which is refused for a product without access.
+- Changing a member's roles never changes seat usage; neither does editing what a role grants.
+- Both calls are audit-logged (`auth.membership.access_granted` / `access_revoked`) with the detail `membership-id.product-key`.
+
 #### Listing a tenant's subscriptions
 
 A tenant admin sees the tenant's subscriptions with `GET /api/auth/tenants/me/subscriptions`, called with a **tenant-admin token**
