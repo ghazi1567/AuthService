@@ -10,6 +10,7 @@ public static class PermissionKeys
 {
     public const string SubscriptionsRead = "subscriptions.read";
     public const string RolesManage = "roles.manage";
+    public const string RolesAssign = "roles.assign";
 }
 
 /// <summary>
@@ -41,5 +42,6 @@ public static class BuiltInApplication
     [
         new(PermissionKeys.SubscriptionsRead, "View subscriptions", "See which products the tenant is subscribed to, and how many seats are used."),
         new(PermissionKeys.RolesManage, "Manage roles", "Create, change and delete the tenant's roles and decide what each role grants."),
+        new(PermissionKeys.RolesAssign, "Assign roles", "Decide which roles each member of the tenant holds."),
     ];
 }
