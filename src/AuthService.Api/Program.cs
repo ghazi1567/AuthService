@@ -12,6 +12,7 @@ using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Jwks;
 using AuthService.Api.Features.Login;
+using AuthService.Api.Features.Members;
 using AuthService.Api.Features.Logout;
 using AuthService.Api.Features.PasswordReset;
 using AuthService.Api.Features.Refresh;
@@ -187,6 +188,7 @@ builder.Services.AddScoped<CreateRoleService>();
 builder.Services.AddScoped<ManageRolesService>();
 builder.Services.AddScoped<AssignRolesService>();
 builder.Services.AddScoped<MemberAccessService>();
+builder.Services.AddScoped<MembersService>();
 
 var app = builder.Build();
 
@@ -227,6 +229,7 @@ app.MapTenantProfile();
 app.MapListSubscriptions();
 app.MapRoles();
 app.MapMemberAccess();
+app.MapMembers();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
 var admin = app.MapAdminGroup();
