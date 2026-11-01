@@ -48,6 +48,10 @@ public static class AuditActions
     /// <summary>A tenant admin replaced the roles a member holds (ROL-05). The actor is the admin, the tenant is theirs, the detail is the membership id.</summary>
     public const string MemberRolesChanged = "auth.membership.roles_changed";
 
+    /// <summary>A tenant admin disabled or re-enabled a member's membership (TEN-07). The actor is the admin, the tenant is theirs, the detail is the membership id.</summary>
+    public const string MemberDisabled = "auth.membership.disabled";
+    public const string MemberEnabled = "auth.membership.enabled";
+
     /// <summary>A tenant admin gave a member access to a product, or took it away (SUB-05). The actor is the admin, the tenant is theirs, the detail is <c>membership-id.product-key</c>.</summary>
     public const string MemberAccessGranted = "auth.membership.access_granted";
     public const string MemberAccessRevoked = "auth.membership.access_revoked";

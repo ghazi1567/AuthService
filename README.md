@@ -344,6 +344,28 @@ A tenant defines its own roles, and a role grants **permissions at a level**. `P
   requested product, at the **highest** level any of them grants (there are no deny rules). Nothing from another product or tenant
   is in the token.
 
+#### Members: listing, enabling and disabling
+
+Called with a **tenant-admin token**; both act only on the token's tenant. A membership of another tenant, or one that does not
+exist, is always **404**.
+
+- **`GET /api/auth/tenants/me/members`** (needs `members.read`, ReadOnly) lists the tenant's people by email:
+  `{membershipId, email, displayName, status, roles, applications, createdAt}`, where `applications` are the products they have a
+  seat in. Invited people are included.
+- **`PATCH /api/auth/tenants/me/members/{membershipId}`** (needs `members.manage`, Full) with `{"status": "Disabled"}` or
+  `{"status": "Active"}`. Anything else is **400**; setting the status a member already has is a no-op.
+  - **Only this tenant's membership changes.** The same person's memberships elsewhere are untouched, and their roles, product
+    access and history are all kept, so enabling restores them as they were. A disabled member cannot exchange a token for this
+    tenant (the next exchange is refused); tokens already issued run out within 15 minutes.
+  - **Disabling frees their seats** in every product at once (a Disabled member's access row stays but uses no seat).
+  - **Enabling re-checks every product they have access to against its seat limit.** If any has no free seat the answer is **409**
+    `no_seat_available`, naming the product(s), and the member stays Disabled. Free a seat or raise the limit, then try again.
+  - An **Invited** person becomes Active by accepting the invitation, not by being enabled (**409** `membership_invited`), but an
+    invitation can be withdrawn by disabling it.
+  - **Owners are protected, as with roles:** only an Owner can disable an Owner (**403** `owner_role_restricted`), and the last
+    active Owner cannot be disabled (**409** `last_owner`).
+  - Audit-logged (`auth.membership.disabled` / `enabled`, with the membership id).
+
 #### Listing, changing and deleting roles
 
 All three are called with a **tenant-admin token** and act only on the token's tenant. A role of another tenant, or one that does
