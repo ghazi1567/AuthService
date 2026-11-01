@@ -20,6 +20,9 @@ public sealed class Invitation
 
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>When the link was last emailed: at invitation, and again at each resend. A resend is refused for a short time after.</summary>
+    public DateTimeOffset LastSentAt { get; set; }
+
     public DateTimeOffset ExpiresAt { get; set; }
 
     /// <summary>Set when the invitation is accepted. Null while it can still be used.</summary>

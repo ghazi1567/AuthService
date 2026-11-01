@@ -69,6 +69,7 @@ public static class AuditActions
     /// <summary>A tenant admin invited a person, and the person accepted (TEN-08). The tenant is the inviting one, the detail is the membership id.</summary>
     public const string InvitationSent = "auth.invitation.sent";
     public const string InvitationAccepted = "auth.invitation.accepted";
+    public const string InvitationResent = "auth.invitation.resent";
 
     /// <summary>A tenant admin gave a member access to a product, or took it away (SUB-05). The actor is the admin, the tenant is theirs, the detail is <c>membership-id.product-key</c>.</summary>
     public const string MemberAccessGranted = "auth.membership.access_granted";

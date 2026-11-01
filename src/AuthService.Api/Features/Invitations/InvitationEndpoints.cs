@@ -14,9 +14,15 @@ public static class InvitationEndpoints
 
     public const string AcceptRoute = "/api/auth/invitations/accept";
 
+    public static string ResendRouteFor(Guid membershipId) => $"{InviteRoute}/{membershipId}/resend";
+
     public static IEndpointRouteBuilder MapInvitations(this IEndpointRouteBuilder app)
     {
         app.MapPost(InviteRoute, InviteAsync).RequireTenantPermission(PermissionKeys.MembersInvite, AccessLevel.Full);
+
+        // Who has not accepted yet is part of knowing who is in the tenant, so it takes the same permission as the member list.
+        app.MapGet(InviteRoute, ListPendingAsync).RequireTenantPermission(PermissionKeys.MembersRead, AccessLevel.ReadOnly);
+        app.MapPost($"{InviteRoute}/{{membershipId:guid}}/resend", ResendAsync).RequireTenantPermission(PermissionKeys.MembersInvite, AccessLevel.Full);
 
         // Open to anyone holding a link. A new person has no account to log in to; an existing one is checked inside.
         app.MapPost(AcceptRoute, AcceptAsync).AllowAnonymous();
@@ -54,6 +60,39 @@ public static class InvitationEndpoints
 
             _ => ApiProblem.Create(StatusCodes.Status404NotFound, "not_found", "Not found", "A role was not found in this tenant."),
         };
+    }
+
+    private static async Task<IResult> ListPendingAsync(ClaimsPrincipal caller, ManageInvitationsService invitations, CancellationToken cancellationToken)
+    {
+        // The tenant comes only from the verified token, never from the request.
+        var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
+        return Results.Ok(await invitations.ListPendingAsync(tenantId, cancellationToken));
+    }
+
+    private static async Task<IResult> ResendAsync(
+        Guid membershipId, ClaimsPrincipal caller, HttpContext httpContext, ManageInvitationsService invitations, CancellationToken cancellationToken)
+    {
+        var userId = caller.GetUserId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a user id.");
+        var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
+        var result = await invitations.ResendAsync(userId, tenantId, membershipId, cancellationToken);
+
+        switch (result)
+        {
+            case ResendInvitationResult.Resent resent:
+                return Results.Ok(resent.Invitation);
+
+            case ResendInvitationResult.TooSoon tooSoon:
+                httpContext.Response.Headers.RetryAfter = tooSoon.RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return ApiProblem.Create(StatusCodes.Status429TooManyRequests, "resend_too_soon", "Sent a moment ago",
+                    "This invitation was emailed a moment ago. Try again shortly.");
+
+            case ResendInvitationResult.NotPending:
+                return ApiProblem.Create(StatusCodes.Status409Conflict, "invitation_not_pending", "Not waiting to be accepted",
+                    "This person has already accepted, or was not invited.");
+
+            default:
+                return ApiProblem.Create(StatusCodes.Status404NotFound, "not_found", "Not found", "No such invitation in this tenant.");
+        }
     }
 
     private static async Task<IResult> AcceptAsync(AcceptInvitationRequest request, HttpContext httpContext, AcceptInvitationService accept, CancellationToken cancellationToken)

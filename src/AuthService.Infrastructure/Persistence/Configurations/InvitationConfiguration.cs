@@ -25,6 +25,7 @@ public sealed class InvitationConfiguration : IEntityTypeConfiguration<Invitatio
         builder.HasIndex(invitation => invitation.MembershipId);
 
         builder.Property(invitation => invitation.CreatedAt).IsRequired();
+        builder.Property(invitation => invitation.LastSentAt).IsRequired();
         builder.Property(invitation => invitation.ExpiresAt).IsRequired();
     }
 }
