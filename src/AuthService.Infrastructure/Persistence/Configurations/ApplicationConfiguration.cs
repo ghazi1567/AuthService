@@ -29,6 +29,8 @@ public sealed class ApplicationConfiguration : IEntityTypeConfiguration<Applicat
 
         builder.Property(application => application.IsActive).IsRequired();
         builder.Property(application => application.IsBuiltIn).IsRequired().HasDefaultValue(false);
+        builder.Property(application => application.WebhookUrl).HasMaxLength(2000);
+        builder.Property(application => application.WebhookSecretProtected).HasMaxLength(500);
         builder.Property(application => application.CreatedAt).IsRequired();
     }
 }

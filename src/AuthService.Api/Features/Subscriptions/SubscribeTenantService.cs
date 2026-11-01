@@ -1,9 +1,10 @@
-using System.Text.Json;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.Webhooks;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Configurations;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AuthService.Api.Features.Subscriptions;
 
@@ -35,9 +36,9 @@ public abstract record SubscribeResult
 }
 
 /// <summary>SUB-01: subscribes a tenant to the product that is calling, and tells that product about it.</summary>
-public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
+public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider, IOptions<WebhookOptions> webhookOptions)
 {
-    public const string ApplicationSubscribedEvent = "ApplicationSubscribed";
+    public const string ApplicationSubscribedEvent = WebhookEvents.ApplicationSubscribed;
 
     public async Task<SubscribeResult> SubscribeAsync(Guid applicationId, Guid tenantId, int? maxSeats, CancellationToken cancellationToken)
     {
@@ -104,25 +105,15 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
         await GrantOwnersAccessAsync(tenantId, applicationId, now, cancellationToken);
 
         // The event is written with the change, so it exists if and only if the subscription does.
-        var eventId = Guid.CreateVersion7();
-        db.WebhookOutbox.Add(new WebhookOutboxMessage
+        db.WebhookOutbox.Add(WebhookEvents.Create(applicationId, ApplicationSubscribedEvent, now, webhookOptions.Value.RetryWindowHours, eventId => new
         {
-            Id = eventId,
-            ApplicationId = applicationId,
-            EventType = ApplicationSubscribedEvent,
-            PayloadJson = JsonSerializer.Serialize(new
-            {
-                eventId,
-                eventType = ApplicationSubscribedEvent,
-                occurredAt = now,
-                tenantId,
-                applicationId,
-                maxSeats,
-            }),
-            Status = WebhookStatus.Pending,
-            NextAttemptAt = now,
-            CreatedAt = now,
-        });
+            eventId,
+            eventType = ApplicationSubscribedEvent,
+            occurredAt = now,
+            tenantId,
+            applicationId,
+            maxSeats,
+        }));
 
         audit.Record(AuditActions.TenantSubscribed, AuditActor.Product(applicationId), tenantId, application.Key);
 

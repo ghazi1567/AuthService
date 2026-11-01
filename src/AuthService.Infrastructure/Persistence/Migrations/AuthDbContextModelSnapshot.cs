@@ -67,6 +67,16 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<string>("WebhookSecretProtected")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("webhook_secret_protected");
+
+                    b.Property<string>("WebhookUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("webhook_url");
+
                     b.HasKey("Id")
                         .HasName("pk_applications");
 
@@ -867,6 +877,14 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("DeadlineAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deadline_at");
+
+                    b.Property<DateTimeOffset?>("DeliveredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivered_at");
 
                     b.Property<string>("EventType")
                         .IsRequired()

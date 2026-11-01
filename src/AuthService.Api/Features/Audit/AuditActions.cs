@@ -41,6 +41,12 @@ public static class AuditActions
     /// <summary>A product subscribed a tenant to itself (SUB-01). The actor is the product, the tenant is the subscribed tenant, the detail is the product's key.</summary>
     public const string TenantSubscribed = "auth.subscription.subscribed";
 
+    /// <summary>A product registered or changed its webhook callback (SUB-06). The actor is the product, the detail is its key. The secret is never recorded.</summary>
+    public const string WebhookConfigured = "auth.application.webhook_configured";
+
+    /// <summary>A platform admin sent a failed webhook again (SUB-06). The detail is the webhook id.</summary>
+    public const string WebhookResent = "auth.webhook.resent";
+
     /// <summary>A tenant admin created a role (ROL-01). The actor is the admin, the tenant is theirs, the detail is the role id.</summary>
     public const string RoleCreated = "auth.role.created";
 

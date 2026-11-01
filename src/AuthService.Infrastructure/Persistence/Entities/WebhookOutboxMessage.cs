@@ -29,6 +29,15 @@ public sealed class WebhookOutboxMessage
 
     public DateTimeOffset NextAttemptAt { get; set; }
 
+    /// <summary>
+    /// Delivery is retried until this time (24 hours after the event, or after a resend) and then given up on as Failed. The last
+    /// attempt is made at the deadline itself.
+    /// </summary>
+    public DateTimeOffset DeadlineAt { get; set; }
+
+    public DateTimeOffset? DeliveredAt { get; set; }
+
+    /// <summary>What went wrong last time, as a short code such as <c>HTTP 503</c>. Never a response body or the product's URL.</summary>
     public string? LastError { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
