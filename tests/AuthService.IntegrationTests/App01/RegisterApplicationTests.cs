@@ -39,7 +39,7 @@ public sealed class RegisterApplicationTests(PostgresContainerFixture postgres) 
 
         await WithDbAsync(async db =>
         {
-            var application = await db.Applications.AsNoTracking().SingleAsync(ct);
+            var application = await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).SingleAsync(ct);
             application.Id.ShouldBe(created.Id);
             application.IsActive.ShouldBeFalse();
             application.ClientId.ShouldBe(created.ClientId);
@@ -145,7 +145,7 @@ public sealed class RegisterApplicationTests(PostgresContainerFixture postgres) 
         {
             var stored = JsonSerializer.Serialize(new
             {
-                applications = await db.Applications.AsNoTracking().ToListAsync(ct),
+                applications = await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).ToListAsync(ct),
                 secrets = await db.ApplicationSecrets.AsNoTracking().ToListAsync(ct),
                 audit = await db.AuditEntries.AsNoTracking().ToListAsync(ct),
             });
@@ -213,7 +213,7 @@ public sealed class RegisterApplicationTests(PostgresContainerFixture postgres) 
     {
         var counts = (Applications: 0, Secrets: 0);
         await WithDbAsync(async db => counts = (
-            await db.Applications.CountAsync(TestContext.Current.CancellationToken),
+            await db.Applications.Where(application => !application.IsBuiltIn).CountAsync(TestContext.Current.CancellationToken),
             await db.ApplicationSecrets.CountAsync(TestContext.Current.CancellationToken)));
         return counts;
     }

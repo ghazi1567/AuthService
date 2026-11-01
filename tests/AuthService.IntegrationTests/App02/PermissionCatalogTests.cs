@@ -43,7 +43,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
 
         await WithDbAsync(async db =>
         {
-            (await db.Applications.AsNoTracking().SingleAsync(ct)).IsActive.ShouldBeTrue();
+            (await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).SingleAsync(ct)).IsActive.ShouldBeTrue();
             (await db.Permissions.CountAsync(ct)).ShouldBe(2);
 
             var registered = await db.AuditEntries.AsNoTracking().SingleAsync(entry => entry.Action == AuditActions.PermissionsRegistered, ct);
@@ -197,7 +197,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
 
         response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await ReadProblemAsync(response, ct)).Code.ShouldBe("no_permissions_registered");
-        await WithDbAsync(async db => (await db.Applications.AsNoTracking().SingleAsync(ct)).IsActive.ShouldBeFalse());
+        await WithDbAsync(async db => (await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).SingleAsync(ct)).IsActive.ShouldBeFalse());
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
         (await deactivate.Content.ReadFromJsonAsync<ApplicationStatusResponse>(Json, ct))!.IsActive.ShouldBeFalse();
         await WithDbAsync(async db =>
         {
-            (await db.Applications.AsNoTracking().SingleAsync(ct)).IsActive.ShouldBeFalse();
+            (await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).SingleAsync(ct)).IsActive.ShouldBeFalse();
 
             // Only the actual changes are audited: one activation, one deactivation.
             (await db.AuditEntries.CountAsync(entry => entry.Action == AuditActions.ApplicationActivated, ct)).ShouldBe(1);
@@ -268,7 +268,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
         await WithDbAsync(async db =>
         {
             (await db.Permissions.CountAsync(ct)).ShouldBe(0);
-            (await db.Applications.AsNoTracking().SingleAsync(ct)).IsActive.ShouldBeFalse();
+            (await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).SingleAsync(ct)).IsActive.ShouldBeFalse();
         });
     }
 

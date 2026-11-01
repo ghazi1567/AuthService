@@ -322,6 +322,18 @@ public abstract class AuthApiTestBase(PostgresContainerFixture postgres) : IAsyn
         return new TestProduct(id, key, clientId, clientSecret, accessToken);
     }
 
+    /// <summary>
+    /// Trades an identity token for a tenant-admin token: a token for the Auth Service's own product in one tenant, which is what
+    /// the tenant-scoped endpoints take (TOK-01 with the built-in application).
+    /// </summary>
+    protected async Task<string> TenantTokenAsync(string identityToken, Guid tenantId, CancellationToken ct)
+    {
+        var response = await PostAsync("/api/auth/token/exchange",
+            new { tenantId, applicationId = AuthService.Api.Features.BuiltIn.BuiltInApplication.Id }, identityToken, ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("accessToken").GetString()!;
+    }
+
     /// <summary>Sends a PATCH with a raw JSON body, for tests that need to say exactly what is on the wire.</summary>
     protected Task<HttpResponseMessage> PatchJsonAsync(string path, string rawJson, string? bearerToken, CancellationToken ct)
     {

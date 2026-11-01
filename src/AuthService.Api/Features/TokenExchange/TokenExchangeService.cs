@@ -51,28 +51,33 @@ public sealed class TokenExchangeService(
 
         var application = await db.Applications.AsNoTracking()
             .Where(candidate => candidate.Id == applicationId && candidate.IsActive)
-            .Select(candidate => new { candidate.JwtAudience })
+            .Select(candidate => new { candidate.JwtAudience, candidate.IsBuiltIn })
             .SingleOrDefaultAsync(cancellationToken);
         if (application is null)
         {
             return new TokenExchangeResult.Denied();
         }
 
-        var subscribed = await db.Subscriptions.AnyAsync(
-            subscription => subscription.TenantId == tenantId && subscription.ApplicationId == applicationId
-                && subscription.Status == SubscriptionStatus.Active, cancellationToken);
-        if (!subscribed)
+        // The Auth Service's own product needs neither a subscription nor a seat: every Active member of a tenant may work in it,
+        // and what they may do there is decided by their roles alone.
+        if (!application.IsBuiltIn)
         {
-            return new TokenExchangeResult.Denied();
-        }
+            var subscribed = await db.Subscriptions.AnyAsync(
+                subscription => subscription.TenantId == tenantId && subscription.ApplicationId == applicationId
+                    && subscription.Status == SubscriptionStatus.Active, cancellationToken);
+            if (!subscribed)
+            {
+                return new TokenExchangeResult.Denied();
+            }
 
-        // Having roles that grant permissions is not enough: the member must also have been given access to the product.
-        var hasAccess = await db.ApplicationAccess.AnyAsync(
-            access => access.TenantId == tenantId && access.MembershipId == membershipId && access.ApplicationId == applicationId,
-            cancellationToken);
-        if (!hasAccess)
-        {
-            return new TokenExchangeResult.Denied();
+            // Having roles that grant permissions is not enough: the member must also have been given access to the product.
+            var hasAccess = await db.ApplicationAccess.AnyAsync(
+                access => access.TenantId == tenantId && access.MembershipId == membershipId && access.ApplicationId == applicationId,
+                cancellationToken);
+            if (!hasAccess)
+            {
+                return new TokenExchangeResult.Denied();
+            }
         }
 
         var permissions = await ResolvePermissionsAsync(tenantId, membershipId.Value, applicationId, cancellationToken);

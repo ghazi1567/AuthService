@@ -43,6 +43,12 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
 
+                    b.Property<bool>("IsBuiltIn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_built_in");
+
                     b.Property<string>("JwtAudience")
                         .IsRequired()
                         .HasMaxLength(200)

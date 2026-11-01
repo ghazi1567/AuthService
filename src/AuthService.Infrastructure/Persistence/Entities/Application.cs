@@ -26,5 +26,12 @@ public sealed class Application
     /// </summary>
     public bool IsActive { get; set; }
 
+    /// <summary>
+    /// True for the Auth Service's own product, which tenant admins use to work on their tenant (roles, members, subscriptions).
+    /// It is created and kept in step by the service itself, is not offered to tenants to subscribe to, has no client credentials
+    /// and cannot be changed through the admin API.
+    /// </summary>
+    public bool IsBuiltIn { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }

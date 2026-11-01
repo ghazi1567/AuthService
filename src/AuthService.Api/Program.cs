@@ -7,6 +7,7 @@ using AuthService.Api.Email.Providers;
 using AuthService.Api.Features.Admin;
 using AuthService.Api.Features.Applications;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.BuiltIn;
 using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Jwks;
@@ -180,12 +181,19 @@ builder.Services.AddScoped<SubscribeTenantService>();
 builder.Services.AddScoped<SeatLimitService>();
 builder.Services.AddScoped<SubscriptionStatusService>();
 builder.Services.AddScoped<TokenExchangeService>();
+builder.Services.AddScoped<BuiltInApplicationSync>();
 
 var app = builder.Build();
 
 // Load the signing keys now, creating the first one on a new database, so a missing key-encryption secret or an unreachable
 // database stops the deployment instead of failing the first login.
 await app.Services.GetRequiredService<SigningKeyService>().RefreshAsync(app.Lifetime.ApplicationStopping);
+
+// The Auth Service's own product and its permission catalog are stored now, so tenant admins can always get a token for it.
+await using (var startupScope = app.Services.CreateAsyncScope())
+{
+    await startupScope.ServiceProvider.GetRequiredService<BuiltInApplicationSync>().SyncAsync(app.Lifetime.ApplicationStopping);
+}
 
 // Likewise, an unsupported or incomplete email provider setting stops the deployment instead of failing the first email.
 app.Services.GetRequiredService<IEmailSender>();
@@ -210,6 +218,7 @@ app.MapCurrentApplication();
 app.MapListApplications();
 app.MapSubscriptions();
 app.MapTokenExchange();
+app.MapTenantProfile();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
 var admin = app.MapAdminGroup();

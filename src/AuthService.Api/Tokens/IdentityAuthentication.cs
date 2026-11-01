@@ -85,6 +85,7 @@ public static class IdentityAuthentication
                 .RequireAssertion(context => context.User.GetApplicationId() is not null));
 
         services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
+        services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
 
         return services;
     }

@@ -241,6 +241,31 @@ entries per request).
   changes are audited.
 - Registering permissions, activating and deactivating are each audit-logged under the admin, with the product's key as the detail.
 
+### Working on a tenant (the built-in Auth Service product)
+
+A tenant's own people (roles, members, subscriptions, invitations) are managed through endpoints under `/api/auth/tenants/me/...`
+and `/api/auth/tenant/me`. These do not take a tenant from the request. They take a **tenant-admin token**: an ordinary product token
+(see "Token exchange") for the **Auth Service's own product**, so the service protects itself the way every other product does.
+
+1. Log in, then call `POST /api/auth/token/exchange` with your `tenantId` and the built-in product's fixed id,
+   `00000000-0000-7000-8000-00000000a07a`.
+2. Send the returned token as `Authorization: Bearer ...`. Its `aud` is `auth-service-tenant`, its `tid` is the tenant, and its
+   `permissions` list what your roles allow in the Auth Service (`key:Level`, as for any product).
+
+- **No subscription and no seat are needed.** Any Active member of a tenant can get this token; what they may do is decided by their
+  roles. The built-in **Owner** role holds Full on the whole catalog.
+- The tenant of every such request is the token's `tid`. A tenant id in the path, query string or body is never read, so it cannot be
+  tampered with. An identity token, another product's token or a service token is refused (403).
+- The product is stored by the service itself at startup (its catalog lives in code and is synced, add-only, like the signing
+  keys). It is not in `GET /api/auth/applications`, has no client credentials, and the admin API treats it as not found, so it
+  cannot be edited, deactivated or given a secret. Its key `auth-service` and audience `auth-service-tenant` cannot be registered by
+  anyone else.
+- A tenant-admin token, like any product token, is not revoked early: a disabled membership or changed role applies at the next
+  exchange (within 15 minutes).
+
+`GET /api/auth/tenant/me` (TEN-05) is the first such endpoint: it returns the profile (`id`, `name`, `status`, `createdAt`) of the
+tenant in the token, and needs no permission beyond belonging to it.
+
 ### Token exchange (product tokens)
 
 A logged-in person gets into one product, in one tenant, by trading their identity session for a **product token**:
