@@ -22,7 +22,7 @@ public sealed partial class AuditLog(AuthDbContext db, IHttpContextAccessor http
         if (detail is not null && !DetailPattern().IsMatch(detail))
         {
             throw new ArgumentException(
-                "An audit detail must be a short code: lowercase letters, digits, dots, underscores and hyphens, at most 64 characters.",
+                "An audit detail must be a short code: lowercase letters, digits, dots, underscores and hyphens, at most 128 characters.",
                 nameof(detail));
         }
 
@@ -39,6 +39,6 @@ public sealed partial class AuditLog(AuthDbContext db, IHttpContextAccessor http
         });
     }
 
-    [GeneratedRegex("^[a-z0-9_.-]{1,64}$")]
+    [GeneratedRegex("^[a-z0-9_.-]{1,128}$")]
     private static partial Regex DetailPattern();
 }

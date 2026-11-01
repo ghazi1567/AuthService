@@ -145,8 +145,8 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasColumnName("actor_type");
 
                     b.Property<string>("Detail")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
                         .HasColumnName("detail");
 
                     b.Property<DateTimeOffset>("OccurredAt")

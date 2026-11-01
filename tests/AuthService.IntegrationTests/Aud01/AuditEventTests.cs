@@ -205,6 +205,16 @@ public sealed class AuditEventTests(PostgresContainerFixture postgres) : AuthApi
         Should.NotThrow(() => audit.Record("test.event", AuditActor.System, detail: "wrong_password.attempt_1"));
     }
 
+    [Fact]
+    public void AUD01_ADetailOfExactly128CharactersIsAcceptedAndOneLongerIsRefused()
+    {
+        using var scope = Harness.CreateScope();
+        var audit = scope.ServiceProvider.GetRequiredService<AuditLog>();
+
+        Should.NotThrow(() => audit.Record("test.event", AuditActor.System, detail: new string('a', 128)));
+        Should.Throw<ArgumentException>(() => audit.Record("test.event", AuditActor.System, detail: new string('a', 129)));
+    }
+
     private async Task<List<AuditEntry>> EntriesAsync(string action)
     {
         List<AuditEntry> entries = [];

@@ -17,7 +17,7 @@ public sealed class AuditEntryConfiguration : IEntityTypeConfiguration<AuditEntr
         builder.Property(entry => entry.ActorId);
         builder.Property(entry => entry.TenantId);
         builder.Property(entry => entry.SourceIp).HasMaxLength(45);
-        builder.Property(entry => entry.Detail).HasMaxLength(64);
+        builder.Property(entry => entry.Detail).HasMaxLength(128);
 
         // No foreign keys on purpose: an audit entry must outlive whatever it refers to.
         builder.HasIndex(entry => entry.OccurredAt);
