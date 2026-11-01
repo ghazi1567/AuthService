@@ -314,6 +314,44 @@ custom roles are merged in once roles exist (ROL).
 Nothing is revoked early: a token already issued stays valid until it expires (a suspension, a revoked seat, a role change or a
 logout take effect at the next exchange). That is by design; the 15-minute life bounds how stale it can get.
 
+#### The authorization package (what a product installs)
+
+A product does not write its own token checks. It installs the **`AuthService.Authorization`** package
+(`src/AuthService.Authorization`, packed as a NuGet package; its own [README](src/AuthService.Authorization/README.md) has the
+details), which checks a product token **locally**, against the keys in the JWKS, with no call to the Auth Service per request:
+
+```csharp
+builder.Services.AddAuthServiceAuthorization(options =>
+{
+    options.Issuer = "AuthService";
+    options.Audience = "whatsapp-saas-api";   // the product's own audience, as registered
+    options.JwksUrl = new Uri("https://auth.example.com/.well-known/jwks.json");
+});
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/campaigns", (ClaimsPrincipal user) => List(user.RequireTenantId())).RequirePermission("campaign.read", AccessLevel.ReadOnly);
+```
+
+- **Accepted:** an ES256 signature from a published key, the Auth Service's issuer, the product's **own audience**, and an unexpired
+  token (30 seconds of clock skew). Everything else is a plain **401** `application/problem+json` (`code: unauthorized`) that says
+  nothing about why: another product's token, an identity or service token, a tampered, expired, unsigned (`alg: none`), HMAC-signed or
+  malformed token, or no token.
+- **Permissions** are checked by level, never by role name: `RequirePermission("campaign.create", AccessLevel.CreateRead)` is met by
+  `CreateRead` or `Full` on that permission, and anything else is **403** `forbidden`. **The tenant** is `User.RequireTenantId()`, the
+  token's `tid`, and must be taken from nothing else.
+- **Keys** are fetched once and refreshed every `KeyCacheMinutes` (10) and when a token names a key the product does not have (at
+  most every `MinimumRefreshSeconds`, 30), which is how a rotation is picked up with no restart. If a refresh fails the last good keys
+  are kept; if the first fetch fails every token is refused (401) and the Auth Service is retried at that interval, not per request.
+- **A forgotten policy fails a test.** `EndpointPolicyAudit.FindEndpointsWithoutPermissionPolicyAsync` lists any endpoint of the
+  product that is not covered by a permission policy, for a test that asserts the list is empty (health checks are passed as exempt).
+- The JWKS URL must be https (`AllowInsecureJwksUrl` is for local development), and a missing audience or URL stops the product at
+  startup rather than at the first request.
+
+The claim contract (`sub`, `tid`, `aud`, `permissions` as `key:Level`) and the package's public API are versioned together under
+semantic versioning (currently 1.0.0): a breaking change to either is a new major version. The tests run a small product API in the
+test process against the running Auth Service (`tests/AuthService.IntegrationTests/Tok03`).
+
 ### Subscriptions
 
 A tenant gets to use a product through a **subscription**. A product subscribes a tenant to itself with
