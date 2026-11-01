@@ -349,8 +349,24 @@ app.MapGet("/campaigns", (ClaimsPrincipal user) => List(user.RequireTenantId()))
   startup rather than at the first request.
 
 The claim contract (`sub`, `tid`, `aud`, `permissions` as `key:Level`) and the package's public API are versioned together under
-semantic versioning (currently 1.0.0): a breaking change to either is a new major version. The tests run a small product API in the
+semantic versioning (currently 1.1.0): a breaking change to either is a new major version. The package judges token lifetimes on a
+`TimeProvider` the product registers (the system clock otherwise), so a test can move time. The tests run a small product API in the
 test process against the running Auth Service (`tests/AuthService.IntegrationTests/Tok03`).
+
+#### Isolation tests (always run)
+
+`tests/AuthService.IntegrationTests/Tok04` runs on every build and fails it if tenants or products stop being separate:
+
+- **Tenant A's token never reaches tenant B's data.** Every tenant-scoped read is checked for B's ids, names and people, every attempt
+  to address B's role, member, seat or key is a `404` that leaves B's data unchanged, and a request that names another tenant in its
+  query, header or body is served from the token's tenant only.
+- **One product's token is rejected by another** (`aud`), and a tenant-admin token does not work at a product or the reverse.
+- **A person in two tenants** cannot use the token for one to act in the other, and being Owner of A gives nothing in B.
+- **A role downgrade** is in the next token the person gets; the token issued before it works until its 15 minutes run out (the
+  documented bound) and is refused after that. Removing a seat stops new tokens at once.
+- **An endpoint inventory**: every endpoint is either on the short reviewed list of anonymous ones or carries an explicit rule, every
+  tenant-scoped one requires a tenant-admin token and takes its tenant from it (never a route value), and everything under
+  `/api/auth/admin` needs a platform admin. A new endpoint added without a decision fails this test.
 
 ### Subscriptions
 

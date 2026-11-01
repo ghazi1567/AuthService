@@ -45,13 +45,18 @@ public sealed class SampleProductApi : IAsyncDisposable
         HttpClient authServiceClient,
         string audience,
         Action<AuthServiceAuthorizationOptions>? configure = null,
-        Action<WebApplication>? addEndpoints = null)
+        Action<WebApplication>? addEndpoints = null,
+        TimeProvider? timeProvider = null)
     {
         var fetches = new KeyFetchHandler(authServiceClient);
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
+        if (timeProvider is not null)
+        {
+            builder.Services.AddSingleton(timeProvider);
+        }
 
         builder.Services.AddAuthServiceAuthorization(options =>
         {

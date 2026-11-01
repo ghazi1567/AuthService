@@ -4,7 +4,7 @@
     <!-- The package a product API installs to enforce Auth Service tokens (TOK-03). Version it like any library: a breaking change
          to the claim contract or the public API is a new major version. -->
     <PackageId>AuthService.Authorization</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <IsPackable>true</IsPackable>
     <Description>Validates Auth Service product tokens locally against the published JWKS, checks the audience, exposes the tenant, and enforces permissions by level.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
