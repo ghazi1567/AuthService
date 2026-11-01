@@ -80,6 +80,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Proxy:TrustedProxies` / `TrustedNetworks` / `ForwardLimit` | The reverse proxies in front of the service: addresses (`10.0.0.5`) and/or ranges (`10.0.0.0/8`), as arrays (`Auth__Proxy__TrustedProxies__0`). Only from these is `X-Forwarded-For` believed, and then the client address replaces the proxy's in per-IP rate limits and audit entries; from any other address the header is ignored. `ForwardLimit` (default 1, 1 to 10) is how many hops, counted from the right, to believe. **Leave unset if nothing sits in front, and set it whenever something does**: a typo stops the service from starting. |
 | `Auth:Tokens:AccessTokenMinutes` | Identity access token lifetime. Default 15. |
 | `Auth:Tokens:RefreshTokenDays` | Refresh token lifetime. Default 30. |
+| `Auth:TokenExchange:UserLimit` / `UserWindowMinutes` | How many token exchanges one signed-in person may make per window before they get 429 with `Retry-After`. Default 30 per 1 minute. |
 | `Email:Provider` | Who sends email: `Brevo`, `File` (writes each email to a file) or `InMemory` (tests). **Required outside Development and Testing**, where it defaults to `File` and `InMemory`. |
 | `Email:BrevoApiKey` | Brevo API key. **Required for `Brevo`.** A secret: pass it as `Email__BrevoApiKey`. |
 | `Email:FromAddress` / `Email:FromName` | Sender of every email. `FromAddress` must be a sender verified with Brevo. |
@@ -295,6 +296,12 @@ It is refused with **403** `exchange_denied` unless **all** of these hold, read 
 3. The membership has an **access grant** (a seat) for the product. Roles that grant permissions are not enough on their own.
 
 Every refusal is the same response, so a caller cannot tell a real tenant or product from an invented one. A missing id is **400**.
+
+**Rate limit.** Each exchange reads the person's membership, subscription and roles from the database, so exchange is limited **per
+signed-in person**: 30 a minute by default (`Auth:TokenExchange:UserLimit`), after which the answer is **429** `rate_limited` with
+`Retry-After` and no token. Refused exchanges count too, so guessing tenant or product ids is limited as well, and an exchange for
+the Auth Service's own product shares the same budget. A person is not penalised for sharing an address with others, and a caller
+with no valid token is limited per IP address instead. A token lasts 15 minutes, so a real person needs a handful an hour.
 
 **The token** lives 15 minutes (`Auth:Tokens:ProductTokenMinutes`) and is signed with the same key as every other token, so a
 product validates it locally against the JWKS. It is for exactly one product and one tenant:
