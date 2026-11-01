@@ -115,8 +115,25 @@ public sealed class TenantSignupTests(PostgresContainerFixture postgres) : AuthA
         });
     }
 
-    [Fact(Skip = "Enabled once ROL-03 (edit role) and ROL-04 (delete role) exist.")]
-    public Task AUTH_TC4_OwnerRoleCannotBeEditedOrDeleted() => Task.CompletedTask;
+    [Fact]
+    public async Task AUTH_TC4_OwnerRoleCannotBeEditedOrDeleted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var owner = await SignUpVerifiedAsync("Acme Ltd", "owner@acme.com", ct);
+        var token = await TenantTokenAsync((await LoginForTokensAsync("owner@acme.com", ct)).AccessToken, owner.TenantId, ct);
+        Guid ownerRoleId = Guid.Empty;
+        await WithDbAsync(async db => ownerRoleId = (await db.Roles.AsNoTracking().SingleAsync(role => role.TenantId == owner.TenantId, ct)).Id);
+
+        var edit = await PatchJsonAsync($"/api/auth/roles/{ownerRoleId}", """{"name": "Boss"}""", token, ct);
+        var delete = await Client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/auth/roles/{ownerRoleId}")
+        {
+            Headers = { Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token) },
+        }, ct);
+
+        edit.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        delete.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        await WithDbAsync(async db => (await db.Roles.AsNoTracking().SingleAsync(role => role.Id == ownerRoleId, ct)).Name.ShouldBe("Owner"));
+    }
 
     [Fact]
     public async Task AUTH_TC15_SignUpWithEmailDifferingOnlyInCaseAndWhitespaceIsRejectedWith409()

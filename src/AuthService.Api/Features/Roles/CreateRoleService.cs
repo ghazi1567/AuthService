@@ -1,5 +1,4 @@
 using AuthService.Api.Features.Audit;
-using AuthService.Api.Features.BuiltIn;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Configurations;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -8,7 +7,7 @@ using Npgsql;
 
 namespace AuthService.Api.Features.Roles;
 
-/// <summary>One permission a new role should grant, and at what level. Nullable so a missing field is a validation error.</summary>
+/// <summary>One permission a role should grant, and at what level. Nullable so a missing field is a validation error.</summary>
 public sealed record RoleGrantInput(Guid? ApplicationId, string? Permission, string? Level);
 
 /// <summary>Body of <c>POST /api/auth/roles</c>.</summary>
@@ -43,20 +42,42 @@ public static class RoleValidator
         errors = [];
         valid = null;
 
-        var name = request.Name?.Trim();
-        if (string.IsNullOrEmpty(name))
+        var name = ValidateName(request.Name, errors);
+        var grants = ValidateGrants(request.Permissions ?? [], errors);
+        if (errors.Count > 0)
         {
-            errors[nameof(CreateRoleRequest.Name)] = ["Name is required."];
-        }
-        else if (name.Length > MaxNameLength)
-        {
-            errors[nameof(CreateRoleRequest.Name)] = [$"Name must be at most {MaxNameLength} characters."];
+            return false;
         }
 
-        var inputs = request.Permissions ?? [];
+        valid = new ValidRole(name!, grants);
+        return true;
+    }
+
+    /// <summary>The trimmed name, or null with an error when it is missing or too long.</summary>
+    public static string? ValidateName(string? rawName, Dictionary<string, string[]> errors)
+    {
+        var name = rawName?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            errors["Name"] = ["Name is required."];
+            return null;
+        }
+
+        if (name.Length > MaxNameLength)
+        {
+            errors["Name"] = [$"Name must be at most {MaxNameLength} characters."];
+            return null;
+        }
+
+        return name;
+    }
+
+    /// <summary>The grants with keys normalised and levels parsed. Anything unusable is reported against its position.</summary>
+    public static List<ValidRoleGrant> ValidateGrants(IReadOnlyList<RoleGrantInput> inputs, Dictionary<string, string[]> errors)
+    {
         if (inputs.Count > MaxGrantsPerRole)
         {
-            errors[nameof(CreateRoleRequest.Permissions)] = [$"A role can grant at most {MaxGrantsPerRole} permissions."];
+            errors["Permissions"] = [$"A role can grant at most {MaxGrantsPerRole} permissions."];
         }
 
         var grants = new List<ValidRoleGrant>();
@@ -64,7 +85,7 @@ public static class RoleValidator
         for (var index = 0; index < Math.Min(inputs.Count, MaxGrantsPerRole); index++)
         {
             var input = inputs[index];
-            var field = $"{nameof(CreateRoleRequest.Permissions)}[{index}]";
+            var field = $"Permissions[{index}]";
 
             if (input?.ApplicationId is not { } applicationId || applicationId == Guid.Empty)
             {
@@ -98,33 +119,33 @@ public static class RoleValidator
             grants.Add(new ValidRoleGrant(applicationId, key, level));
         }
 
-        if (errors.Count > 0)
-        {
-            return false;
-        }
-
-        valid = new ValidRole(name!, grants);
-        return true;
+        return grants;
     }
 }
 
-/// <summary>ROL-01: a tenant admin defines a named role that grants permissions of the products the tenant uses.</summary>
-public sealed class CreateRoleService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
+/// <summary>A grant matched to the permission it refers to.</summary>
+public sealed record ResolvedGrant(ValidRoleGrant Grant, Guid PermissionId, string ApplicationKey);
+
+public static class RoleGrantResolver
 {
-    public async Task<CreateRoleResult> CreateAsync(Guid userId, Guid tenantId, ValidRole input, CancellationToken cancellationToken)
+    /// <summary>
+    /// Matches grants to catalog permissions. A grant is allowed only for a product the tenant actually uses: one it has an Active
+    /// subscription to, or the Auth Service's own, which every tenant has. An unknown product id and an unsubscribed one look the
+    /// same, so ids cannot be probed; an unknown key is reported so a typo does not become a role that silently does nothing.
+    /// </summary>
+    public static async Task<(List<ResolvedGrant> Resolved, Dictionary<string, string[]> Errors)> ResolveAsync(
+        AuthDbContext db, Guid tenantId, IReadOnlyList<ValidRoleGrant> grants, CancellationToken cancellationToken)
     {
-        // A grant is allowed only for a product the tenant actually uses: one it has an Active subscription to, or the Auth Service's
-        // own, which every tenant has. An unknown product id and an unsubscribed one look the same, so ids cannot be probed.
-        var applicationIds = input.Grants.Select(grant => grant.ApplicationId).Distinct().ToList();
+        var applicationIds = grants.Select(grant => grant.ApplicationId).Distinct().ToList();
         var usable = (await db.Subscriptions
                 .Where(subscription => subscription.TenantId == tenantId && subscription.Status == SubscriptionStatus.Active
                     && applicationIds.Contains(subscription.ApplicationId))
                 .Select(subscription => subscription.ApplicationId)
                 .ToListAsync(cancellationToken))
             .ToHashSet();
-        if (applicationIds.Contains(BuiltInApplication.Id))
+        if (applicationIds.Contains(BuiltIn.BuiltInApplication.Id))
         {
-            usable.Add(BuiltInApplication.Id);
+            usable.Add(BuiltIn.BuiltInApplication.Id);
         }
 
         var catalog = await (
@@ -137,11 +158,11 @@ public sealed class CreateRoleService(AuthDbContext db, AuditLog audit, TimeProv
         var byKey = catalog.ToDictionary(item => (item.ApplicationId, item.Key));
 
         var errors = new Dictionary<string, string[]>();
-        var resolved = new List<(ValidRoleGrant Grant, Guid PermissionId, string ApplicationKey)>();
-        for (var index = 0; index < input.Grants.Count; index++)
+        var resolved = new List<ResolvedGrant>();
+        for (var index = 0; index < grants.Count; index++)
         {
-            var grant = input.Grants[index];
-            var field = $"{nameof(CreateRoleRequest.Permissions)}[{index}]";
+            var grant = grants[index];
+            var field = $"Permissions[{index}]";
 
             if (!usable.Contains(grant.ApplicationId))
             {
@@ -153,10 +174,25 @@ public sealed class CreateRoleService(AuthDbContext db, AuditLog audit, TimeProv
             }
             else
             {
-                resolved.Add((grant, found.Id, found.ApplicationKey));
+                resolved.Add(new ResolvedGrant(grant, found.Id, found.ApplicationKey));
             }
         }
 
+        return (resolved, errors);
+    }
+
+    public static List<RoleGrantDto> ToDtos(IEnumerable<ResolvedGrant> resolved) =>
+        [.. resolved
+            .Select(item => new RoleGrantDto(item.Grant.ApplicationId, item.ApplicationKey, item.Grant.Permission, item.Grant.Level.ToString()))
+            .OrderBy(item => item.ApplicationKey, StringComparer.Ordinal).ThenBy(item => item.Permission, StringComparer.Ordinal)];
+}
+
+/// <summary>ROL-01: a tenant admin defines a named role that grants permissions of the products the tenant uses.</summary>
+public sealed class CreateRoleService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
+{
+    public async Task<CreateRoleResult> CreateAsync(Guid userId, Guid tenantId, ValidRole input, CancellationToken cancellationToken)
+    {
+        var (resolved, errors) = await RoleGrantResolver.ResolveAsync(db, tenantId, input.Grants, cancellationToken);
         if (errors.Count > 0)
         {
             return new CreateRoleResult.InvalidGrants(errors);
@@ -165,15 +201,15 @@ public sealed class CreateRoleService(AuthDbContext db, AuditLog audit, TimeProv
         var now = timeProvider.GetUtcNow();
         var role = new Role { Id = Guid.CreateVersion7(), TenantId = tenantId, Name = input.Name, IsBuiltIn = false, CreatedAt = now };
         db.Roles.Add(role);
-        foreach (var (grant, permissionId, _) in resolved)
+        foreach (var item in resolved)
         {
             db.RolePermissions.Add(new RolePermission
             {
                 Id = Guid.CreateVersion7(),
                 TenantId = tenantId,
                 RoleId = role.Id,
-                PermissionId = permissionId,
-                Level = grant.Level,
+                PermissionId = item.PermissionId,
+                Level = item.Grant.Level,
             });
         }
 
@@ -193,10 +229,6 @@ public sealed class CreateRoleService(AuthDbContext db, AuditLog audit, TimeProv
             return new CreateRoleResult.NameTaken();
         }
 
-        var grants = resolved
-            .Select(item => new RoleGrantDto(item.Grant.ApplicationId, item.ApplicationKey, item.Grant.Permission, item.Grant.Level.ToString()))
-            .OrderBy(item => item.ApplicationKey, StringComparer.Ordinal).ThenBy(item => item.Permission, StringComparer.Ordinal)
-            .ToList();
-        return new CreateRoleResult.Created(new RoleResponse(role.Id, role.Name, role.IsBuiltIn, grants, role.CreatedAt));
+        return new CreateRoleResult.Created(new RoleResponse(role.Id, role.Name, role.IsBuiltIn, RoleGrantResolver.ToDtos(resolved), role.CreatedAt));
     }
 }

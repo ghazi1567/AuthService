@@ -184,6 +184,7 @@ builder.Services.AddScoped<SubscriptionStatusService>();
 builder.Services.AddScoped<TokenExchangeService>();
 builder.Services.AddScoped<BuiltInApplicationSync>();
 builder.Services.AddScoped<CreateRoleService>();
+builder.Services.AddScoped<ManageRolesService>();
 builder.Services.AddScoped<AssignRolesService>();
 builder.Services.AddScoped<MemberAccessService>();
 

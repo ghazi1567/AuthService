@@ -344,6 +344,24 @@ A tenant defines its own roles, and a role grants **permissions at a level**. `P
   requested product, at the **highest** level any of them grants (there are no deny rules). Nothing from another product or tenant
   is in the token.
 
+#### Listing, changing and deleting roles
+
+All three are called with a **tenant-admin token** and act only on the token's tenant. A role of another tenant, or one that does
+not exist, is always **404** (never 403), so its existence is not confirmed.
+
+- **`GET /api/auth/roles`** (needs `roles.read`, ReadOnly) lists the tenant's roles, the built-in Owner first and then by name:
+  `{id, name, isBuiltIn, memberCount, permissions, createdAt}`. The Owner lists no permissions: it holds Full on every product's
+  whole catalog. `roles.read` and `roles.manage` are separate permissions; one does not imply the other.
+- **`PATCH /api/auth/roles/{id}`** (needs `roles.manage`, Full) changes the name, the permissions, or both. A field you leave out
+  is left alone; `permissions` replaces the **whole** set (send `[]` to clear it), with the same checks as creating a role. Only the
+  difference is written, so an unchanged grant keeps its row. A rejected change (400 or 409) changes nothing. Holders see the new
+  permissions at their **next token exchange**; a token already issued keeps what it was given until it expires.
+- **`DELETE /api/auth/roles/{id}`** (needs `roles.manage`, Full) deletes a role and its grants, but only when **no member holds it**
+  (**409** `role_in_use`; move them to other roles first). It returns **204**.
+- **The built-in Owner role can never be edited, downgraded or deleted**: any PATCH or DELETE of it is **403**
+  `owner_role_immutable`.
+- Updates and deletions are audit-logged (`auth.role.updated`, `auth.role.deleted`, with the role id).
+
 #### Assigning roles to a member
 
 `PUT /api/auth/tenants/me/members/{membershipId}/roles` with `{"roleIds": ["...", "..."]}` sets the **complete** set of roles a
