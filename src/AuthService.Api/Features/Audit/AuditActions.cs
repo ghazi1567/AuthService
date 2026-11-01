@@ -22,6 +22,9 @@ public static class AuditActions
     /// <summary>A platform admin read the audit log. Reading the log is itself an admin action worth tracing.</summary>
     public const string AdminAuditRead = "auth.admin.audit_read";
 
+    /// <summary>A tenant admin read their tenant's audit log (AUD-01). The actor is the admin and the tenant is theirs.</summary>
+    public const string TenantAuditRead = "auth.tenant.audit_read";
+
     /// <summary>A platform admin registered a product. The detail is the product's key.</summary>
     public const string ApplicationRegistered = "auth.application.registered";
 
