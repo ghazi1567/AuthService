@@ -91,7 +91,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:LoginProtection:MaxFailedAttempts` / `LockoutMinutes` | Wrong passwords in a row after which an account is locked, and for how long. Default 5 and 15. |
 | `Auth:Tokens:ServiceTokenMinutes` | How long a product's service token is valid. Default 10. |
 | `Auth:Tokens:ProductTokenMinutes` | How long a product token (token exchange) is valid. Default 15. It bounds how stale the permissions inside can get. |
-| `Auth:Invitations:TokenDays` | How long an invitation link works. Default 7. |
+| `Auth:Invitations:TokenDays` / `ResendCooldownSeconds` | How long an invitation link works (default 7 days), and how long after a link is emailed it cannot be emailed again (default 60 seconds). |
 | `Auth:ApiKeys:RotationGraceHours` | How long an API key keeps working after it is rotated. Default 24. |
 | `Auth:Webhooks:RetryWindowHours` / `RetryDelaySeconds` / `TimeoutSeconds` | How long a webhook is retried (default 24 hours), the delays between tries (default 1 min, 5 min, 30 min, 2 h, 6 h, 12 h) and how long to wait for a product to answer (10 s). |
 | `Auth:Webhooks:AllowPrivateAddresses` | Allows plain `http` and private callback addresses. Development and tests only; default off. |
@@ -165,8 +165,8 @@ entry has **who** (user, product, API key, the system, or anonymous), **what** (
 What is recorded: signup, tenant creation, login success and failure (with the reason: wrong password, unknown account, locked,
 disabled, email not verified), lockouts, email verification, completed password resets, refresh-token reuse, signing-key creation and
 rotation, platform-admin actions (registering a product, its catalog, activation and secret rotation, reading the log), subscriptions,
-suspensions and seat-limit changes, role creation, changes and deletion, member role, access and status changes, invitations sent and
-accepted, and reads of the tenant's own log. API-key events are recorded when those stories land. The codes live in `AuditActions`.
+suspensions and seat-limit changes, role creation, changes and deletion, member role, access and status changes, invitations sent, accepted and resent, and
+reads of the tenant's own log. API-key events are recorded when those stories land. The codes live in `AuditActions`.
 
 - **Written with the action, not after it.** An entry is saved in the same transaction as the action it records, so it exists if
   and only if the action happened. A signup that rolls back leaves no entry.
@@ -510,6 +510,12 @@ A tenant defines its own roles, and a role grants **permissions at a level**. `P
   requested product, at the **highest** level any of them grants (there are no deny rules). Nothing from another product or tenant
   is in the token.
 
+**What can be granted.** `GET /api/auth/tenants/me/permissions` (a tenant-admin token holding `roles.read`) lists what a role can grant:
+the `levels` (`ReadOnly`, `CreateRead`, `Full`) and, for the Auth Service itself first and then each product the tenant has an
+**Active** subscription to, its `applicationId`, `key`, `name` and every permission with its `key`, `label` and `description`. It is
+exactly the set a role grant is accepted for, so a role-building screen can offer only choices that will be accepted. A product
+whose subscription is Suspended or Cancelled, and one the tenant never used, is not listed.
+
 #### Inviting people
 
 `POST /api/auth/tenants/me/invitations` (a tenant-admin token holding `members.invite` at `Full`) invites a person by email:
@@ -540,6 +546,19 @@ A tenant defines its own roles, and a role grants **permissions at a level**. `P
 - An unknown, expired (after 7 days), already used or withdrawn (membership disabled) link is always **410**
   `invitation_invalid`, and two simultaneous acceptances succeed only once. Accepting makes the membership **Active**.
 - Inviting and accepting are audit-logged (`auth.invitation.sent` / `accepted`, with the membership id).
+
+**Who has not accepted yet, and sending the link again.**
+
+- `GET /api/auth/tenants/me/invitations` (`members.read` at `ReadOnly`) lists the invitations nobody has accepted, newest first: the
+  `membershipId`, `email`, `roles`, `applicationIds`, who invited them (`invitedBy`), `invitedAt`, `lastSentAt`, `expiresAt` and
+  `isExpired`. An accepted invitation is not listed; an expired one is, flagged, because that is the one to send again. Only the
+  caller's tenant is ever listed.
+- `POST /api/auth/tenants/me/invitations/{membershipId}/resend` (`members.invite` at `Full`) emails a **new** link (the old one stops
+  working at once) and gives a full period again, so it also revives an expired invitation. The reply is the invitation as when
+  it was sent (**200**). A person who has already accepted, or was never invited, is **409** `invitation_not_pending`; a
+  membership of another tenant or an unknown id is **404**. Within 60 seconds of the last send (`Auth:Invitations:ResendCooldownSeconds`)
+  it is **429** `resend_too_soon` with `Retry-After` and sends nothing, so it cannot be used to flood an inbox; simultaneous requests
+  send one email. Resending is audit-logged (`auth.invitation.resent`, with the membership id).
 
 #### Members: listing, enabling and disabling
 

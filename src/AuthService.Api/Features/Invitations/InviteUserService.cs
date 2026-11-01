@@ -208,6 +208,7 @@ public sealed class InviteUserService(
             TokenHash = SecretToken.Hash(token),
             CreatedAt = now,
             ExpiresAt = expiresAt,
+            LastSentAt = now,
         });
 
         var tenantName = await db.Tenants.AsNoTracking().Where(tenant => tenant.Id == tenantId).Select(tenant => tenant.Name).SingleAsync(cancellationToken);

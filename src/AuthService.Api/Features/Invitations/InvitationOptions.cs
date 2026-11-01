@@ -7,4 +7,7 @@ public sealed class InvitationOptions
 
     /// <summary>How long an invitation link works. 7 days (TEN-08).</summary>
     public int TokenDays { get; set; } = 7;
+
+    /// <summary>How long after a link is emailed it cannot be emailed again, so resending cannot be used to flood an inbox. 60 seconds.</summary>
+    public int ResendCooldownSeconds { get; set; } = 60;
 }
