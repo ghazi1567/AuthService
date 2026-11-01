@@ -12,7 +12,7 @@ namespace AuthService.IntegrationTests.Ten11;
 /// <summary>
 /// TEN-11 (AUTH-129) Email Verification, through the real signup, verify, resend and login endpoints. The verification
 /// link is read from the email the service sent, exactly as a person would.
-/// Test method names start with their Test Case ID (AUTH_TC39..AUTH_TC43) per the workbook convention.
+/// Test method names start with their Test Case ID (AUTH_TC39..AUTH_TC42) per the workbook convention; AUTH_TC43 needs invitations and is in the TEN-08 tests.
 /// </summary>
 public sealed class EmailVerificationTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
 {
@@ -103,9 +103,6 @@ public sealed class EmailVerificationTests(PostgresContainerFixture postgres) : 
         SentEmails.Count(message => message.To == verifiedEmail).ShouldBe(1);
         SentEmails.Count(message => message.To == "nobody@acme.com").ShouldBe(0);
     }
-
-    [Fact(Skip = "Enabled once TEN-08 (invitations) exists.")]
-    public Task AUTH_TC43_NewPersonAcceptingAnInvitationIsTreatedAsVerified() => Task.CompletedTask;
 
     // The tests below have no workbook Test Case ID yet: the spec's acceptance criteria cover them.
 

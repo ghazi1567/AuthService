@@ -11,6 +11,7 @@ public static class PermissionKeys
     public const string SubscriptionsRead = "subscriptions.read";
     public const string MembersRead = "members.read";
     public const string MembersManage = "members.manage";
+    public const string MembersInvite = "members.invite";
     public const string RolesRead = "roles.read";
     public const string RolesManage = "roles.manage";
     public const string RolesAssign = "roles.assign";
@@ -47,6 +48,7 @@ public static class BuiltInApplication
         new(PermissionKeys.SubscriptionsRead, "View subscriptions", "See which products the tenant is subscribed to, and how many seats are used."),
         new(PermissionKeys.MembersRead, "View members", "See who belongs to the tenant, their roles and the products they use."),
         new(PermissionKeys.MembersManage, "Manage members", "Enable and disable the memberships of the tenant's people."),
+        new(PermissionKeys.MembersInvite, "Invite members", "Invite people into the tenant by email, with their first roles and product access."),
         new(PermissionKeys.RolesRead, "View roles", "See the tenant's roles and what each one grants."),
         new(PermissionKeys.RolesManage, "Manage roles", "Create, change and delete the tenant's roles and decide what each role grants."),
         new(PermissionKeys.RolesAssign, "Assign roles", "Decide which roles each member of the tenant holds."),

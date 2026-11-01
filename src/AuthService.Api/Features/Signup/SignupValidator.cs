@@ -61,7 +61,7 @@ public static class SignupValidator
         return true;
     }
 
-    private static bool IsPlausibleEmail(string email) =>
+    public static bool IsPlausibleEmail(string email) =>
         email.Length <= MaxEmailLength
         && MailAddress.TryCreate(email, out var parsed)
         && parsed.Address == email
