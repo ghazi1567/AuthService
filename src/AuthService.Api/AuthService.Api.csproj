@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <!-- Lets a developer keep local secrets (such as the Brevo API key) outside the repository, using the dotnet user-secrets tool. Read in Development only. -->
+    <UserSecretsId>authservice-api-3f6b2a7e-5c1d-4e8a-9b0f-7d2a1c4e6b83</UserSecretsId>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\AuthService.Infrastructure\AuthService.Infrastructure.csproj" />
   </ItemGroup>
