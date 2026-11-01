@@ -219,6 +219,7 @@ app.MapListApplications();
 app.MapSubscriptions();
 app.MapTokenExchange();
 app.MapTenantProfile();
+app.MapListSubscriptions();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
 var admin = app.MapAdminGroup();

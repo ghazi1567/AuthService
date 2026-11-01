@@ -319,6 +319,21 @@ tenants to itself. A tenant's own people cannot subscribe themselves (403).
   retries, and the product's callback URL, arrive with SUB-06; until then events wait in the outbox.
 - Subscribing is audit-logged with the product as the actor and the tenant it concerns.
 
+#### Listing a tenant's subscriptions
+
+A tenant admin sees the tenant's subscriptions with `GET /api/auth/tenants/me/subscriptions`, called with a **tenant-admin token**
+(see "Working on a tenant") that holds the `subscriptions.read` permission (the Owner role does). The tenant is the token's `tid`:
+`me` is not an id the client can change, and a `tenantId` in the query string is ignored.
+
+Each item is `{applicationId, applicationKey, applicationName, status, maxSeats, seatsUsed, createdAt, updatedAt}`, ordered by product
+name, and includes **every** status (Active, Suspended and Cancelled), so a tenant can see a subscription that was ended.
+
+- **`seatsUsed`** counts members with access to the product whose membership is **Invited or Active**. A Disabled member keeps
+  their access row, so re-enabling restores it, but uses no seat. The same rule gives `seatsUsed` in the subscribe and seat-limit
+  responses. `maxSeats` is null for unlimited.
+- A member without the permission gets 403; an identity, service or other product's token gets 403; no token 401. The Auth Service's
+  own built-in product is not a subscription and never appears.
+
 #### Suspending and cancelling
 
 A product stops a tenant's access with `PATCH /api/auth/tenants/{tenantId}/subscriptions/{applicationId}` and a body of
