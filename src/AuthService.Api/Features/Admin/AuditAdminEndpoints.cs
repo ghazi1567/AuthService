@@ -2,31 +2,14 @@ using System.Security.Claims;
 using AuthService.Api.Common;
 using AuthService.Api.Features.Audit;
 using AuthService.Infrastructure.Persistence;
-using AuthService.Infrastructure.Persistence.Entities;
-using Microsoft.EntityFrameworkCore;
 
 namespace AuthService.Api.Features.Admin;
-
-public sealed record AuditEntryResponse(
-    Guid Id,
-    DateTimeOffset OccurredAt,
-    string Action,
-    AuditActorType ActorType,
-    Guid? ActorId,
-    Guid? TenantId,
-    string? SourceIp,
-    string? Detail);
-
-/// <summary>Where the next page starts: pass both values back as <c>before</c> and <c>beforeId</c>.</summary>
-public sealed record AuditCursor(DateTimeOffset Before, Guid BeforeId);
-
-public sealed record AuditPageResponse(IReadOnlyList<AuditEntryResponse> Items, AuditCursor? Next);
 
 public static class AuditAdminEndpoints
 {
     public const string Route = "/api/auth/admin/audit";
-    public const int DefaultLimit = 50;
-    public const int MaxLimit = 200;
+    public const int DefaultLimit = AuditPaging.DefaultLimit;
+    public const int MaxLimit = AuditPaging.MaxLimit;
 
     public static RouteGroupBuilder MapAuditAdmin(this RouteGroupBuilder admin)
     {
@@ -36,8 +19,7 @@ public static class AuditAdminEndpoints
 
     /// <summary>
     /// The platform admin reads the whole audit log, newest first, across every tenant (AUD-01). Filter by action, tenant or
-    /// actor; page with the cursor from the previous page. The tenant-scoped read for tenant admins needs tenant tokens and
-    /// arrives later.
+    /// actor; page with the cursor from the previous page. Tenant admins read their own tenant's entries elsewhere.
     /// </summary>
     private static async Task<IResult> GetAuditAsync(
         ClaimsPrincipal caller,
@@ -60,39 +42,7 @@ public static class AuditAdminEndpoints
             });
         }
 
-        var query = db.AuditEntries.AsNoTracking().AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(action))
-        {
-            query = query.Where(entry => entry.Action == action);
-        }
-
-        if (tenantId is { } tenant)
-        {
-            query = query.Where(entry => entry.TenantId == tenant);
-        }
-
-        if (actorId is { } actor)
-        {
-            query = query.Where(entry => entry.ActorId == actor);
-        }
-
-        if (before is { } cutoff)
-        {
-            query = beforeId is { } cutoffId
-                ? query.Where(entry => entry.OccurredAt < cutoff || (entry.OccurredAt == cutoff && entry.Id.CompareTo(cutoffId) < 0))
-                : query.Where(entry => entry.OccurredAt < cutoff);
-        }
-
-        // One more than asked for, to know whether there is a next page.
-        var rows = await query
-            .OrderByDescending(entry => entry.OccurredAt)
-            .ThenByDescending(entry => entry.Id)
-            .Take(take + 1)
-            .ToListAsync(cancellationToken);
-
-        var page = rows.Take(take).ToList();
-        var next = rows.Count > take ? new AuditCursor(page[^1].OccurredAt, page[^1].Id) : null;
+        var page = await AuditPaging.PageAsync(db, tenantId, action, actorId, before, beforeId, take, cancellationToken);
 
         // Reading the whole log is an admin action. Recorded after the query, so a read never lists itself.
         if (caller.GetUserId() is { } adminId)
@@ -101,9 +51,6 @@ public static class AuditAdminEndpoints
             await db.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Ok(new AuditPageResponse(
-            [.. page.Select(entry => new AuditEntryResponse(
-                entry.Id, entry.OccurredAt, entry.Action, entry.ActorType, entry.ActorId, entry.TenantId, entry.SourceIp, entry.Detail))],
-            next));
+        return Results.Ok(page);
     }
 }

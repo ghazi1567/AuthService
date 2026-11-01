@@ -13,7 +13,7 @@ namespace AuthService.IntegrationTests.Aud01;
 /// <summary>
 /// AUD-01 (AUTH-134) Audit Log: what is recorded, that it holds no secrets, that it cannot be changed, and that it is cleaned up
 /// after a year. Events come from the real endpoints.
-/// Test method names start with their Test Case ID (AUD_TC1..AUD_TC5) per the workbook convention.
+/// Test method names start with their Test Case ID (AUD_TC1, AUD_TC2, AUD_TC4, AUD_TC5; AUD_TC3 needs a tenant token and is in the tenant audit tests) per the workbook convention.
 /// </summary>
 public sealed class AuditLogTests(PostgresContainerFixture postgres) : AuthApiTestBase(postgres)
 {
@@ -83,9 +83,6 @@ public sealed class AuditLogTests(PostgresContainerFixture postgres) : AuthApiTe
             everything.Contains(secret).ShouldBeFalse("an audit entry must never contain a password, token, hash or address");
         }
     }
-
-    [Fact(Skip = "Enabled once TOK-01 (tenant-scoped tokens) and ROL (admin permissions) exist, and the tenant audit endpoint is built.")]
-    public Task AUD_TC3_ATenantAdminReadsOnlyTheirOwnTenantsAuditLog() => Task.CompletedTask;
 
     [Fact]
     public async Task AUD_TC4_AnAuditEntryCannotBeEditedOrDeletedThroughAnyRoute()

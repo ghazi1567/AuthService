@@ -156,15 +156,16 @@ Security events are recorded in the `audit_entries` table so who did what, when 
 entry has **who** (user, product, API key, the system, or anonymous), **what** (a stable code such as `auth.login.succeeded`),
 **when**, the **tenant** if there is one, the caller's **IP address**, and an optional short code of detail (`wrong_password`).
 
-What is recorded today: signup, tenant creation, login success and failure (with the reason: wrong password, unknown account,
-locked, disabled, email not verified), lockouts, email verification, completed password resets, refresh-token reuse, and signing-key
-creation and rotation. Events from stories not built yet (role and permission changes, member and product-access changes,
-invitations, API keys, subscriptions, seat limits, platform-admin actions) are recorded when those stories land. The codes live in
-`AuditActions`.
+What is recorded: signup, tenant creation, login success and failure (with the reason: wrong password, unknown account, locked,
+disabled, email not verified), lockouts, email verification, completed password resets, refresh-token reuse, signing-key creation and
+rotation, platform-admin actions (registering a product, its catalog, activation and secret rotation, reading the log), subscriptions,
+suspensions and seat-limit changes, role creation, changes and deletion, member role, access and status changes, invitations sent and
+accepted, and reads of the tenant's own log. API-key events are recorded when those stories land. The codes live in `AuditActions`.
 
 - **Written with the action, not after it.** An entry is saved in the same transaction as the action it records, so it exists if
   and only if the action happened. A signup that rolls back leaves no entry.
-- **No secrets, by construction.** The only free text is a short code (lowercase letters, digits, dots, underscores), so a
+- **No secrets, by construction.** The only free text is a short code of up to 128 characters (lowercase letters, digits, dots,
+  underscores and hyphens, such as a membership id and a product key), so a
   password, token or address cannot be recorded by mistake. A failed login for an unregistered email records nothing about the
   email that was tried.
 - **Append-only, enforced by the database.** Triggers refuse every `UPDATE`, every `TRUNCATE`, and every `DELETE` except the
@@ -175,8 +176,16 @@ invitations, API keys, subscriptions, seat limits, platform-admin actions) are r
 - **The IP is the caller's as the service sees it**: behind a reverse proxy, the proxy's address, until forwarded headers are
   configured for the deployment.
 
-A platform admin reads the whole log with `GET /api/auth/admin/audit` (see "Platform admins" below). Not built yet: the tenant-scoped
-read (`GET /api/auth/tenants/me/audit`), which needs tenant-scoped tokens (TOK-01) and role permissions.
+A platform admin reads the whole log with `GET /api/auth/admin/audit` (see "Platform admins" below).
+
+**A tenant admin reads their own tenant's entries** with `GET /api/auth/tenants/me/audit`, called with a **tenant-admin token** (see
+"Working on a tenant") that holds `audit.read` at `ReadOnly` (the Owner does).
+
+- The tenant is the token's `tid`; a `tenantId` in the query string is ignored, and entries that belong to no tenant (such as failed
+  logins) are never shown. Another tenant's entries cannot be reached.
+- It pages exactly like the platform read: newest first, `limit` 1 to 200 (default 50), filters `action` and `actorId`, and the
+  returned `next` values passed back as `before` and `beforeId`.
+- Reading the log is itself recorded (`auth.tenant.audit_read`), after the query, so a read never lists itself.
 
 ### Platform admins
 
