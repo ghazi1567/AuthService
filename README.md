@@ -342,7 +342,24 @@ A tenant defines its own roles, and a role grants **permissions at a level**. `P
 - The tenant and the person come from the token. The creation is audit-logged (`auth.role.created`, with the role id).
 - **What a role is for:** a member who holds roles gets, in their next token exchange, every permission those roles grant for the
   requested product, at the **highest** level any of them grants (there are no deny rules). Nothing from another product or tenant
-  is in the token. Until roles can be assigned through the API (ROL-05) the assignment is made in the database.
+  is in the token.
+
+#### Assigning roles to a member
+
+`PUT /api/auth/tenants/me/members/{membershipId}/roles` with `{"roleIds": ["...", "..."]}` sets the **complete** set of roles a
+member of the caller's tenant holds, atomically. It needs a tenant-admin token holding `roles.assign` at `Full`. The new set applies
+from the member's **next token exchange**; tokens already issued are not changed.
+
+- **1 to 10 roles.** An empty set is **409** `roles_required` (to remove someone's access, disable the membership instead), more than
+  ten is **400**, and the same role named twice counts once. The member keeps their old roles whenever the call fails.
+- **404, never 403, for anything outside the caller's tenant:** a membership or a role of another tenant, or one that does not exist,
+  all give the same `not_found`, so ids are not confirmed.
+- **Roles never change seats.** Product access is granted separately (SUB-05).
+- **The Owner role is protected.** Only an Owner can give it or take it away (**403** `owner_role_restricted`), or anyone allowed
+  to assign roles could make themselves an Owner. A change that would leave the tenant with no **active** Owner is refused
+  (**409** `last_owner`); make someone else an Owner first. Changes in one tenant take turns, so two admins acting at once cannot
+  break this.
+- Audit-logged (`auth.membership.roles_changed`, with the membership id).
 
 #### Listing a tenant's subscriptions
 
