@@ -5,6 +5,12 @@ namespace AuthService.Api.Features.BuiltIn;
 /// <summary>One permission of the built-in product's catalog.</summary>
 public sealed record BuiltInPermission(string Key, string Label, string? Description = null);
 
+/// <summary>The keys of the built-in product's permissions, so endpoints and the catalog cannot drift apart.</summary>
+public static class PermissionKeys
+{
+    public const string SubscriptionsRead = "subscriptions.read";
+}
+
 /// <summary>
 /// The Auth Service as a product of its own. A tenant admin works on their tenant (roles, members, subscriptions, invitations) with
 /// a token from the ordinary token exchange (TOK-01) for this product: <c>aud</c> is <see cref="Audience"/>, <c>tid</c> the tenant,
@@ -30,5 +36,8 @@ public static class BuiltInApplication
     public const string ClientId = "cl_builtin_auth_service";
 
     /// <summary>The catalog. Kept in code, next to the endpoints that use it, and synchronised to the database at startup.</summary>
-    public static readonly IReadOnlyList<BuiltInPermission> Permissions = [];
+    public static readonly IReadOnlyList<BuiltInPermission> Permissions =
+    [
+        new(PermissionKeys.SubscriptionsRead, "View subscriptions", "See which products the tenant is subscribed to, and how many seats are used."),
+    ];
 }

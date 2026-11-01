@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using AuthService.Api.Features.Applications;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.BuiltIn;
 using AuthService.IntegrationTests.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 
@@ -44,7 +45,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
         await WithDbAsync(async db =>
         {
             (await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).SingleAsync(ct)).IsActive.ShouldBeTrue();
-            (await db.Permissions.CountAsync(ct)).ShouldBe(2);
+            (await db.Permissions.Where(permission => permission.ApplicationId != BuiltInApplication.Id).CountAsync(ct)).ShouldBe(2);
 
             var registered = await db.AuditEntries.AsNoTracking().SingleAsync(entry => entry.Action == AuditActions.PermissionsRegistered, ct);
             registered.ActorId.ShouldBe(admin.UserId);
@@ -64,7 +65,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
 
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
         (await ReadProblemAsync(response, ct)).Code.ShouldBe("application_not_found");
-        await WithDbAsync(async db => (await db.Permissions.CountAsync(ct)).ShouldBe(0));
+        await WithDbAsync(async db => (await db.Permissions.Where(permission => permission.ApplicationId != BuiltInApplication.Id).CountAsync(ct)).ShouldBe(0));
     }
 
     [Fact]
@@ -86,7 +87,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
         body.Permissions.Single().Id.ShouldBe(originalId);
         await WithDbAsync(async db =>
         {
-            var permission = await db.Permissions.AsNoTracking().SingleAsync(ct);
+            var permission = await db.Permissions.AsNoTracking().Where(permission => permission.ApplicationId != BuiltInApplication.Id).SingleAsync(ct);
             permission.Id.ShouldBe(originalId);
             permission.Label.ShouldBe("Create a campaign");
             permission.Description.ShouldBe("New text.");
@@ -104,14 +105,14 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
         var application = await RegisterApplicationAsync(token, "whatsapp-saas", ct);
         var permission = Permission("campaign.create", "Create campaigns", "Start a new campaign.");
         await RegisterPermissionsForAsync(token, application.Id, ct, permission);
-        var before = await QueryDbAsync(db => db.Permissions.AsNoTracking().SingleAsync(ct));
+        var before = await QueryDbAsync(db => db.Permissions.AsNoTracking().Where(permission => permission.ApplicationId != BuiltInApplication.Id).SingleAsync(ct));
 
         var response = await RegisterPermissionsAsync(token, application.Id, ct, permission);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = (await response.Content.ReadFromJsonAsync<RegisterPermissionsResponse>(Json, ct))!;
         (body.Created, body.Updated, body.Unchanged).ShouldBe((0, 0, 1));
-        var after = await QueryDbAsync(db => db.Permissions.AsNoTracking().SingleAsync(ct));
+        var after = await QueryDbAsync(db => db.Permissions.AsNoTracking().Where(permission => permission.ApplicationId != BuiltInApplication.Id).SingleAsync(ct));
         after.UpdatedAt.ShouldBe(before.UpdatedAt, "an unchanged permission is not touched");
     }
 
@@ -130,7 +131,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
 
         await WithDbAsync(async db =>
         {
-            var permissions = await db.Permissions.AsNoTracking().ToListAsync(ct);
+            var permissions = await db.Permissions.AsNoTracking().Where(permission => permission.ApplicationId != BuiltInApplication.Id).ToListAsync(ct);
             permissions.Select(permission => permission.ApplicationId).ShouldBe([first.Id, second.Id], ignoreOrder: true);
             permissions.Select(permission => permission.Id).Distinct().Count().ShouldBe(2);
         });
@@ -183,7 +184,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
 
         responses.ShouldAllBe(response => response.IsSuccessStatusCode);
         responses.Count(response => response.StatusCode == HttpStatusCode.Created).ShouldBe(1);
-        await WithDbAsync(async db => (await db.Permissions.CountAsync(ct)).ShouldBe(1));
+        await WithDbAsync(async db => (await db.Permissions.Where(permission => permission.ApplicationId != BuiltInApplication.Id).CountAsync(ct)).ShouldBe(1));
     }
 
     [Fact]
@@ -267,7 +268,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
 
         await WithDbAsync(async db =>
         {
-            (await db.Permissions.CountAsync(ct)).ShouldBe(0);
+            (await db.Permissions.Where(permission => permission.ApplicationId != BuiltInApplication.Id).CountAsync(ct)).ShouldBe(0);
             (await db.Applications.AsNoTracking().Where(application => !application.IsBuiltIn).SingleAsync(ct)).IsActive.ShouldBeFalse();
         });
     }
@@ -303,7 +304,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
             Permission("valid.one", "A valid permission", null), Permission(key, label, null));
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        await WithDbAsync(async db => (await db.Permissions.CountAsync(ct)).ShouldBe(0, "a rejected request registers nothing, not even its valid entries"));
+        await WithDbAsync(async db => (await db.Permissions.Where(permission => permission.ApplicationId != BuiltInApplication.Id).CountAsync(ct)).ShouldBe(0, "a rejected request registers nothing, not even its valid entries"));
     }
 
     [Fact]
@@ -317,7 +318,7 @@ public sealed class PermissionCatalogTests(PostgresContainerFixture postgres) : 
             Permission("campaign.create", "One", null), Permission("Campaign.Create", "Two", null));
 
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        await WithDbAsync(async db => (await db.Permissions.CountAsync(ct)).ShouldBe(0));
+        await WithDbAsync(async db => (await db.Permissions.Where(permission => permission.ApplicationId != BuiltInApplication.Id).CountAsync(ct)).ShouldBe(0));
     }
 
     [Fact]
