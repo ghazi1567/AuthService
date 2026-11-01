@@ -44,6 +44,10 @@ builder.Services.AddProblemDetails();
 
 builder.Services.AddSingleton(TimeProvider.System);
 
+// Reverse proxies whose X-Forwarded-For is believed, so rate limits and audit entries see the real client address.
+builder.Services.AddOptions<ProxyOptions>()
+    .Bind(builder.Configuration.GetSection(ProxyOptions.SectionName));
+
 // Salted PBKDF2 hashes; the hash is only ever stored, never returned by an API.
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
@@ -99,8 +103,8 @@ builder.Services.AddScoped<PasswordResetService>();
 builder.Services.Configure<EmailVerificationOptions>(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
 builder.Services.AddScoped<EmailVerificationService>();
 
-// Limits how often one IP address can ask for verification emails. (Behind a proxy this sees the proxy's address until
-// forwarded headers are configured for the deployment; TEN-12 revisits rate limiting.)
+// Limits how often one IP address can ask for things like verification emails. Behind a proxy, list the proxy in Auth:Proxy so
+// this sees the client's address and not the proxy's.
 builder.Services.AddRateLimiter(limiter =>
 {
     limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -220,6 +224,18 @@ await using (var startupScope = app.Services.CreateAsyncScope())
 
 // Likewise, an unsupported or incomplete email provider setting stops the deployment instead of failing the first email.
 app.Services.GetRequiredService<IEmailSender>();
+
+// First, so everything after it (rate limits, audit entries) sees the client's address rather than the proxy's.
+var proxy = app.Services.GetRequiredService<IOptions<ProxyOptions>>().Value;
+if (proxy.Problems().ToList() is { Count: > 0 } proxyProblems)
+{
+    throw new InvalidOperationException(string.Join(" ", proxyProblems));
+}
+
+if (proxy.IsConfigured)
+{
+    app.UseForwardedHeaders(proxy.ToForwardedHeadersOptions());
+}
 
 app.UseExceptionHandler();
 app.UseRateLimiter();
