@@ -106,6 +106,17 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:PasswordReset:RequestCooldownSeconds` | An account sent a reset link less than this long ago is not sent another. Default 60. |
 | `Auth:PasswordReset:IpLimit` / `IpWindowMinutes` | How many forgot or reset requests one IP may make per window before getting 429. Default 10 per 10 minutes. |
 
+**Local secrets.** In Development, keep secrets such as the Brevo API key out of the repository with .NET user secrets (read in
+Development only, so the tests never see them):
+
+```bash
+dotnet user-secrets set "Email:BrevoApiKey" "<your key>" --project src/AuthService.Api
+dotnet user-secrets set "Email:FromAddress" "<a sender verified in Brevo>" --project src/AuthService.Api
+```
+
+Then run with `ASPNETCORE_ENVIRONMENT=Development` and `Email__Provider=Brevo`. Do not run `dotnet user-secrets list` where others can
+see your screen: it prints the values.
+
 ### Signing keys and the JWKS
 
 Tokens are signed (ES256) with keys the service creates and keeps itself, in the `signing_keys` table, so every instance agrees
