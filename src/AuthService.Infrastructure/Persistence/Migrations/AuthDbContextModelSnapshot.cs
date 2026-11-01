@@ -276,6 +276,61 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("email_verification_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Invitation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("InvitedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invited_by_user_id");
+
+                    b.Property<Guid>("MembershipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("membership_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("used_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_invitations");
+
+                    b.HasIndex("InvitedByUserId")
+                        .HasDatabaseName("ix_invitations_invited_by_user_id");
+
+                    b.HasIndex("MembershipId")
+                        .HasDatabaseName("ix_invitations_membership_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_invitations_token_hash");
+
+                    b.HasIndex("TenantId", "MembershipId")
+                        .HasDatabaseName("ix_invitations_tenant_id_membership_id");
+
+                    b.ToTable("invitations", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipApplicationAccess", b =>
                 {
                     b.Property<Guid>("Id")
@@ -869,6 +924,24 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_email_verification_tokens_users_user_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Invitation", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("InvitedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invitations_users_invited_by_user_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.TenantMembership", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "MembershipId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_invitations_tenant_memberships_tenant_id_membership_id");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipApplicationAccess", b =>

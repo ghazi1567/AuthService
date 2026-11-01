@@ -11,6 +11,7 @@ using AuthService.Api.Features.BuiltIn;
 using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Jwks;
+using AuthService.Api.Features.Invitations;
 using AuthService.Api.Features.Login;
 using AuthService.Api.Features.Members;
 using AuthService.Api.Features.Logout;
@@ -189,6 +190,9 @@ builder.Services.AddScoped<ManageRolesService>();
 builder.Services.AddScoped<AssignRolesService>();
 builder.Services.AddScoped<MemberAccessService>();
 builder.Services.AddScoped<MembersService>();
+builder.Services.Configure<InvitationOptions>(builder.Configuration.GetSection(InvitationOptions.SectionName));
+builder.Services.AddScoped<InviteUserService>();
+builder.Services.AddScoped<AcceptInvitationService>();
 
 var app = builder.Build();
 
@@ -230,6 +234,7 @@ app.MapListSubscriptions();
 app.MapRoles();
 app.MapMemberAccess();
 app.MapMembers();
+app.MapInvitations();
 
 // Everything under /api/auth/admin is for platform admins only (APP-04); the policy is applied to the whole group.
 var admin = app.MapAdminGroup();

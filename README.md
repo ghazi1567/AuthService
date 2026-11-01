@@ -89,6 +89,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:LoginProtection:MaxFailedAttempts` / `LockoutMinutes` | Wrong passwords in a row after which an account is locked, and for how long. Default 5 and 15. |
 | `Auth:Tokens:ServiceTokenMinutes` | How long a product's service token is valid. Default 10. |
 | `Auth:Tokens:ProductTokenMinutes` | How long a product token (token exchange) is valid. Default 15. It bounds how stale the permissions inside can get. |
+| `Auth:Invitations:TokenDays` | How long an invitation link works. Default 7. |
 | `Auth:Applications:SecretGraceHours` | How long a product's old client secret keeps working after a rotation. Default 24. |
 | `Auth:Applications:TokenIpLimit` / `TokenIpWindowMinutes` | How many service-token requests one IP may make per window, across all products, before getting 429. Default 60 per minute. |
 | `Auth:LoginProtection:IpLimit` / `IpWindowMinutes` | How many login requests one IP may make per window, across all accounts, before getting 429. Default 20 per minute. |
@@ -343,6 +344,37 @@ A tenant defines its own roles, and a role grants **permissions at a level**. `P
 - **What a role is for:** a member who holds roles gets, in their next token exchange, every permission those roles grant for the
   requested product, at the **highest** level any of them grants (there are no deny rules). Nothing from another product or tenant
   is in the token.
+
+#### Inviting people
+
+`POST /api/auth/tenants/me/invitations` (a tenant-admin token holding `members.invite` at `Full`) invites a person by email:
+
+```json
+{ "email": "new.person@example.com", "roleIds": ["..."], "applicationIds": ["..."] }
+```
+
+- **Roles are required: 1 to 10** of the caller's tenant (another tenant's role is **404**). Only an Owner can invite someone as an
+  Owner (**403**). `applicationIds` is optional and gives the person access to those products straight away; an Invited person
+  **takes a seat**, so a full product refuses the whole invitation (**409** `no_seat_available`) and nothing is created, and a
+  product the tenant is not actively subscribed to is **400**.
+- The email is trimmed and lowercased. An email that already has a membership in this tenant, in any status and whatever its
+  case, is **409** `already_member`. The reply (**201**, `membershipId`, `status: Invited`, roles, `expiresAt`) is the same
+  whether the email was new to the platform or already had an account, and never contains the link, so inviting reveals nothing
+  about other tenants.
+- A person new to the platform gets a user **with no password**, who cannot log in (the same generic 401 as bad credentials) until
+  they accept. The service emails a single-use link; the token is stored only as a hash and the link works for **7 days**
+  (`Auth:Invitations:TokenDays`).
+
+`POST /api/auth/invitations/accept` with `{"token": "...", "password": "..."}` (no login needed for a new person):
+
+- **A new person** chooses a password (8 to 128 characters) and their email counts as **verified**, since the link proved they own
+  it, so they can log in at once. A missing or bad password is **400** and the link stays usable.
+- **A person who already has an account** must be **logged in as the invited email** (send their identity token): not logged in is
+  **401** `login_required`, a different account **403** `wrong_account`, and a password in the body is **400**, since accepting
+  never sets or changes one. A mistake does not use up the link. Their memberships in other tenants are untouched.
+- An unknown, expired (after 7 days), already used or withdrawn (membership disabled) link is always **410**
+  `invitation_invalid`, and two simultaneous acceptances succeed only once. Accepting makes the membership **Active**.
+- Inviting and accepting are audit-logged (`auth.invitation.sent` / `accepted`, with the membership id).
 
 #### Members: listing, enabling and disabling
 
