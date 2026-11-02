@@ -405,8 +405,9 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
 |---|---|
 | `POST /api/auth/admin/signing-keys/rotate` | Emergency rotation: a new key signs now and the old one leaves the JWKS at once, so tokens it signed stop validating (including the caller's own). |
 | `GET /api/auth/admin/audit` | The whole audit log, newest first, across all tenants. Filters: `action`, `tenantId`, `actorId`. Paging: `limit` (1 to 200, default 50), then pass the returned `next` values back as `before` and `beforeId`. Reading it is itself audited. |
-| `GET /api/auth/admin/applications` | List every product, active or not (APP-06): `id`, `key`, `name`, `isActive`, `permissionCount`, `createdAt`, by name. The built-in product is left out, and no secret, audience, client id or webhook address is returned. |
+| `GET /api/auth/admin/applications` | List every product, active or not (APP-06): `id`, `key`, `name`, `isActive`, `permissionCount`, `launchUrl`, `createdAt`, by name. The built-in product is left out, and no secret, audience, client id or webhook address is returned. |
 | `POST /api/auth/admin/applications` | Register a product (see "Applications" below). |
+| `PUT /api/auth/admin/applications/{id}/launch-url` | Set (`{"url": "https://…"}`) or clear (`{"url": null}`) where the web console sends a person who chooses the product (APP-08). Absolute `https` only (plain `http` for localhost), no user name or password, no `#` fragment, at most 2000 characters. Recorded in the audit log. Also shown in the admin product list. |
 | `GET /api/auth/admin/applications/{id}/permissions` | Read a product's permission catalog (APP-07): `key`, `label`, `description`, `createdAt`, `updatedAt`, by key, whether or not the product is active. Unknown and built-in products are `404 application_not_found`. |
 | `POST /api/auth/admin/applications/{id}/permissions` | Register or update a product's permission catalog. |
 | `PUT /api/auth/admin/applications/{id}/active` | Make a product available to subscribe to (`{"isActive": true}`), or withdraw it. |

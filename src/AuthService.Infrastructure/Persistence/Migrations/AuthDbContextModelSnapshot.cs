@@ -177,6 +177,11 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(63)")
                         .HasColumnName("key");
 
+                    b.Property<string>("LaunchUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("launch_url");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
