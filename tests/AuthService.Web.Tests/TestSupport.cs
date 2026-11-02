@@ -130,6 +130,20 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> CreateKeyCalls { get; } = [];
 
+    /// <summary>Answers a key being rotated (given the request body); by default the new key's value is <see cref="RotatedRawKey"/> and the old one lives for the grace asked.</summary>
+    public Func<string, HttpResponseMessage>? RotateKeyResponse { get; set; }
+
+    /// <summary>The moment the API counts a rotation's grace from; tests pin the web app's clock to the same moment.</summary>
+    public DateTimeOffset ApiNow { get; set; } = new(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
+
+    public string RotatedRawKey { get; set; } = "ask_live_aa11bb22cc33dd44ee55ff6600778899";
+
+    public List<(string? Authorization, string Path, string Body)> RotateKeyCalls { get; } = [];
+
+    public Func<HttpResponseMessage>? RevokeKeyResponse { get; set; }
+
+    public List<(string? Authorization, string Path)> RevokeKeyCalls { get; } = [];
+
     public Func<HttpResponseMessage>? AccessResponse { get; set; }
 
     public List<(string Method, string? Authorization, string Path)> AccessCalls { get; } = [];
@@ -190,6 +204,39 @@ public sealed class FakeAuthApi : HttpMessageHandler
             {
                 Content = new StringContent(ApiKeysJson, Encoding.UTF8, "application/json"),
             };
+        }
+
+        if (path.StartsWith("/api/auth/apikeys/", StringComparison.Ordinal) && path.EndsWith("/rotate", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+        {
+            lock (_gate)
+            {
+                RotateKeyCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+            }
+
+            if (RotateKeyResponse is not null)
+            {
+                return RotateKeyResponse(body);
+            }
+
+            var grace = json.RootElement.TryGetProperty("graceHours", out var hours) ? hours.GetInt32() : 24;
+            var previous = grace == 0 ? "null" : $"\"{ApiNow.AddHours(grace):O}\"";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    $$"""{"key":{"id":"90000000-0000-4000-8000-000000000009","name":"CI deploy key","maskedKey":"ask_live_aa11…99","applicationId":null,"applicationKey":null,"permissions":[],"status":"Active","createdAt":"2026-11-02T12:00:00Z","expiresAt":null,"revokedAt":null},"rawKey":"{{RotatedRawKey}}","previousKeyExpiresAt":{{previous}}}""",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+        }
+
+        if (path.StartsWith("/api/auth/apikeys/", StringComparison.Ordinal) && request.Method == HttpMethod.Delete)
+        {
+            lock (_gate)
+            {
+                RevokeKeyCalls.Add((request.Headers.Authorization?.ToString(), path));
+            }
+
+            return RevokeKeyResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.NoContent);
         }
 
         if ((path == "/api/auth/roles" && request.Method == HttpMethod.Post)
