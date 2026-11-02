@@ -237,8 +237,12 @@ public static partial class WebForms
     public static async Task<HttpResponseMessage> PostFormFromHtmlAsync(
         HttpClient client, string path, string html, string formName, IReadOnlyDictionary<string, string>? valuesById = null)
     {
-        foreach (Match form in Regex.Matches(html, "<form[^>]*>(?<body>.*?)</form>", RegexOptions.Singleline))
+        foreach (Match form in Regex.Matches(html, "<form(?<attributes>[^>]*)>(?<body>.*?)</form>", RegexOptions.Singleline))
         {
+            // A browser posts to the form's action when it has one, otherwise to the address it is on.
+            var action = Regex.Match(form.Groups["attributes"].Value, "\baction=\"([^\"]*)\"") is { Success: true } found
+                ? WebUtility.HtmlDecode(found.Groups[1].Value)
+                : path;
             var inputs = InputTag().Matches(form.Groups["body"].Value).Select(match => match.Value).ToList();
             var handler = inputs.FirstOrDefault(tag => FieldName(tag) == "_handler");
             if (handler is null || Regex.Match(handler, "value=\"([^\"]*)\"").Groups[1].Value != formName)
@@ -265,7 +269,7 @@ public static partial class WebForms
                 }
             }
 
-            return await client.PostAsync(path, new FormUrlEncodedContent(fields), Token);
+            return await client.PostAsync(action, new FormUrlEncodedContent(fields), Token);
         }
 
         throw new InvalidOperationException($"The page has no form named \"{formName}\".");

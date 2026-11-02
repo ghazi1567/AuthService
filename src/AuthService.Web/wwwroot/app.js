@@ -108,10 +108,25 @@
         });
     }
 
+    // A page opened from an email link holds its token only in a form. The token is taken out of the address bar and the history entry
+    // first, then the form is sent: until then nothing else sees it, and the link cannot be bookmarked or shared by accident.
+    function startLinkForms() {
+        document.querySelectorAll("form[data-link-form=auto]").forEach(function (form) {
+            if (form.getAttribute("data-link-started")) {
+                return;
+            }
+
+            form.setAttribute("data-link-started", "true");
+            window.history.replaceState(null, "", window.location.pathname);
+            form.requestSubmit();
+        });
+    }
+
     function init() {
         revealToggles();
         startCountdowns();
         startRules();
+        startLinkForms();
     }
 
     if (document.readyState === "loading") {
