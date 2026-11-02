@@ -23,11 +23,11 @@ else if (outcome != ConsoleOutcome.Ready || loadFailed)
     <h1 class="page-title">Members</h1>
     <ErrorState Title="We couldn't load the members" RetryHref="@PagePath" Reference="@reference" />
 }
-else if (!console!.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+else if (console is null || forbidden || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
 {
     <h1 class="page-title">Members</h1>
     <AlertBanner Kind="AlertKind.Info" Title="You can't see members">
-        <p class="alert-body">You need the 'Members · Read only' permission. Ask an admin of @console.TenantName.</p>
+        <p class="alert-body">You need the 'Members · Read only' permission. Ask an admin of @console?.TenantName.</p>
     </AlertBanner>
 }
 else
@@ -230,6 +230,7 @@ else
     private bool loadFailed;
     private bool canManage;
     private bool canAssign;
+    private bool forbidden;
     private string? reference;
     private List<MemberItem> members = [];
     private List<MemberItem> shown = [];
@@ -310,6 +311,13 @@ else
                 return;
             }
 
+            if (list.Problem.Status == StatusCodes.Status403Forbidden)
+            {
+                // The API says no even though the token seemed to allow it: the person sees the same plain message.
+                forbidden = true;
+                return;
+            }
+
             loadFailed = true;
             reference = Reference();
             return;
@@ -317,7 +325,7 @@ else
 
         members = [.. list.Value!.OrderBy(member => member.DisplayName ?? member.Email, StringComparer.CurrentCultureIgnoreCase)];
         shown = [.. members.Where(Matches)];
-        if (DisableId is { } id)
+        if (DisableId is { } id && canManage)
         {
             confirming = members.FirstOrDefault(member => member.MembershipId == id && member.Status == "Active");
         }

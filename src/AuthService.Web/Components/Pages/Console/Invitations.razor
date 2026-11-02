@@ -25,11 +25,11 @@ else if (outcome != ConsoleOutcome.Ready || loadFailed)
     <h1 class="page-title">Invitations</h1>
     <ErrorState Title="We couldn't load the invitations" RetryHref="@PagePath" Reference="@reference" />
 }
-else if (!console!.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+else if (console is null || forbidden || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
 {
     <h1 class="page-title">Invitations</h1>
     <AlertBanner Kind="AlertKind.Info" Title="You can't see invitations">
-        <p class="alert-body">You need the 'Members · Read only' permission. Ask an admin of @console.TenantName.</p>
+        <p class="alert-body">You need the 'Members · Read only' permission. Ask an admin of @console?.TenantName.</p>
     </AlertBanner>
 }
 else
@@ -281,6 +281,7 @@ else
     private bool ready;
     private bool loadFailed;
     private bool canInvite;
+    private bool forbidden;
     private bool inviting;
     private bool callerIsOwner;
     private string? reference;
@@ -360,6 +361,12 @@ else
                 Session.Refresh(HttpContext, TenantId);
                 leaving = true;
                 Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            if (list.Problem.Status == StatusCodes.Status403Forbidden)
+            {
+                forbidden = true;
                 return;
             }
 

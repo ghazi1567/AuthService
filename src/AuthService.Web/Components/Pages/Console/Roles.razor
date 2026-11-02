@@ -23,11 +23,11 @@ else if (outcome != ConsoleOutcome.Ready || loadFailed)
     <h1 class="page-title">Roles</h1>
     <ErrorState Title="We couldn't load the roles" RetryHref="@PagePath" Reference="@reference" />
 }
-else if (!console!.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly))
+else if (console is null || forbidden || !console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly))
 {
     <h1 class="page-title">Roles</h1>
     <AlertBanner Kind="AlertKind.Info" Title="You can't see roles">
-        <p class="alert-body">You need the 'Roles · Read only' permission. Ask an admin of @console.TenantName.</p>
+        <p class="alert-body">You need the 'Roles · Read only' permission. Ask an admin of @console?.TenantName.</p>
     </AlertBanner>
 }
 else
@@ -159,6 +159,7 @@ else
     private bool ready;
     private bool loadFailed;
     private bool canManage;
+    private bool forbidden;
     private string? reference;
     private List<RoleListItem> roles = [];
     private RoleListItem? confirming;
@@ -229,6 +230,12 @@ else
                 return;
             }
 
+            if (list.Problem.Status == StatusCodes.Status403Forbidden)
+            {
+                forbidden = true;
+                return;
+            }
+
             loadFailed = true;
             reference = Reference();
             return;
@@ -236,7 +243,7 @@ else
 
         // The built-in Owner role first, then the rest by name.
         roles = [.. list.Value!.OrderByDescending(role => role.IsBuiltIn).ThenBy(role => role.Name, StringComparer.CurrentCultureIgnoreCase)];
-        if (DeleteId is { } id)
+        if (DeleteId is { } id && canManage)
         {
             confirming = roles.FirstOrDefault(role => role.Id == id && !role.IsBuiltIn);
         }

@@ -149,6 +149,10 @@ What is in place:
   **Remove access** asks first (seat freed; takes effect at their next token, within about 15 minutes). Both are plain POSTs that redirect back with a notice or an error code
   explained in plain words (no seat, disabled member, product not active, member gone, no permission, API down). Needs `access.manage:Full` to change, and read access to
   subscriptions and members to see.
+- **Permission-aware console** (UI02_T8). The console token's permissions decide what each page offers: an admin who may only read sees the lists but every write is a disabled button with a
+  tooltip naming the permission, or absent; a forced `?disable=`, `?delete=`, `?revoke=` or `?invite=1` link shows no confirmation or dialog; the editor pages say which permission is
+  needed; a list the API refuses with 403 reads as "you can't see this", not a broken page; and a forced write the API refuses comes back as "You don't have permission to do that"
+  naming the permission, never a raw code. The server is still the authority. `PermissionAwareConsoleTests` runs these across every console page.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
