@@ -11,6 +11,9 @@ namespace AuthService.Api.Features.Applications;
 /// </summary>
 public sealed record AdminApplicationItem(Guid Id, string Key, string Name, bool IsActive, int PermissionCount, DateTimeOffset CreatedAt);
 
+/// <summary>One permission of a product's catalog as the platform admin reads it (APP-07).</summary>
+public sealed record AdminPermissionItem(string Key, string Label, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+
 public static class ApplicationAdminEndpoints
 {
     public const string Route = "/api/auth/admin/applications";
@@ -19,6 +22,7 @@ public static class ApplicationAdminEndpoints
     {
         admin.MapGet("/applications", ListAsync);
         admin.MapPost("/applications", RegisterAsync);
+        admin.MapGet("/applications/{applicationId:guid}/permissions", ListPermissionsAsync);
         admin.MapPost("/applications/{applicationId:guid}/permissions", RegisterPermissionsAsync);
         admin.MapPut("/applications/{applicationId:guid}/active", SetActiveAsync);
         admin.MapPost("/applications/{applicationId:guid}/secret/rotate", RotateSecretAsync);
@@ -45,6 +49,28 @@ public static class ApplicationAdminEndpoints
             .ToListAsync(cancellationToken);
 
         return Results.Ok(applications);
+    }
+
+    /// <summary>
+    /// A platform admin reads a product's permission catalog (APP-07), by key, whether or not the product is active: the catalog is
+    /// what has to exist before it can be activated. An unknown product, and the built-in one (which cannot be changed through the
+    /// admin API), are not found.
+    /// </summary>
+    private static async Task<IResult> ListPermissionsAsync(Guid applicationId, AuthDbContext db, CancellationToken cancellationToken)
+    {
+        var exists = await db.Applications.AsNoTracking().AnyAsync(application => application.Id == applicationId && !application.IsBuiltIn, cancellationToken);
+        if (!exists)
+        {
+            return ApplicationNotFound();
+        }
+
+        var permissions = await db.Permissions.AsNoTracking()
+            .Where(permission => permission.ApplicationId == applicationId)
+            .OrderBy(permission => permission.Key)
+            .Select(permission => new AdminPermissionItem(permission.Key, permission.Label, permission.Description, permission.CreatedAt, permission.UpdatedAt))
+            .ToListAsync(cancellationToken);
+
+        return Results.Ok(permissions);
     }
 
     /// <summary>
