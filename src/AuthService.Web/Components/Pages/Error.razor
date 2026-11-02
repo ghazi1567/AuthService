@@ -1,0 +1,26 @@
+﻿@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Something went wrong</PageTitle>
+
+<h1>Something went wrong</h1>
+<p>We could not complete your request. Please try again, and contact support if it keeps happening.</p>
+
+@if (ShowRequestId)
+{
+    <p>
+        Reference for support: <code>@RequestId</code>
+    </p>
+}
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

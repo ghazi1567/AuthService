@@ -1,0 +1,47 @@
+using AuthService.Web.Api;
+using AuthService.Web.Components;
+using AuthService.Web.Security;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+// Where the Auth Service API is. A missing or malformed address stops the app starting rather than failing the first page.
+builder.Services.AddOptions<AuthApiOptions>()
+    .Bind(builder.Configuration.GetSection(AuthApiOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<AuthApiOptions>, AuthApiOptionsValidator>();
+
+builder.Services.AddHttpClient<AuthApiClient>((provider, client) =>
+    {
+        var options = provider.GetRequiredService<IOptions<AuthApiOptions>>().Value;
+        client.BaseAddress = options.BaseUrl;
+        client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+
+var app = builder.Build();
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
+}
+
+app.UseSecurityHeaders();
+app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseAntiforgery();
+
+app.MapStaticAssets();
+
+// For a platform health check. It says only that the web app is running, never anything about the API or its data.
+app.MapGet("/healthz", () => Results.Text("ok")).AllowAnonymous();
+
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
+
+app.Run();
+
+/// <summary>Lets the test project start the app.</summary>
+public partial class Program;

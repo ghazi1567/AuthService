@@ -1,8 +1,8 @@
 # 0002. Build the UI as a Blazor Web App
 
-- Status: Accepted (the `AuthService.Web` project does not exist yet)
+- Status: Accepted (the `AuthService.Web` project exists with its setup only; the screens follow the Figma design, Jira epic AUTH-195)
 - Date: 2026-10-30
-- Tickets: none yet
+- Tickets: AUTH-195 (Web UI), AUTH-213 (UI-00)
 
 ## Context
 

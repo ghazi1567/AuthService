@@ -1,0 +1,16 @@
+@inherits LayoutComponentBase
+
+@* Shell for the tenant console: members, invitations, roles, product access, API keys, subscriptions, audit (UI-02, UI-03).
+   Header, tenant switcher and navigation arrive with the Figma frames UI-00 / shell / tenant (UI00_T4). *@
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="shell shell-tenant">
+    <header>
+        <span class="shell-title">Auth Service</span>
+    </header>
+    <nav aria-label="Main"></nav>
+    <main id="main" tabindex="-1">
+        @Body
+    </main>
+</div>
+
+<UnhandledErrorBar />
