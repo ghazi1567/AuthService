@@ -1,0 +1,388 @@
+@page "/console/{TenantId:guid}/members"
+@attribute [Authorize]
+@layout TenantLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Members · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on (sign in again, or a fresh token), or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">Members</h1>
+    <ErrorState Title="We couldn't load the members" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (!console!.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">Members</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't see members">
+        <p class="alert-body">You need the 'Members · Read only' permission. Ask an admin of @console.TenantName.</p>
+    </AlertBanner>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Members</h1>
+            <p class="page-lead">The people in @console.TenantName, what they can do and which products they use.</p>
+        </div>
+        @if (console.Can(PermissionKeys.MembersInvite, AccessLevel.Full))
+        {
+            <a class="btn btn-primary" href="/console/@TenantId/invitations"><Icon Name="plus" />Invite people</a>
+        }
+        else
+        {
+            <span class="has-tip" tabindex="0" data-tip="You need the 'Members · Full access' permission to invite people.">
+                <button type="button" class="btn btn-primary" disabled aria-disabled="true"><Icon Name="plus" />Invite people</button>
+            </span>
+        }
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    <form method="get" class="toolbar" role="search" aria-label="Filter members">
+        <div class="toolbar-search">
+            <label class="visually-hidden" for="member-search">Search members</label>
+            <input id="member-search" class="input" type="search" name="q" value="@Q" placeholder="Search by name or email" />
+        </div>
+        <div>
+            <label class="visually-hidden" for="member-status">Status</label>
+            <select id="member-status" class="input" name="status">
+                <option value="" selected="@string.IsNullOrEmpty(Status)">All statuses</option>
+                <option value="Active" selected="@(Status == "Active")">Active</option>
+                <option value="Invited" selected="@(Status == "Invited")">Invited</option>
+                <option value="Disabled" selected="@(Status == "Disabled")">Disabled</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-secondary">Filter</button>
+    </form>
+
+    @if (members.Count == 0)
+    {
+        <EmptyState Title="It's just you so far" IconName="users">
+            <p class="empty-body">Invite your team to give them a place here.</p>
+        </EmptyState>
+    }
+    else if (shown.Count == 0)
+    {
+        <EmptyState Title="No members match" IconName="users">
+            <p class="empty-body">Try a different search or status.</p>
+            <a class="btn btn-secondary" href="@PagePath">Clear filters</a>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Member</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Roles</th>
+                        <th scope="col">Products</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var member in shown)
+                    {
+                        <tr>
+                            <td data-label="Member">
+                                <div class="person">
+                                    <span class="avatar" aria-hidden="true">@char.ToUpperInvariant((member.DisplayName ?? member.Email)[0])</span>
+                                    <span class="person-text">
+                                        <span class="person-name">@(member.DisplayName ?? member.Email)</span>
+                                        @if (member.DisplayName is not null)
+                                        {
+                                            <span class="person-email">@member.Email</span>
+                                        }
+                                    </span>
+                                </div>
+                            </td>
+                            <td data-label="Status">
+                                @switch (member.Status)
+                                {
+                                    case "Active": <StatusBadge Kind="success" IconName="check" Label="Active" /> break;
+                                    case "Invited": <StatusBadge Kind="info" IconName="mail" Label="Invited" /> break;
+                                    default: <StatusBadge Kind="neutral" IconName="slash" Label="Disabled" /> break;
+                                }
+                            </td>
+                            <td data-label="Roles">
+                                @if (member.Roles.Count == 0)
+                                {
+                                    <span class="muted">None</span>
+                                }
+                                else
+                                {
+                                    <span class="chips">
+                                        @foreach (var role in member.Roles)
+                                        {
+                                            <span class="chip @(role.Name == "Owner" ? "chip-owner" : null)">
+                                                @if (role.Name == "Owner")
+                                                {
+                                                    <Icon Name="shield" />
+                                                }
+                                                @role.Name
+                                            </span>
+                                        }
+                                    </span>
+                                }
+                            </td>
+                            <td data-label="Products">
+                                @if (member.Applications.Count == 0)
+                                {
+                                    <span class="muted">None</span>
+                                }
+                                else
+                                {
+                                    @string.Join(", ", member.Applications.Select(app => app.ApplicationKey))
+                                }
+                            </td>
+                            <td data-label="Actions" class="row-actions">
+                                @if (member.Status == "Active")
+                                {
+                                    @if (canManage)
+                                    {
+                                        <a class="btn btn-secondary btn-sm" href="@PagePath?disable=@member.MembershipId&q=@Uri.EscapeDataString(Q ?? "")&status=@Status">Disable</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="has-tip" tabindex="0" data-tip="You need the 'Members · Full access' permission to manage members.">
+                                            <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Disable</button>
+                                        </span>
+                                    }
+                                }
+                                else if (member.Status == "Disabled")
+                                {
+                                    @if (canManage)
+                                    {
+                                        <form method="post" action="/console/@TenantId/members/@member.MembershipId/status">
+                                            <AntiforgeryToken />
+                                            <input type="hidden" name="status" value="Active" />
+                                            <button type="submit" class="btn btn-secondary btn-sm">Enable</button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <span class="has-tip" tabindex="0" data-tip="You need the 'Members · Full access' permission to manage members.">
+                                            <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Enable</button>
+                                        </span>
+                                    }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @shown.Count of @members.Count @(members.Count == 1 ? "member" : "members")</p>
+    }
+
+    @if (confirming is { } target)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="disable-title">
+                <div class="modal-body">
+                    <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                    <h2 id="disable-title" class="modal-title">Disable @(target.DisplayName ?? target.Email)?</h2>
+                    <p class="modal-text">They won't be able to sign in or open any product until you enable them again. Their roles and product access are kept, and their seats are freed.</p>
+                </div>
+                <form method="post" action="/console/@TenantId/members/@target.MembershipId/status" class="modal-foot">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="status" value="Disabled" />
+                    <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                    <button type="submit" class="btn btn-danger" data-busy-label="Disabling…">Disable member</button>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool canManage;
+    private string? reference;
+    private List<MemberItem> members = [];
+    private List<MemberItem> shown = [];
+    private MemberItem? confirming;
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "q")] private string? Q { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")] private string? Status { get; set; }
+
+    /// <summary>A member to ask about disabling (the confirmation shows over the list).</summary>
+    [SupplyParameterFromQuery(Name = "disable")] private Guid? DisableId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "m")] private Guid? MemberId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "seats")] private string? Seats { get; set; }
+
+    private string PagePath => $"/console/{TenantId}/members";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        canManage = console!.Can(PermissionKeys.MembersManage, AccessLevel.Full);
+        if (!console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<List<MemberItem>>("/api/auth/tenants/me/members", console.Token, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                // The token was turned down: trade for a fresh one by loading the page again, once.
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        members = [.. list.Value!.OrderBy(member => member.DisplayName ?? member.Email, StringComparer.CurrentCultureIgnoreCase)];
+        shown = [.. members.Where(Matches)];
+        if (DisableId is { } id)
+        {
+            confirming = members.FirstOrDefault(member => member.MembershipId == id && member.Status == "Active");
+        }
+    }
+
+    private bool Matches(MemberItem member) =>
+        (string.IsNullOrWhiteSpace(Status) || member.Status == Status)
+        && (string.IsNullOrWhiteSpace(Q)
+            || member.Email.Contains(Q.Trim(), StringComparison.OrdinalIgnoreCase)
+            || (member.DisplayName?.Contains(Q.Trim(), StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+
+    private string NameOf(Guid? id) =>
+        members.FirstOrDefault(member => member.MembershipId == id) is { } member ? member.DisplayName ?? member.Email : "This member";
+
+    private RenderFragment? Notice() => builder =>
+    {
+        var name = NameOf(MemberId);
+        switch (NoticeCode, ErrorCode)
+        {
+            case ("disabled", _):
+                builder.AddContent(0, (RenderFragment)(inner =>
+                {
+                    inner.OpenComponent<AlertBanner>(0);
+                    inner.AddAttribute(1, nameof(AlertBanner.Kind), AlertKind.Success);
+                    inner.AddAttribute(2, nameof(AlertBanner.Title), $"{name} is disabled");
+                    inner.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+                    inner.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(body =>
+                    {
+                        body.AddMarkupContent(0, "<p class=\"alert-body\">They can't sign in until you enable them again.</p>");
+                        if (canManage && MemberId is { } id)
+                        {
+                            body.AddMarkupContent(1, $"<form method=\"post\" action=\"/console/{TenantId}/members/{id}/status\" class=\"inline-form\">");
+                            body.OpenComponent<AntiforgeryToken>(2);
+                            body.CloseComponent();
+                            body.AddMarkupContent(3, "<input type=\"hidden\" name=\"status\" value=\"Active\" /><button type=\"submit\" class=\"btn btn-secondary btn-sm\">Undo</button></form>");
+                        }
+                    }));
+                    inner.CloseComponent();
+                }));
+                break;
+            case ("enabled", _):
+                Banner(builder, AlertKind.Success, $"{name} is enabled", "They can sign in again.");
+                break;
+            case (_, "owner_role_restricted"):
+                Banner(builder, AlertKind.Error, "Only an Owner can do that", "Only an Owner can disable an Owner.");
+                break;
+            case (_, "last_owner"):
+                Banner(builder, AlertKind.Error, "You can't disable the last Owner", $"{console?.TenantName} needs at least one Owner. Make someone else an Owner first.");
+                break;
+            case (_, "membership_invited"):
+                Banner(builder, AlertKind.Warning, $"{name} hasn't accepted yet", "They become active when they accept their invitation, so there is nothing to enable or disable.");
+                break;
+            case (_, "no_seat_available"):
+                Banner(builder, AlertKind.Warning, $"{name} can't be enabled yet", $"There is no free seat{(string.IsNullOrWhiteSpace(Seats) ? "" : $" in {Seats}")}. Free a seat or raise the limit first.");
+                break;
+            case (_, "not_found"):
+                Banner(builder, AlertKind.Warning, "That member isn't here any more", "Someone may have removed them. The list is up to date.");
+                break;
+            case (_, "forbidden"):
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "You need the 'Members · Full access' permission to manage members.");
+                break;
+            case (_, "unavailable"):
+                Banner(builder, AlertKind.Error, "We couldn't make that change", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+                break;
+        }
+    };
+
+    private static void Banner(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, AlertKind kind, string title, string body)
+    {
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), kind);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    }
+}

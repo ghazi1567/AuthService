@@ -38,12 +38,15 @@ else
                 <li>
                     @if (membership.Status == MembershipStatus.Active)
                     {
-                        <a class="org-row" href="/choose-product?tenantId=@membership.TenantId">
-                            <span class="org-tile" aria-hidden="true">@Initials(membership.TenantName)</span>
-                            <span class="org-name">@membership.TenantName</span>
-                            <span class="visually-hidden">Open</span>
-                            <Icon Name="chevron-right" />
-                        </a>
+                        <div class="org-row org-row-split">
+                            <a class="org-link" href="/choose-product?tenantId=@membership.TenantId">
+                                <span class="org-tile" aria-hidden="true">@Initials(membership.TenantName)</span>
+                                <span class="org-name">@membership.TenantName</span>
+                                <span class="visually-hidden">Open</span>
+                                <Icon Name="chevron-right" />
+                            </a>
+                            <a class="btn btn-secondary btn-sm" href="/console/@membership.TenantId/members" aria-label="Manage @membership.TenantName">Manage</a>
+                        </div>
                     }
                     else
                     {

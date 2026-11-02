@@ -1,16 +1,120 @@
 @inherits LayoutComponentBase
+@using System.Text.RegularExpressions
+@inject IServiceProvider Services
 
 @* Shell for the tenant console: members, invitations, roles, product access, API keys, subscriptions, audit (UI-02, UI-03).
-   Header, tenant switcher and navigation arrive with the Figma frames UI-00 / shell / tenant (UI00_T4). *@
+   A sidebar (a drawer on small screens, opened by a plain link), a header with the organisation and the person's menu, and the page.
+   Navigation shows only the pages that exist and that the person is allowed to read at all. *@
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="shell shell-tenant">
-    <header>
-        <span class="shell-title">Auth Service</span>
-    </header>
-    <nav aria-label="Main"></nav>
-    <main id="main" tabindex="-1">
-        @Body
-    </main>
+    <aside class="console-sidebar" id="nav">
+        <div class="console-sidebar-head">
+            <a class="logo" href="/" aria-label="Auth Service home"><LogoMark />Admin console</a>
+            <a class="console-close" href="#main" aria-label="Close menu"><Icon Name="x" /></a>
+        </div>
+        <p class="overline">Manage</p>
+        <nav aria-label="Main">
+            @foreach (var item in VisibleItems)
+            {
+                <a class="console-nav-item" href="/console/@tenantId/@item.Path" aria-current="@(IsCurrent(item) ? "page" : null)"><Icon Name="@item.Icon" />@item.Label</a>
+            }
+        </nav>
+        <div class="console-sidebar-foot">
+            <a class="console-nav-item" href="/choose-organisation?change=1"><Icon Name="building" />Switch organisation</a>
+        </div>
+    </aside>
+    <div class="console-column">
+        <header class="console-header">
+            <a class="console-menu-link" href="#nav" aria-label="Open menu"><Icon Name="menu" /></a>
+            <p class="console-crumb" aria-label="You are here">
+                @if (console is not null)
+                {
+                    <span>@console.TenantName</span>
+                    @if (CurrentItem is { } current)
+                    {
+                        <Icon Name="chevron-right" />
+                        <span aria-current="page">@current.Label</span>
+                    }
+                }
+            </p>
+            @if (console is not null)
+            {
+                <details class="menu">
+                    <summary class="menu-trigger" aria-label="Account menu for @console.Email">
+                        <span class="org-tile org-tile-sm" aria-hidden="true">@Initials(console.TenantName)</span>
+                        <span class="menu-email">@console.TenantName</span>
+                        <Icon Name="chevron-down" />
+                    </summary>
+                    <div class="menu-panel">
+                        <p class="menu-who">Signed in as<br /><strong>@console.Email</strong></p>
+                        <a class="btn btn-secondary btn-block menu-link" href="/choose-organisation?change=1">Switch organisation</a>
+                        <SignOutButton Class="btn-block" />
+                    </div>
+                </details>
+            }
+        </header>
+        <main id="main" tabindex="-1" class="console-content">
+            @Body
+        </main>
+    </div>
 </div>
 
 <UnhandledErrorBar />
+
+@code {
+    private static readonly NavItem[] Items =
+    [
+        new("Members", "members", PermissionKeys.MembersRead, "users", Built: true),
+        new("Invitations", "invitations", PermissionKeys.MembersRead, "mail", Built: false),
+        new("Roles", "roles", PermissionKeys.RolesRead, "shield", Built: false),
+        new("Product access", "access", PermissionKeys.AccessManage, "key", Built: false),
+        new("API keys", "api-keys", PermissionKeys.ApiKeysRead, "key", Built: false),
+        new("Subscriptions", "subscriptions", PermissionKeys.SubscriptionsRead, "building", Built: false),
+        new("Audit log", "audit", PermissionKeys.AuditRead, "list", Built: false),
+    ];
+
+    private ConsoleContext? console;
+    private Guid tenantId;
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private IEnumerable<NavItem> VisibleItems =>
+        console is null ? [] : Items.Where(item => item.Built && console.Can(item.Permission, AccessLevel.ReadOnly));
+
+    private NavItem? CurrentItem => Items.FirstOrDefault(IsCurrent);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var match = Regex.Match(CurrentPath, "^/console/(?<id>[0-9a-fA-F-]{36})(/|$)");
+        if (!match.Success || !Guid.TryParse(match.Groups["id"].Value, out tenantId))
+        {
+            return;
+        }
+
+        // The page asks for the same console, so it is opened once per request.
+        if (HttpContext is not null && Services.GetService<ConsoleSession>() is { } session)
+        {
+            var result = await session.LoadAsync(HttpContext, tenantId);
+            console = result.Console;
+        }
+    }
+
+    private string CurrentPath =>
+        Services.GetService<NavigationManager>() is { } navigation ? new Uri(navigation.Uri).AbsolutePath : "";
+
+    private bool IsCurrent(NavItem item) =>
+        CurrentPath.StartsWith($"/console/{tenantId}/{item.Path}", StringComparison.OrdinalIgnoreCase);
+
+    private static string Initials(string name)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length switch
+        {
+            0 => "?",
+            1 => char.ToUpperInvariant(words[0][0]).ToString(),
+            _ => string.Concat(char.ToUpperInvariant(words[0][0]), char.ToUpperInvariant(words[1][0])),
+        };
+    }
+
+    private sealed record NavItem(string Label, string Path, string Permission, string Icon, bool Built);
+}
