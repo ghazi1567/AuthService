@@ -97,6 +97,11 @@ What is in place:
   as the invitation is used or can never work. Signed in as the wrong person: it says so and offers "Sign out and switch account",
   which returns to this page after the next sign-in. Expired, used or withdrawn invitations, rate limits and an unreachable API each
   have their own message. Success leads to `/` until the organisation picker exists.
+- **Secrets on the pages** (UI01_T7): the three email-link pages (`/verify-email`, `/reset-password`, `/accept-invitation`) keep the token only
+  in one hidden field, post to a clean address, have `app.js` remove it from the address bar and history, send
+  `Referrer-Policy: no-referrer` and `Cache-Control: no-store`, and never log it. A password field never renders a value, so a form that is
+  shown again (a validation error, a rate limit) cannot send a password back into the page, and each password field says whether it
+  holds an old (`current-password`) or a new (`new-password`) password. `LinkTokenSecurityTests` covers each page.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
