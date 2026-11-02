@@ -192,6 +192,11 @@ What is in place:
   the old secret keeps working (not at all, 1 hour, 24 hours suggested, 3, 7 or 30 days), explains that either secret works until then and that "Not at all" is for a leaked secret, and then shows the
   new client secret **once** in the same server-held, session-bound, two-minute, take-once dialog as API keys (with the client id and when the old secret stops, in plain words). The address
   carries only a reference; nothing is logged. Register, activate and deactivate (UI04_T1) and the permission catalog (UI04_T3) are not here yet: the admin API has no list of every product.
+- **After choosing an organisation** (`/choose-product?tenantId=…`, UI05_T6). The organisation picker's links now lead to a real page: the organisation with a "Change" link, then, for anyone who may
+  read any part of the admin console, an **Admin console** entry that opens the first part they may read, and **Connect a product**: the names of the products that can be connected (no ids or client
+  details), explaining that a product connects an organisation itself, so the admin asks the product's team. Other members see "Nothing to open from here yet" and that their admin decides which
+  products they can use. An organisation the person can't open (not an active member, or suspended) is explained. The list of **products a person can open** (UI05_T2) and the hand-off into a product
+  (UI05_T4) still need the API to say which products a person has access to and where to send them.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
