@@ -1,7 +1,15 @@
 using System.Security.Claims;
 using AuthService.Api.Common;
+using AuthService.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace AuthService.Api.Features.Applications;
+
+/// <summary>
+/// A product as the platform admin's list shows it (APP-06): enough to see where it stands (not yet active, withdrawn, working) and
+/// nothing a product keeps private. No client secret, audience, client id or webhook address.
+/// </summary>
+public sealed record AdminApplicationItem(Guid Id, string Key, string Name, bool IsActive, int PermissionCount, DateTimeOffset CreatedAt);
 
 public static class ApplicationAdminEndpoints
 {
@@ -9,11 +17,34 @@ public static class ApplicationAdminEndpoints
 
     public static RouteGroupBuilder MapApplicationsAdmin(this RouteGroupBuilder admin)
     {
+        admin.MapGet("/applications", ListAsync);
         admin.MapPost("/applications", RegisterAsync);
         admin.MapPost("/applications/{applicationId:guid}/permissions", RegisterPermissionsAsync);
         admin.MapPut("/applications/{applicationId:guid}/active", SetActiveAsync);
         admin.MapPost("/applications/{applicationId:guid}/secret/rotate", RotateSecretAsync);
         return admin;
+    }
+
+    /// <summary>
+    /// A platform admin lists every product, active or not (APP-06), by name. Unlike the list every signed-in person may read, this
+    /// one includes a product that is registered but has no catalog yet and one that was withdrawn, so the admin can finish setting
+    /// it up or bring it back. The Auth Service's own built-in product is not a product to manage and is left out.
+    /// </summary>
+    private static async Task<IResult> ListAsync(AuthDbContext db, CancellationToken cancellationToken)
+    {
+        var applications = await db.Applications.AsNoTracking()
+            .Where(application => !application.IsBuiltIn)
+            .OrderBy(application => application.Name).ThenBy(application => application.Key)
+            .Select(application => new AdminApplicationItem(
+                application.Id,
+                application.Key,
+                application.Name,
+                application.IsActive,
+                db.Permissions.Count(permission => permission.ApplicationId == application.Id),
+                application.CreatedAt))
+            .ToListAsync(cancellationToken);
+
+        return Results.Ok(applications);
     }
 
     /// <summary>
