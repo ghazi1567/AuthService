@@ -23,11 +23,11 @@ else if (outcome != ConsoleOutcome.Ready || loadFailed)
     <h1 class="page-title">Product access</h1>
     <ErrorState Title="We couldn't load product access" RetryHref="@PagePath" Reference="@reference" />
 }
-else if (!console!.Can(PermissionKeys.AccessManage, AccessLevel.ReadOnly) || !console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly) || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+else if (console is null || forbidden || !console.Can(PermissionKeys.AccessManage, AccessLevel.ReadOnly) || !console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly) || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
 {
     <h1 class="page-title">Product access</h1>
     <AlertBanner Kind="AlertKind.Info" Title="You can't see product access">
-        <p class="alert-body">You need to be able to see product access, subscriptions and members. Ask an admin of @console.TenantName.</p>
+        <p class="alert-body">You need to be able to see product access, subscriptions and members. Ask an admin of @console?.TenantName.</p>
     </AlertBanner>
 }
 else
@@ -200,6 +200,7 @@ else
     private bool ready;
     private bool loadFailed;
     private bool canManage;
+    private bool forbidden;
     private string? reference;
     private List<SubscriptionItem> subscriptions = [];
     private List<MemberItem> members = [];
@@ -278,6 +279,12 @@ else
                 return;
             }
 
+            if (subs.Problem?.Status == StatusCodes.Status403Forbidden || membersResult.Problem?.Status == StatusCodes.Status403Forbidden)
+            {
+                forbidden = true;
+                return;
+            }
+
             loadFailed = true;
             reference = Reference();
             return;
@@ -286,7 +293,7 @@ else
         subscriptions = [.. subs.Value!.OrderBy(subscription => subscription.ApplicationName, StringComparer.CurrentCultureIgnoreCase)];
         members = [.. membersResult.Value!.OrderBy(member => member.DisplayName ?? member.Email, StringComparer.CurrentCultureIgnoreCase)];
 
-        if (RevokeId is { } memberId && AppId is { } appId
+        if (canManage && RevokeId is { } memberId && AppId is { } appId
             && members.FirstOrDefault(member => member.MembershipId == memberId) is { } holder
             && subscriptions.FirstOrDefault(subscription => subscription.ApplicationId == appId) is { } product
             && holder.Applications.Any(app => app.ApplicationId == appId))
