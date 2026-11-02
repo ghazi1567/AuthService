@@ -1,0 +1,191 @@
+@page "/platform/signing-keys"
+@attribute [Authorize]
+@layout PlatformLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>Signing keys · Auth Service</PageTitle>
+
+@if (!ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Signing keys</h1>
+            <p class="page-lead">The keys that sign the tokens Auth Service issues. Products check tokens against the public keys listed here; the private parts never leave the platform.</p>
+        </div>
+        <a class="btn btn-danger" href="/platform/signing-keys?rotate=1"><Icon Name="alert-triangle" />Rotate now</a>
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    @if (loadFailed)
+    {
+        <ErrorState Title="We couldn't load the signing keys" RetryHref="/platform/signing-keys" Reference="@reference" />
+    }
+    else if (keys.Count == 0)
+    {
+        <EmptyState Title="No keys are published" IconName="key">
+            <p class="empty-body">Auth Service publishes no signing keys right now, so products can't check tokens. This shouldn't happen. Rotate the key to publish a new one.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Key id</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Algorithm</th>
+                        <th scope="col">Used for</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var key in keys)
+                    {
+                        <tr>
+                            <td data-label="Key id"><code class="mono">@key.Kid</code></td>
+                            <td data-label="Type">@key.Kty @key.Crv</td>
+                            <td data-label="Algorithm">@key.Alg</td>
+                            <td data-label="Used for">@(key.Use == "sig" ? "Signing tokens" : key.Use)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">@keys.Count @(keys.Count == 1 ? "key is" : "keys are") published. A new key is published a day before it starts signing, so products have it in time. Each token names the key that signed it.</p>
+    }
+
+    @if (rotating)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="rotate-title">
+                <form method="post" action="/platform/signing-keys/rotate">
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                        <h2 id="rotate-title" class="modal-title">Rotate the signing key now?</h2>
+                        <p class="modal-text">Use this only if a signing key may have been exposed.</p>
+                        <ul class="consequence-list">
+                            <li>A new key starts signing <strong>at once</strong>.</li>
+                            <li>Every earlier key is removed from the published list, so <strong>every token already issued stops working</strong>.</li>
+                            <li>People are signed out of the products and have to sign in again, including you.</li>
+                            <li>It can't be undone, and it is recorded in the audit log under your name.</li>
+                        </ul>
+                        <div class="field @(ErrorCode == "confirm" ? "field-error" : null)">
+                            <label for="confirm">Type @PlatformEndpoints.RotationWord to confirm</label>
+                            <input id="confirm" name="confirm" class="input mono" autocomplete="off" spellcheck="false" autocapitalize="characters" aria-describedby="confirm-message" aria-invalid="@(ErrorCode == "confirm" ? "true" : null)" />
+                            @if (ErrorCode == "confirm")
+                            {
+                                <p id="confirm-message" class="field-message is-error"><Icon Name="alert-circle" />That isn't the word. Nothing was rotated.</p>
+                            }
+                            else
+                            {
+                                <p id="confirm-message" class="field-message">Typing the word makes sure this isn't done by accident.</p>
+                            }
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="/platform/signing-keys" autofocus>Cancel</a>
+                        <button type="submit" class="btn btn-danger" data-busy-label="Rotating…">Rotate signing key</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool ready;
+    private bool loadFailed;
+    private bool rotating;
+    private string? reference;
+    private List<SigningKeyItem> keys = [];
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "rotate")] private string? Rotate { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "kid")] private string? NewKeyId { get; set; }
+
+    private RenderFragment? Notice() => builder =>
+    {
+        switch (NoticeCode, ErrorCode)
+        {
+            case ("rotated", _):
+                Banner(builder, AlertKind.Success, "The signing key was rotated", $"New tokens are signed with key {Shorten(NewKeyId)}. Every token issued before this stopped working, so people will need to sign in again.");
+                break;
+            case (_, "forbidden"):
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "Only platform admins can rotate the signing key.");
+                break;
+            case (_, "unavailable"):
+                Banner(builder, AlertKind.Error, "We couldn't rotate the key", "Auth Service isn't responding right now. Nothing was changed. Check the list below before you try again.");
+                break;
+        }
+    };
+
+    private static string Shorten(string? id) => string.IsNullOrWhiteSpace(id) ? "(unknown)" : id.Length <= 48 ? id : id[..48] + "…";
+
+    private static void Banner(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, AlertKind kind, string title, string body)
+    {
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), kind);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // The layout has already asked the API; this is the same answer.
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        rotating = Rotate == "1";
+
+        // The published keys are public: no sign-in is needed to read them.
+        var published = await Api.GetAsync<SigningKeySet>("/.well-known/jwks.json", null, HttpContext.RequestAborted);
+        if (!published.IsSuccess)
+        {
+            loadFailed = true;
+            reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+            return;
+        }
+
+        keys = [.. published.Value!.Keys];
+    }
+}

@@ -46,3 +46,12 @@ public static partial class WebhookLabels
     [GeneratedRegex(@"(?<=[a-z0-9])(?=[A-Z])|[_.-]+")]
     private static partial Regex Words();
 }
+
+/// <summary>One public key the platform publishes so products can check its tokens. Only the public parts; the id is what a token's header names.</summary>
+public sealed record SigningKeyItem(string Kid, string Kty, string Crv, string Alg, string Use);
+
+/// <summary>The platform's published keys (<c>GET /.well-known/jwks.json</c>).</summary>
+public sealed record SigningKeySet(IReadOnlyList<SigningKeyItem> Keys);
+
+/// <summary>The key that signs tokens as of now, after an emergency rotation.</summary>
+public sealed record RotatedSigningKey(string KeyId);

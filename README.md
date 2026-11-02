@@ -184,6 +184,10 @@ What is in place:
   Failed), attempts, what happened or happens next (delivered at, next try, gave up at) and the short reason such as `HTTP 503`. Filter by status and product; Load more up to 200. A
   **Failed** event offers **Send again**, which asks first, naming the event and product, then calls the API as the signed-in person. The API's reasons (not failed any more, not found, no
   permission, down) are explained in plain words. Callback addresses and secrets are never shown, and a person the API doesn't accept as a platform admin changes nothing.
+- **Signing keys** (`/platform/signing-keys`, UI04_T5). Lists the public keys the platform publishes (`GET /.well-known/jwks.json`: key id, type, algorithm, use; the page reads them without a
+  sign-in because they are public). **Rotate now** is an emergency action and cannot be set off by accident: it opens a question that says plainly what happens (a new key signs at once, every
+  earlier key leaves the list so every token already issued stops working, people have to sign in again including you, it can't be undone and is audited under your name) and asks for the word
+  ROTATE to be typed. Anything else rotates nothing and the API is not asked; the question stays open with a message. The JWKS has no schedule, so none is shown.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

@@ -13,7 +13,54 @@ public static class PlatformEndpoints
     public static IEndpointRouteBuilder MapPlatformEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/platform/webhooks/{webhookId:guid}/resend", ResendWebhookAsync).AllowAnonymous();
+        app.MapPost("/platform/signing-keys/rotate", RotateSigningKeyAsync).AllowAnonymous();
         return app;
+    }
+
+    /// <summary>The word the admin must type before an emergency rotation goes ahead.</summary>
+    public const string RotationWord = "ROTATE";
+
+    private static async Task<IResult> RotateSigningKeyAsync(
+        HttpContext context,
+        IAntiforgery antiforgery,
+        PlatformSession platform,
+        AuthApiClient api)
+    {
+        try
+        {
+            await antiforgery.ValidateRequestAsync(context);
+        }
+        catch (AntiforgeryValidationException)
+        {
+            return Results.BadRequest();
+        }
+
+        const string page = "/platform/signing-keys";
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return Results.Redirect($"{SessionAuthentication.LoginPath}?returnUrl={Uri.EscapeDataString(page)}");
+        }
+
+        var opened = await platform.LoadAsync(context);
+        if (opened.Outcome != PlatformOutcome.Allowed)
+        {
+            return Results.Redirect(page);
+        }
+
+        // Typed by hand, so a slip or a stray click can't set it off. The API is not asked unless the word matches.
+        var form = await context.Request.ReadFormAsync();
+        if (!string.Equals(form["confirm"].ToString().Trim(), RotationWord, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Redirect($"{page}?rotate=1&error=confirm");
+        }
+
+        var result = await api.PostAsync<object, RotatedSigningKey>("/api/auth/admin/signing-keys/rotate", new { }, context.RequestAborted, opened.Token);
+        if (result.IsSuccess)
+        {
+            return Results.Redirect($"{page}?notice=rotated&kid={Uri.EscapeDataString(result.Value!.KeyId)}");
+        }
+
+        return Results.Redirect($"{page}?error={(result.Problem!.Status == StatusCodes.Status403Forbidden ? "forbidden" : "unavailable")}");
     }
 
     private static async Task<IResult> ResendWebhookAsync(
