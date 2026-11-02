@@ -17,9 +17,16 @@ public abstract record TokenExchangeResult
 
     /// <summary>
     /// One answer for every reason, so a caller learns nothing about tenants, memberships or subscriptions they have no part in:
-    /// no active membership, no active subscription, no access grant, an inactive product or a suspended tenant.
+    /// no active membership, no active subscription, no access grant or an inactive product.
     /// </summary>
     public sealed record Denied : TokenExchangeResult;
+
+    /// <summary>
+    /// The one reason that is told apart (TOK-05): the caller is an Active member of a tenant that is suspended. They already know the
+    /// tenant exists and that they belong to it, so saying it is suspended reveals nothing new, and it lets them understand why nothing opens.
+    /// Anyone else, including someone whose membership is not Active, still gets <see cref="Denied"/>.
+    /// </summary>
+    public sealed record TenantSuspended : TokenExchangeResult;
 }
 
 /// <summary>
@@ -37,18 +44,24 @@ public sealed class TokenExchangeService(
     public async Task<TokenExchangeResult> ExchangeAsync(Guid userId, Guid tenantId, Guid applicationId, CancellationToken cancellationToken)
     {
         // Only the caller's own membership counts: Invited, Disabled and none at all are all refused.
-        var membershipId = await (
+        var standing = await (
             from membership in db.TenantMemberships
             join tenant in db.Tenants on membership.TenantId equals tenant.Id
             where membership.TenantId == tenantId && membership.UserId == userId
                 && membership.Status == MembershipStatus.Active
-                && tenant.Status != TenantStatus.Suspended
-            select (Guid?)membership.Id)
+            select new { MembershipId = membership.Id, Suspended = tenant.Status == TenantStatus.Suspended })
             .SingleOrDefaultAsync(cancellationToken);
-        if (membershipId is null)
+        if (standing is null)
         {
             return new TokenExchangeResult.Denied();
         }
+
+        if (standing.Suspended)
+        {
+            return new TokenExchangeResult.TenantSuspended();
+        }
+
+        Guid? membershipId = standing.MembershipId;
 
         var application = await db.Applications.AsNoTracking()
             .Where(candidate => candidate.Id == applicationId && candidate.IsActive)

@@ -49,6 +49,9 @@ public static class TokenExchangeEndpoints
         {
             TokenExchangeResult.Issued issued => Results.Ok(issued.Response),
 
+            TokenExchangeResult.TenantSuspended => ApiProblem.Create(StatusCodes.Status403Forbidden, "tenant_suspended", "Organisation suspended",
+                "This organisation is suspended, so nothing can be opened in it right now."),
+
             _ => ApiProblem.Create(StatusCodes.Status403Forbidden, "exchange_denied", "Access denied",
                 "You do not have access to this application in this tenant."),
         };

@@ -493,6 +493,8 @@ It is refused with **403** `exchange_denied` unless **all** of these hold, read 
 
 Every refusal is the same response, so a caller cannot tell a real tenant or product from an invented one. A missing id is **400**.
 
+The one exception (TOK-05): an **Active member of a suspended tenant** is refused with **403** `tenant_suspended` instead, for the Auth Service's own product and for every other product. They already know the tenant exists and is theirs, so it reveals nothing new, and it lets the web console explain why nothing opens. A person whose membership is not Active, an outsider and an invented tenant still get the plain `exchange_denied`. `GET /api/auth/users/me/applications` answers the same way (`tenant_suspended` for an active member, `tenant_access_denied` for anyone else).
+
 **Rate limit.** Each exchange reads the person's membership, subscription and roles from the database, so exchange is limited **per
 signed-in person**: 30 a minute by default (`Auth:TokenExchange:UserLimit`), after which the answer is **429** `rate_limited` with
 `Retry-After` and no token. Refused exchanges count too, so guessing tenant or product ids is limited as well, and an exchange for
