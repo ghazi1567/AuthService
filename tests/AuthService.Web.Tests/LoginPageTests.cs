@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 namespace AuthService.Web.Tests;
 
 /// <summary>The sign-in page (UI-01): what it shows, and one wording for each way the API can answer. No real API is involved.</summary>
-public sealed partial class LoginPageTests
+public sealed class LoginPageTests
 {
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
@@ -91,13 +91,14 @@ public sealed partial class LoginPageTests
     {
         // The request is disposed once it is sent, so the body is read while the fake API is answering.
         string? sentBody = null;
+        var accessToken = TestTokens.Jwt(Guid.NewGuid(), 1);
         var api = new FakeApiHandler(request =>
         {
             sentBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    """{"accessToken":"secret-access","tokenType":"Bearer","expiresIn":900,"refreshToken":"secret-refresh","memberships":[]}""",
+                    $$"""{"accessToken":"{{accessToken}}","tokenType":"Bearer","expiresIn":900,"refreshToken":"secret-refresh","memberships":[]}""",
                     Encoding.UTF8,
                     "application/json"),
             };
@@ -108,7 +109,8 @@ public sealed partial class LoginPageTests
 
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         response.Headers.Location!.AbsolutePath.ShouldBe("/");
-        html.ShouldNotContain("secret-access");
+        html.ShouldNotContain(accessToken);
+        response.Headers.GetValues("Set-Cookie").ShouldNotContain(cookie => cookie.Contains(accessToken) || cookie.Contains("secret-refresh"));
         html.ShouldNotContain("secret-refresh");
 
         var request = api.Requests.ShouldHaveSingleItem();
@@ -185,40 +187,7 @@ public sealed partial class LoginPageTests
     private static async Task<(HttpResponseMessage Response, string Html)> PostLoginAsync(WebAppFactory factory, string email, string password)
     {
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
-        var page = await client.GetStringAsync("/login", Token);
-
-        // Field names come from the rendered page, as a browser would send them, so a naming mismatch cannot hide.
-        var form = new Dictionary<string, string>();
-        foreach (Match input in InputTag().Matches(page))
-        {
-            var tag = input.Value;
-            var fieldName = WebUtility.HtmlDecode(Regex.Match(tag, "name=\"([^\"]+)\"").Groups[1].Value);
-            if (tag.Contains("id=\"login-email\""))
-            {
-                form[fieldName] = email;
-                continue;
-            }
-
-            if (tag.Contains("id=\"login-password\""))
-            {
-                form[fieldName] = password;
-                continue;
-            }
-
-            if (!tag.Contains("type=\"hidden\""))
-            {
-                continue;
-            }
-
-            var name = Regex.Match(tag, "name=\"([^\"]+)\"").Groups[1].Value;
-            var value = Regex.Match(tag, "value=\"([^\"]*)\"").Groups[1].Value;
-            form[WebUtility.HtmlDecode(name)] = WebUtility.HtmlDecode(value);
-        }
-
-        var response = await client.PostAsync("/login", new FormUrlEncodedContent(form), Token);
+        var response = await WebForms.PostLoginAsync(client, email, password);
         return (response, await response.Content.ReadAsStringAsync(Token));
     }
-
-    [GeneratedRegex("<input[^>]*>")]
-    private static partial Regex InputTag();
 }

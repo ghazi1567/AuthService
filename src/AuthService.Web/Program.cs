@@ -22,6 +22,8 @@ builder.Services.AddHttpClient<AuthApiClient>((provider, client) =>
     })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 
+builder.Services.AddSessionAuthentication(builder.Environment);
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -31,11 +33,15 @@ if (!app.Environment.IsDevelopment())
 
 app.UseSecurityHeaders();
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
 
 // For a platform health check. It says only that the web app is running, never anything about the API or its data.
+app.MapSessionEndpoints();
+
 app.MapGet("/healthz", () => Results.Text("ok")).AllowAnonymous();
 
 app.MapRazorComponents<App>()

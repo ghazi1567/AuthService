@@ -1,0 +1,9 @@
+@* Signs out with a form post, never a link: a page or an image on another site must not be able to sign someone out. *@
+<form method="post" action="@SessionAuthentication.LogoutPath">
+    <AntiforgeryToken />
+    <button type="submit" class="btn btn-secondary @Class">Sign out</button>
+</form>
+
+@code {
+    [Parameter] public string? Class { get; set; }
+}
