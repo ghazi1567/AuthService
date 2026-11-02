@@ -5,6 +5,7 @@
 @using AuthService.Web.Api
 @inject AuthApiClient Api
 @inject SessionService Sessions
+@inject ConsoleSession ConsoleTokens
 @inject NavigationManager Navigation
 
 <PageTitle>Choose an organisation · Auth Service</PageTitle>
@@ -127,6 +128,12 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // Choosing an organisation starts fresh: the tokens for the one being left are dropped and never used again.
+        if (HttpContext is not null)
+        {
+            ConsoleTokens.ForgetTokens(HttpContext);
+        }
+
         var accessToken = await AccessTokenAsync();
         if (accessToken is null)
         {

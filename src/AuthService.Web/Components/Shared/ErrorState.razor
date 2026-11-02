@@ -1,14 +1,45 @@
-@* Something could not be loaded: what failed, a reassurance, a way to try again, and a short reference to quote to support. *@
-<div class="error-state" role="alert">
-    <div class="icon-tile is-error"><Icon Name="alert-circle" /></div>
-    <h2 class="empty-title">@Title</h2>
-    <p class="empty-body">Your data is safe. Nothing was changed.</p>
-    <a class="btn btn-secondary" href="@RetryHref">Try again</a>
-    @if (Reference is not null)
-    {
-        <p class="error-reference">Reference <code>@Reference</code></p>
-    }
-</div>
+@inject IServiceProvider Services
+
+@* Something could not be loaded: what failed, a reassurance, a way to try again, and a short reference to quote to support.
+   When the API asked us to slow down, it says so instead and the way to try again counts down the wait. *@
+@if (Wait is { } seconds)
+{
+    <div class="error-state" role="alert">
+        <div class="icon-tile"><Icon Name="clock" /></div>
+        <h2 class="empty-title">You're going a little fast</h2>
+        <p class="empty-body">Auth Service asked us to slow down for a moment. Nothing was changed. You can try again in @seconds @(seconds == 1 ? "second" : "seconds").</p>
+        <form method="get" action="@RetryPath">
+            @foreach (var (name, value) in RetryFields)
+            {
+                <input type="hidden" name="@name" value="@value" />
+            }
+            <button type="submit" class="btn btn-secondary"
+                    data-countdown="@seconds"
+                    data-countdown-label="Try again in {0}s"
+                    data-countdown-done="Try again"
+                    data-countdown-announce="retry-announce"
+                    data-countdown-message="You can try again now.">Try again</button>
+        </form>
+        <div id="retry-announce" class="visually-hidden" aria-live="polite"></div>
+        @if (Reference is not null)
+        {
+            <p class="error-reference">Reference <code>@Reference</code></p>
+        }
+    </div>
+}
+else
+{
+    <div class="error-state" role="alert">
+        <div class="icon-tile is-error"><Icon Name="alert-circle" /></div>
+        <h2 class="empty-title">@Title</h2>
+        <p class="empty-body">Your data is safe. Nothing was changed.</p>
+        <a class="btn btn-secondary" href="@RetryHref">Try again</a>
+        @if (Reference is not null)
+        {
+            <p class="error-reference">Reference <code>@Reference</code></p>
+        }
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired] public string Title { get; set; } = "";
@@ -17,4 +48,15 @@
 
     /// <summary>A short code that lets someone find this request in the logs. It says nothing about the person or the data.</summary>
     [Parameter] public string? Reference { get; set; }
+
+    private int? Wait => Services.GetService<ConsoleSession>()?.RetryAfterSeconds is > 0 and var seconds ? seconds : null;
+
+    private string RetryPath => RetryHref.Split('?', 2)[0];
+
+    private IEnumerable<(string Name, string Value)> RetryFields =>
+        RetryHref.Contains('?')
+            ? System.Web.HttpUtility.ParseQueryString(RetryHref.Split('?', 2)[1]).AllKeys
+                .Where(key => key is not null)
+                .Select(key => (key!, System.Web.HttpUtility.ParseQueryString(RetryHref.Split('?', 2)[1])[key] ?? ""))
+            : [];
 }

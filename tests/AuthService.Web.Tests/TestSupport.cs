@@ -232,6 +232,41 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<string> RefreshTokensIssued { get; } = [];
 
+    /// <summary>The organisation a product token is for (its <c>tid</c>), like the real API's profile read: the token decides, nothing else.</summary>
+    private static string TenantOfToken(HttpRequestMessage request)
+    {
+        var token = request.Headers.Authorization?.Parameter ?? "";
+        var parts = token.Split('.');
+        if (parts.Length == 3)
+        {
+            var padded = parts[1].Replace('-', '+').Replace('_', '/');
+            padded = padded.PadRight(padded.Length + ((4 - (padded.Length % 4)) % 4), '=');
+            using var payload = JsonDocument.Parse(Convert.FromBase64String(padded));
+            if (payload.RootElement.TryGetProperty("tid", out var tid) && tid.GetString() is { } value)
+            {
+                return value;
+            }
+        }
+
+        return "7d8e6b92-2d0b-4f43-9e0a-0d6a0f0f4d11";
+    }
+
+    /// <summary>The organisation's name from the memberships the fake serves, or <see cref="TenantName"/> when it isn't among them.</summary>
+    private string NameOfTenant(string tenantId)
+    {
+        using var memberships = JsonDocument.Parse(MembershipsJson);
+        foreach (var membership in memberships.RootElement.EnumerateArray())
+        {
+            if (string.Equals(membership.GetProperty("tenantId").GetString(), tenantId, StringComparison.OrdinalIgnoreCase)
+                && TenantName == "Acme Ltd")
+            {
+                return membership.GetProperty("tenantName").GetString() ?? TenantName;
+            }
+        }
+
+        return TenantName;
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         // A real API answers later, not instantly: pages must cope with the render that happens while they wait.
@@ -522,7 +557,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 return TenantProfileResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(
-                        $$"""{"id":"7d8e6b92-2d0b-4f43-9e0a-0d6a0f0f4d11","name":"{{TenantName}}","status":"{{TenantStatus}}","createdAt":"2026-09-01T10:00:00Z"}""",
+                        $$"""{"id":"{{TenantOfToken(request)}}","name":"{{NameOfTenant(TenantOfToken(request))}}","status":"{{TenantStatus}}","createdAt":"2026-09-01T10:00:00Z"}""",
                         Encoding.UTF8,
                         "application/json"),
                 };
