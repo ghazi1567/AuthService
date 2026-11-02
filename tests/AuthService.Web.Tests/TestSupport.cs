@@ -165,6 +165,8 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public string SubscriptionsJson { get; set; } = "[]";
 
+    public Func<HttpResponseMessage>? SubscriptionsResponse { get; set; }
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -364,7 +366,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenants/me/subscriptions":
-                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(SubscriptionsJson, Encoding.UTF8, "application/json") };
+                return SubscriptionsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(SubscriptionsJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenants/me/members":
                 lock (_gate)
