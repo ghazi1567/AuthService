@@ -100,6 +100,7 @@ else
                                     </form>
                                 }
 
+                                <a class="btn btn-secondary btn-sm" href="/platform/products/@product.Id/permissions">Permissions</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?launch=@product.Id">Opens at</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?rotate=@product.Id">Replace secret</a>
                             </td>
@@ -144,6 +145,11 @@ else
                     <button type="button" class="btn btn-secondary" data-needs-script hidden data-copy-from="raw-secret"><Icon Name="copy" />Copy secret</button>
                 </div>
                 <div class="modal-foot">
+                    @if (Registered == "1" && AppId is { } registeredId)
+                    {
+                        <a class="btn btn-secondary" href="/platform/products/@registeredId/permissions">Add its permissions</a>
+                    }
+
                     <a class="btn btn-primary" href="/platform/products">I've saved it</a>
                 </div>
             </div>
@@ -502,7 +508,7 @@ else
             // The secret waits on the server; the address carries only a reference, the product's name and its (public) client id.
             var reference_ = Secrets.Put(sid.Value, result.Value!.ClientSecret);
             leaving = true;
-            Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&name={Uri.EscapeDataString(result.Value.Name)}&client={Uri.EscapeDataString(result.Value.ClientId)}");
+            Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&app={result.Value.Id}&name={Uri.EscapeDataString(result.Value.Name)}&client={Uri.EscapeDataString(result.Value.ClientId)}");
             return;
         }
 

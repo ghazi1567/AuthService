@@ -58,6 +58,7 @@ public sealed class PlatformProductsPageTests
         {
             html.ShouldContain($"?rotate={id}");
             html.ShouldContain($"?launch={id}");
+            html.ShouldContain($"href=\"/platform/products/{id}/permissions\"");
         }
     }
 
@@ -107,7 +108,7 @@ public sealed class PlatformProductsPageTests
         call.Body.ShouldContain("\"name\":\"Inventory\"");
         call.Body.ShouldContain("\"jwtAudience\":\"inventory-api\"");
         var revealUrl = Where(posted);
-        revealUrl.ShouldMatch($@"^{Regex.Escape(PagePath)}\?reveal=[0-9a-f]{{32}}&registered=1&name=Inventory&client=new-client$");
+        revealUrl.ShouldMatch($@"^{Regex.Escape(PagePath)}\?reveal=[0-9a-f]{{32}}&registered=1&app=[0-9a-f-]{{36}}&name=Inventory&client=new-client$");
         revealUrl.ShouldNotContain(api.ProductSecret, customMessage: "the secret is never in an address");
 
         var first = WebUtility.HtmlDecode(await client.GetStringAsync(revealUrl, Token));
@@ -117,6 +118,8 @@ public sealed class PlatformProductsPageTests
         first.ShouldContain($"value=\"{api.ProductSecret}\"");
         first.ShouldContain("You won't see this again");
         first.ShouldContain("Client id: <code class=\"mono\">new-client</code>");
+        first.ShouldContain("Add its permissions");
+        Regex.IsMatch(first, "href=\"/platform/products/[0-9a-f-]{36}/permissions\"").ShouldBeTrue("the next step is one click away");
 
         var reloaded = await client.GetStringAsync(revealUrl, Token);
         reloaded.ShouldNotContain(api.ProductSecret);

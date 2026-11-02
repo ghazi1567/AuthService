@@ -1934,3 +1934,37 @@ a.org-row:hover {
     .row-actions > * + * {
         margin-left: 6px;
     }
+
+/* Product permission list: a way back, an action inside a banner, and a roomy text box for the permissions to add */
+.back-link {
+    margin: 0 0 8px;
+    font: 500 14px/20px var(--font-ui);
+}
+
+    .back-link a {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--text-link);
+    }
+
+    .back-link .icon {
+        transform: rotate(180deg);
+    }
+
+.alert-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0;
+}
+
+.permissions-text {
+    width: 100%;
+    min-height: 140px;
+    height: auto;
+    resize: vertical;
+    line-height: 20px;
+}

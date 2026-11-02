@@ -215,6 +215,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> SigningKeyRotateCalls { get; } = [];
 
+    /// <summary>A product's permission catalog as the API returns it (<c>GET /api/auth/admin/applications/{id}/permissions</c>), as a JSON array.</summary>
+    public string AdminPermissionsJson { get; set; } = "[]";
+
+    /// <summary>Answers permissions being added (given the request body); null (the default) reports them all created.</summary>
+    public Func<string, HttpResponseMessage?>? AddPermissionsResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> AddPermissionsCalls { get; } = [];
+
     /// <summary>Every product as the platform admin's list returns it (<c>GET /api/auth/admin/applications</c>), as a JSON array.</summary>
     public string AdminProductsJson { get; set; } = "[]";
 
@@ -353,6 +361,30 @@ public sealed class FakeAuthApi : HttpMessageHandler
                         $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":false,"clientId":"new-client","clientSecret":"{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z"}""",
                         Encoding.UTF8,
                         "application/json"),
+                };
+            }
+
+            if (path.EndsWith("/permissions", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(AdminPermissionsJson, Encoding.UTF8, "application/json") };
+            }
+
+            if (path.EndsWith("/permissions", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    AddPermissionsCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                if (AddPermissionsResponse?.Invoke(body) is { } refusedAdd)
+                {
+                    return refusedAdd;
+                }
+
+                var count = json.RootElement.GetProperty("permissions").GetArrayLength();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent($$"""{"applicationId":"{{path.Split('/')[^2]}}","created":{{count}},"updated":0,"unchanged":0,"permissions":[]}""", Encoding.UTF8, "application/json"),
                 };
             }
 
