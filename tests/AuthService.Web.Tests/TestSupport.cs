@@ -215,6 +215,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> SigningKeyRotateCalls { get; } = [];
 
+    /// <summary>A product's new client secret, as the API returns it once.</summary>
+    public string ProductSecret { get; set; } = "cs_live_5b1c9e2f7a4d83606f1e2d3c4b5a6978";
+
+    /// <summary>Answers a client secret being replaced (given the request body); null (the default) replaces it.</summary>
+    public Func<string, HttpResponseMessage?>? SecretRotateResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> SecretRotateCalls { get; } = [];
+
     /// <summary>The products anyone signed in may list (<c>GET /api/auth/applications</c>), as the API's JSON array.</summary>
     public string ProductsJson { get; set; } = "[]";
 
@@ -269,6 +277,28 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 // The new key signs at once and every earlier key leaves the published list, as in the real API.
                 JwksJson = """{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","kid":"key-new-0001","x":"x","y":"y"}]}""";
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"keyId":"key-new-0001"}""", Encoding.UTF8, "application/json") };
+            }
+
+            if (path.EndsWith("/secret/rotate", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    SecretRotateCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                if (SecretRotateResponse?.Invoke(body) is { } refused)
+                {
+                    return refused;
+                }
+
+                var grace = json.RootElement.TryGetProperty("graceHours", out var hours) ? hours.GetInt32() : 24;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""{"applicationId":"{{path.Split('/')[^3]}}","clientId":"helpdesk-client","clientSecret":"{{ProductSecret}}","previousSecretsExpireAt":"{{ApiNow.AddHours(grace):O}}"}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
             }
 
             if (path.EndsWith("/resend", StringComparison.Ordinal) && request.Method == HttpMethod.Post)

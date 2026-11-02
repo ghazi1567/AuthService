@@ -14,11 +14,64 @@ public static class PlatformEndpoints
     {
         app.MapPost("/platform/webhooks/{webhookId:guid}/resend", ResendWebhookAsync).AllowAnonymous();
         app.MapPost("/platform/signing-keys/rotate", RotateSigningKeyAsync).AllowAnonymous();
+        app.MapPost("/platform/products/{applicationId:guid}/rotate-secret", RotateProductSecretAsync).AllowAnonymous();
         return app;
     }
 
     /// <summary>The word the admin must type before an emergency rotation goes ahead.</summary>
     public const string RotationWord = "ROTATE";
+
+    private static async Task<IResult> RotateProductSecretAsync(
+        Guid applicationId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        PlatformSession platform,
+        AuthApiClient api,
+        OneTimeSecrets secrets)
+    {
+        try
+        {
+            await antiforgery.ValidateRequestAsync(context);
+        }
+        catch (AntiforgeryValidationException)
+        {
+            return Results.BadRequest();
+        }
+
+        const string page = "/platform/products";
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return Results.Redirect($"{SessionAuthentication.LoginPath}?returnUrl={Uri.EscapeDataString(page)}");
+        }
+
+        var opened = await platform.LoadAsync(context);
+        if (opened.Outcome != PlatformOutcome.Allowed)
+        {
+            return Results.Redirect(page);
+        }
+
+        var form = await context.Request.ReadFormAsync();
+        if (!int.TryParse(form["graceHours"].ToString(), out var grace) || grace is < 0 or > 720)
+        {
+            return Results.Redirect($"{page}?error=bad_grace&app={applicationId}");
+        }
+
+        var result = await api.PostAsync<RotateSecretRequest, RotatedSecret>(
+            $"/api/auth/admin/applications/{applicationId}/secret/rotate", new RotateSecretRequest(grace), context.RequestAborted, opened.Token);
+        if (result.IsSuccess && context.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
+        {
+            // The new secret waits on the server; the address carries only a reference, the (public) client id and when the old secret stops.
+            var reference = secrets.Put(sid.Value, result.Value!.ClientSecret);
+            var oldEnds = grace == 0 ? "now" : result.Value.PreviousSecretsExpireAt.UtcDateTime.ToString("O");
+            return Results.Redirect($"{page}?reveal={reference}&app={applicationId}&client={Uri.EscapeDataString(result.Value.ClientId)}&oldEnds={Uri.EscapeDataString(oldEnds)}");
+        }
+
+        var code = result.Problem?.Code == "application_not_found" ? "application_not_found"
+            : result.Problem?.Status == StatusCodes.Status403Forbidden ? "forbidden"
+            : result.Problem?.Status == StatusCodes.Status400BadRequest ? "bad_grace"
+            : "unavailable";
+        return Results.Redirect($"{page}?error={code}&app={applicationId}");
+    }
 
     private static async Task<IResult> RotateSigningKeyAsync(
         HttpContext context,

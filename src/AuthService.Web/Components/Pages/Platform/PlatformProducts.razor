@@ -1,0 +1,262 @@
+@page "/platform/products"
+@attribute [Authorize]
+@layout PlatformLayout
+@using System.Globalization
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject OneTimeSecrets Secrets
+@inject TimeProvider Time
+@inject NavigationManager Navigation
+
+<PageTitle>Products · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Products</h1>
+    <ErrorState Title="We couldn't load the products" RetryHref="/platform/products" Reference="@reference" />
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Products</h1>
+            <p class="page-lead">The products organisations can subscribe to. Each has a client secret it uses to prove who it is to Auth Service. Only products that are available are listed.</p>
+        </div>
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    @if (products.Count == 0)
+    {
+        <EmptyState Title="No products yet" IconName="building">
+            <p class="empty-body">No product is available to subscribe to right now.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Product</th>
+                        <th scope="col">Key</th>
+                        <th scope="col">Id</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var product in products)
+                    {
+                        <tr>
+                            <td data-label="Product"><span class="person-name">@product.Name</span></td>
+                            <td data-label="Key"><code class="mono">@product.Key</code></td>
+                            <td data-label="Id"><code class="mono">@product.Id.ToString("N")[..8]</code></td>
+                            <td data-label="Actions" class="row-actions">
+                                <a class="btn btn-secondary btn-sm" href="/platform/products?rotate=@product.Id">Replace secret</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @products.Count @(products.Count == 1 ? "product" : "products")</p>
+    }
+
+    @if (revealed is not null)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="secret-title">
+                <div class="modal-body">
+                    <h2 id="secret-title" class="modal-title">New client secret</h2>
+                    <AlertBanner Kind="AlertKind.Info" Title="@OldSecretTitle" Class="dialog-alert">
+                        <p class="alert-body">@OldSecretBody</p>
+                    </AlertBanner>
+                    <AlertBanner Kind="AlertKind.Warning" Title="You won't see this again" Class="dialog-alert">
+                        <p class="alert-body">Copy the secret now and give it to the product's team. It is never shown again. If it is lost, replace the secret again.</p>
+                    </AlertBanner>
+                    @if (!string.IsNullOrWhiteSpace(ClientId))
+                    {
+                        <p class="modal-text">Client id: <code class="mono">@ClientId</code></p>
+                    }
+
+                    <label class="visually-hidden" for="raw-secret">Client secret</label>
+                    <input id="raw-secret" class="input mono secret-value" readonly value="@revealed" autocomplete="off" spellcheck="false" />
+                    <p class="field-message" aria-live="polite" data-copy-status></p>
+                    <button type="button" class="btn btn-secondary" data-needs-script hidden data-copy-from="raw-secret"><Icon Name="copy" />Copy secret</button>
+                </div>
+                <div class="modal-foot">
+                    <a class="btn btn-primary" href="/platform/products">I've saved it</a>
+                </div>
+            </div>
+        </div>
+    }
+    else if (rotating is { } toRotate)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="rotate-title">
+                <form method="post" action="/platform/products/@toRotate.Id/rotate-secret">
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="rotate-title" class="modal-title">Replace the client secret for '@toRotate.Name'?</h2>
+                        <p class="modal-text">We'll create a new secret and show it once. The product must be updated to use it. Until the old secret stops, either works, so the product keeps running while its team makes the change.</p>
+                        <div class="field">
+                            <label for="grace">How long should the old secret keep working?</label>
+                            <select id="grace" name="graceHours" class="input">
+                                @foreach (var (hours, label) in GraceChoices)
+                                {
+                                    <option value="@hours" selected="@(hours == 24)">@label</option>
+                                }
+                            </select>
+                            <p class="field-message">Choose "Not at all" if the old secret may have leaked: it stops working at once, and the product stops working until it has the new one.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="/platform/products" autofocus>Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Replacing…">Replace secret</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private static readonly (int Hours, string Label)[] GraceChoices =
+    [
+        (0, "Not at all: stop it now"),
+        (1, "1 hour"),
+        (24, "24 hours (recommended)"),
+        (72, "3 days"),
+        (168, "7 days"),
+        (720, "30 days"),
+    ];
+
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private string? reference;
+    private string? revealed;
+    private ProductSummary? rotating;
+    private List<ProductSummary> products = [];
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "rotate")] private Guid? RotateId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "reveal")] private string? Reveal { get; set; }
+
+    [SupplyParameterFromQuery(Name = "client")] private string? ClientId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "oldEnds")] private string? OldEnds { get; set; }
+
+    [SupplyParameterFromQuery(Name = "app")] private Guid? AppId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    private string OldSecretTitle => OldEnds == "now" ? "The old secret stopped working at once" : "The old secret keeps working for a while";
+
+    private string OldSecretBody =>
+        OldEnds == "now"
+            ? "You chose to cut it off, so the product can't prove who it is until it has the new secret. Give it the new secret now."
+            : DateTimeOffset.TryParse(OldEnds, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var ends)
+                ? $"It stops working at {ends.UtcDateTime:d MMM yyyy, HH:mm} UTC, in {Remaining(ends - Time.GetUtcNow())}. The product needs the new secret before then."
+                : "The product needs the new secret before the old one stops.";
+
+    private static string Remaining(TimeSpan left) =>
+        left.TotalHours >= 48 ? $"{(int)left.TotalDays} days"
+        : left.TotalHours >= 1 ? $"{(int)left.TotalHours} {((int)left.TotalHours == 1 ? "hour" : "hours")}"
+        : $"{Math.Max(1, (int)left.TotalMinutes)} minutes";
+
+    private RenderFragment? Notice() => builder =>
+    {
+        var name = products.FirstOrDefault(product => product.Id == AppId)?.Name ?? "This product";
+        switch (ErrorCode)
+        {
+            case "application_not_found":
+                Banner(builder, AlertKind.Warning, "That product isn't here any more", "It may have been withdrawn. The list is up to date.");
+                break;
+            case "bad_grace":
+                Banner(builder, AlertKind.Warning, "Choose how long the old secret keeps working", "Pick one of the options, from not at all up to 30 days.");
+                break;
+            case "forbidden":
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "Only platform admins can replace a product's secret.");
+                break;
+            case "unavailable":
+                Banner(builder, AlertKind.Error, $"We couldn't replace {name}'s secret", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+                break;
+        }
+    };
+
+    private static void Banner(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, AlertKind kind, string title, string body)
+    {
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), kind);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // The layout has already asked the API; this is the same answer.
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", access.Token!, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                leaving = true;
+                Navigation.NavigateTo("/login?returnUrl=%2Fplatform%2Fproducts&reason=expired");
+                return;
+            }
+
+            loadFailed = true;
+            reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+            return;
+        }
+
+        products = [.. list.Value!.OrderBy(product => product.Name, StringComparer.OrdinalIgnoreCase)];
+
+        // A new secret is taken back out exactly once: a reload of this page finds nothing.
+        if (Reveal is { Length: > 0 } token && HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
+        {
+            revealed = Secrets.Take(sid.Value, token);
+        }
+
+        if (revealed is null && RotateId is { } id)
+        {
+            rotating = products.FirstOrDefault(product => product.Id == id);
+        }
+    }
+}
