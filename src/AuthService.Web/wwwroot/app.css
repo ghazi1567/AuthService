@@ -1553,3 +1553,102 @@ a.org-row:hover {
     gap: 8px;
     padding-top: 8px;
 }
+
+/* Product access: one card per product with a seat meter, the people with access, and a way to add one */
+.product-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+.product-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.product-name {
+    margin: 0;
+    font: 600 18px/26px var(--font-ui);
+}
+
+.seat-text {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 6px;
+    color: var(--text-secondary);
+    font: 400 14px/20px var(--font-ui);
+}
+
+.seat-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: 500 13px/18px var(--font-ui);
+}
+
+    .seat-flag.is-error {
+        color: var(--error-text);
+    }
+
+    .seat-flag.is-warning {
+        color: var(--warning-text);
+    }
+
+.meter {
+    height: 8px;
+    overflow: hidden;
+    background: var(--bg-sunken);
+    border-radius: var(--radius-full);
+}
+
+    .meter > span {
+        display: block;
+        height: 100%;
+        background: var(--action-primary);
+    }
+
+    .meter.is-near > span {
+        background: var(--warning);
+    }
+
+    .meter.is-full > span {
+        background: var(--error);
+    }
+
+.holder-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.holder {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.grant-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+    .grant-form .input {
+        flex: 1 1 220px;
+        max-width: 320px;
+        height: 36px;
+        font-size: 14px;
+    }

@@ -143,6 +143,12 @@ What is in place:
   holds it, it is sent along unchanged so it is not removed by accident. Choosing none is refused with a pointer to disabling the member; the API's refusals (a member needs
   a role, only an Owner can do that, the last Owner can't step down, something changed) are explained in plain words with the choices kept. The page says a change reaches
   the person within about 15 minutes. Needs `roles.assign:Full` plus read access to members and roles.
+- **Product access** (`/console/{tenantId}/access`, UI02_T7). One card per subscribed product: its status, a seat meter ("3 of 5 seats used", **Almost full** from 80%, **No seats left** at the
+  limit, "no seat limit" when unlimited; the numbers come from the subscriptions list), who has access, and a way to give it. **Give access** offers only people who don't have it and
+  aren't disabled (a disabled person keeps their access row but uses no seat); a full product disables it with the reason; a suspended or cancelled product can't be given to anyone.
+  **Remove access** asks first (seat freed; takes effect at their next token, within about 15 minutes). Both are plain POSTs that redirect back with a notice or an error code
+  explained in plain words (no seat, disabled member, product not active, member gone, no permission, API down). Needs `access.manage:Full` to change, and read access to
+  subscriptions and members to see.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
