@@ -262,6 +262,9 @@ else
     {
         switch (NoticeCode, ErrorCode)
         {
+            case ("saved", _):
+                Banner(builder, AlertKind.Success, "Role saved", "People who hold it get the new permissions the next time they open the console or a product.");
+                break;
             case ("deleted", _):
                 Banner(builder, AlertKind.Success, "Role deleted", "Nobody held it, so nobody lost access.");
                 break;

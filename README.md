@@ -133,6 +133,11 @@ What is in place:
   one-line permission summary. **Delete** asks first; a role nobody holds says what deleting does, and a role someone still holds says how many people hold it
   and what to do next (give them a different role, with a link to Members) instead of offering the button. A refusal from the API is explained in the
   same terms. Create and Edit link to the role editor (the next ticket); without `roles.manage:Full` those buttons are disabled with the permission named.
+- **Role editor** (`/console/{tenantId}/roles/new` and `/roles/{id}`, UI02_T5). A name, then one section per product the organisation uses (the Auth Service itself first) with a
+  level for every permission: no access, view only, view and create, full access. The sections come from `GET /api/auth/tenants/me/permissions`, so every
+  choice offered is one the API accepts. Saving sends only the permissions above no access (`POST` to create, `PATCH` to replace the set). A name already
+  used, the API's own reasons and an unreachable API are explained and the choices are kept; permissions of a product that is no longer active are flagged
+  (saving removes them); the built-in Owner role can't be edited. `app.js` warns before leaving a form marked `data-unsaved-guard` once it has been changed.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

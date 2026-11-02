@@ -126,11 +126,34 @@
         });
     }
 
+    // Unsaved-changes guard: a form marked data-unsaved-guard warns before the page is left once something was changed, but not when it is sent.
+    function startUnsavedGuards() {
+        document.querySelectorAll("form[data-unsaved-guard]").forEach(function (form) {
+            if (form.getAttribute("data-guard-started")) {
+                return;
+            }
+
+            form.setAttribute("data-guard-started", "true");
+            var changed = false;
+            var sending = false;
+            form.addEventListener("input", function () { changed = true; });
+            form.addEventListener("change", function () { changed = true; });
+            form.addEventListener("submit", function () { sending = true; });
+            window.addEventListener("beforeunload", function (event) {
+                if (changed && !sending) {
+                    event.preventDefault();
+                    event.returnValue = "";
+                }
+            });
+        });
+    }
+
     function init() {
         revealToggles();
         startCountdowns();
         startRules();
         startLinkForms();
+        startUnsavedGuards();
     }
 
     if (document.readyState === "loading") {

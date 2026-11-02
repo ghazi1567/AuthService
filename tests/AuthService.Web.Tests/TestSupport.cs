@@ -118,6 +118,13 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public string RolesJson { get; set; } = "[]";
 
+    /// <summary>What a role can grant, as the API's JSON object.</summary>
+    public string CatalogJson { get; set; } = "{\"levels\":[\"ReadOnly\",\"CreateRead\",\"Full\"],\"applications\":[]}";
+
+    public Func<string, HttpResponseMessage>? SaveRoleResponse { get; set; }
+
+    public List<(string Method, string? Authorization, string Path, string Body)> SaveRoleCalls { get; } = [];
+
     public Func<HttpResponseMessage>? RoleDeleteResponse { get; set; }
 
     public List<(string? Authorization, string Path)> RoleDeleteCalls { get; } = [];
@@ -139,6 +146,20 @@ public sealed class FakeAuthApi : HttpMessageHandler
         if (Unreachable && path != "/api/auth/login")
         {
             throw new HttpRequestException("the API is down");
+        }
+
+        if ((path == "/api/auth/roles" && request.Method == HttpMethod.Post)
+            || (path.StartsWith("/api/auth/roles/", StringComparison.Ordinal) && request.Method == HttpMethod.Patch))
+        {
+            lock (_gate)
+            {
+                SaveRoleCalls.Add((request.Method.Method, request.Headers.Authorization?.ToString(), path, body));
+            }
+
+            return SaveRoleResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"id\":\"00000000-0000-0000-0000-000000000009\",\"name\":\"x\",\"isBuiltIn\":false,\"permissions\":[],\"createdAt\":\"2026-11-01T10:00:00Z\"}", Encoding.UTF8, "application/json"),
+            };
         }
 
         if (path.StartsWith("/api/auth/roles/", StringComparison.Ordinal) && request.Method == HttpMethod.Delete)
@@ -218,6 +239,9 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 {
                     Content = new StringContent(PendingJson, Encoding.UTF8, "application/json"),
                 };
+
+            case "/api/auth/tenants/me/permissions":
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(CatalogJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/roles":
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
