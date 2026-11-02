@@ -21,6 +21,26 @@ public sealed class WebAppTests
         html.ShouldContain("<title>Auth Service</title>");
     }
 
+    [Fact]
+    public async Task TheUnhandledErrorBarIsHiddenUntilSomethingFails()
+    {
+        await using var factory = new WebAppFactory();
+        using var client = factory.CreateClient();
+        var ct = TestContext.Current.CancellationToken;
+
+        // The bar is only hidden by a stylesheet rule that applies to its own component, so look at the real stylesheet.
+        var html = await client.GetStringAsync("/", ct);
+        var stylesheet = System.Text.RegularExpressions.Regex.Match(html, """href=.([^"]*AuthService\.Web\.(?:[^".]+\.)?styles\.css)""").Groups[1].Value;
+        stylesheet.ShouldNotBeNullOrEmpty("the page links the scoped styles bundle");
+        var css = await client.GetStringAsync(stylesheet, ct);
+
+        // Component styles are scoped by an attribute on the component's own elements; the rule must carry the bar's attribute.
+        var scope = System.Text.RegularExpressions.Regex.Match(html, @"id=""blazor-error-ui""[^>]*?\b(b-[a-z0-9]+)").Groups[1].Value;
+        scope.ShouldNotBeNullOrEmpty("the error bar belongs to a component with scoped styles");
+        System.Text.RegularExpressions.Regex.IsMatch(css, @"#blazor-error-ui\[" + scope + @"\]\s*\{[^}]*display:\s*none").ShouldBeTrue(
+            "without a rule scoped to the bar's own component, the 'unexpected error' bar is visible on every page");
+    }
+
     [Theory]
     [InlineData("/")]
     [InlineData("/healthz")]
