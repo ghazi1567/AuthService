@@ -1873,3 +1873,15 @@ a.org-row:hover {
         grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.5fr) auto;
     }
 }
+
+/* Emergency rotation: what will happen, in a short list above the typed confirmation */
+.consequence-list {
+    margin: 0 0 16px;
+    padding-left: 20px;
+    color: var(--text-secondary);
+    font: 400 14px/20px var(--font-ui);
+}
+
+    .consequence-list li {
+        margin-bottom: 6px;
+    }

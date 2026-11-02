@@ -205,6 +205,16 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Path)> WebhookResendCalls { get; } = [];
 
+    /// <summary>The platform's published keys (<c>GET /.well-known/jwks.json</c>), as the API's JSON.</summary>
+    public string JwksJson { get; set; } = """{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","kid":"key-old-0001","x":"x","y":"y"},{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","kid":"key-next-0002","x":"x","y":"y"}]}""";
+
+    public Func<HttpResponseMessage>? JwksResponse { get; set; }
+
+    /// <summary>Answers an emergency rotation; null (the default) rotates and publishes only the new key.</summary>
+    public Func<HttpResponseMessage?>? SigningKeyRotateResponse { get; set; }
+
+    public List<(string? Authorization, string Body)> SigningKeyRotateCalls { get; } = [];
+
     /// <summary>The products anyone signed in may list (<c>GET /api/auth/applications</c>), as the API's JSON array.</summary>
     public string ProductsJson { get; set; } = "[]";
 
@@ -242,6 +252,23 @@ public sealed class FakeAuthApi : HttpMessageHandler
             if (!IsPlatformAdmin)
             {
                 return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            }
+
+            if (path == "/api/auth/admin/signing-keys/rotate" && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    SigningKeyRotateCalls.Add((request.Headers.Authorization?.ToString(), body));
+                }
+
+                if (SigningKeyRotateResponse?.Invoke() is { } failed)
+                {
+                    return failed;
+                }
+
+                // The new key signs at once and every earlier key leaves the published list, as in the real API.
+                JwksJson = """{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","kid":"key-new-0001","x":"x","y":"y"}]}""";
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"keyId":"key-new-0001"}""", Encoding.UTF8, "application/json") };
             }
 
             if (path.EndsWith("/resend", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
@@ -449,6 +476,9 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             case "/api/auth/roles":
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
+
+            case "/.well-known/jwks.json":
+                return JwksResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JwksJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/applications":
                 return ProductsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ProductsJson, Encoding.UTF8, "application/json") };
