@@ -1,0 +1,12 @@
+@inherits LayoutComponentBase
+
+@* Shell for the pages a person sees before or while signing in: signup, login, verify email, password reset, accept invitation (UI-01).
+   Empty on purpose until the Figma frames UI-00 / shell / auth are available (UI00_T4). *@
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="shell shell-auth">
+    <main id="main" tabindex="-1">
+        @Body
+    </main>
+</div>
+
+<UnhandledErrorBar />

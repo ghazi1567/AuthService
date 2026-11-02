@@ -16,8 +16,10 @@ This service is deployed on its own and owns its own PostgreSQL database.
 src/AuthService.Api/               ASP.NET Core host
 src/AuthService.Infrastructure/    AuthDbContext, shared DB registration, EF Core migrations
 src/AuthService.Authorization/     The package a product installs to enforce Auth Service tokens
+src/AuthService.Web/               The Blazor web console (setup only so far)
 Dockerfile, deploy/                API and migration images, and an example docker-compose
 tests/AuthService.IntegrationTests/ Real-database integration tests (Testcontainers)
+tests/AuthService.Web.Tests/       Tests of the web console (no database needed)
 ```
 
 Deploying it (images, settings, first run, releases): [docs/deployment.md](docs/deployment.md).
@@ -42,6 +44,33 @@ Each test run:
 3. gives each test class its own copy of that template database. The copy is dropped when the test class finishes.
 
 The first run pulls the Postgres image, so it takes longer.
+
+## The web console (`src/AuthService.Web`)
+
+A Blazor Web App ([decision 0002](docs/decisions/0002-blazor-web-app-for-ui.md)) that is one more client of the API. This is its
+**setup only**: the finished screens follow the Figma design and the Jira Web UI epic (AUTH-195).
+
+```bash
+dotnet run --project src/AuthService.Web      # http://localhost:5090, expects the API at http://localhost:5080
+```
+
+What is in place:
+
+- **The API address** is `AuthService:Api:BaseUrl` (`AuthService__Api__BaseUrl`), with `TimeoutSeconds` (default 15). It is required:
+  a missing or malformed address stops the app starting, naming the setting. `appsettings.Development.json` points at the local API.
+- **`AuthApiClient`** is the one way pages call the API. It turns every API error into an `ApiProblem` (status, stable `code`,
+  per-field messages, `Retry-After`) instead of throwing, reports an unreachable API or a timeout as `api_unreachable`, never follows
+  redirects, and never lets exception text or a proxy's error page reach a person. It holds no token itself.
+- **Three page shells**, empty until their Figma frames exist: `AuthLayout` (signed-out pages), `TenantLayout` (tenant console) and
+  `PlatformLayout` (platform admin console, labelled so an operator knows where they are). Each has a skip link and a `main` landmark.
+- **Security headers** on every response: `Referrer-Policy: no-referrer`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, a
+  `frame-ancestors`/`form-action` policy and `Permissions-Policy`; HTML pages are `Cache-Control: no-store`. A script-source policy is
+  decided with the finished design, because Blazor's scripts need a tested nonce policy.
+- **`GET /healthz`** answers `ok` while the app runs, and says nothing about the API.
+- **Not yet:** sign-in and the session (UI01_T1; cookie authentication with tokens kept on the server, per the decision), the real
+  screens, the shared design components and a container image.
+
+`tests/AuthService.Web.Tests` tests it with no database and no Docker (`dotnet test tests/AuthService.Web.Tests`).
 
 ## Writing integration tests
 

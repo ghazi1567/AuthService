@@ -1,0 +1,16 @@
+@inherits LayoutComponentBase
+
+@* Shell for the platform admin console: products, catalogs, webhooks, signing keys, audit (UI-04). It is visually distinct from the
+   tenant console so an operator always knows where they are. Details arrive with UI-00 / shell / platform (UI00_T4). *@
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="shell shell-platform">
+    <header>
+        <span class="shell-title">Auth Service · Platform administration</span>
+    </header>
+    <nav aria-label="Main"></nav>
+    <main id="main" tabindex="-1">
+        @Body
+    </main>
+</div>
+
+<UnhandledErrorBar />

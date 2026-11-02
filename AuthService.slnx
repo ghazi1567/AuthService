@@ -3,8 +3,10 @@
     <Project Path="src/AuthService.Api/AuthService.Api.csproj" />
     <Project Path="src/AuthService.Authorization/AuthService.Authorization.csproj" />
     <Project Path="src/AuthService.Infrastructure/AuthService.Infrastructure.csproj" />
+    <Project Path="src/AuthService.Web/AuthService.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AuthService.IntegrationTests/AuthService.IntegrationTests.csproj" />
+    <Project Path="tests/AuthService.Web.Tests/AuthService.Web.Tests.csproj" />
   </Folder>
 </Solution>
