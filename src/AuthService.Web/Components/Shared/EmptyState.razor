@@ -1,0 +1,14 @@
+@* Nothing here yet: an icon, what it means in one sentence, and the one thing the person can do about it. *@
+<div class="empty-state">
+    <div class="icon-tile"><Icon Name="@IconName" /></div>
+    <h2 class="empty-title">@Title</h2>
+    @ChildContent
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    [Parameter] public string IconName { get; set; } = "building";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

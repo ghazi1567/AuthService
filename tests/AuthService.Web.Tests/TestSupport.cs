@@ -58,6 +58,18 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> AcceptCalls { get; } = [];
 
+    /// <summary>The organisations the signed-in person belongs to, as the API's JSON array.</summary>
+    public string MembershipsJson { get; set; } = "[]";
+
+    /// <summary>Overrides the answer of <c>GET /api/auth/users/me</c> (an error, for instance).</summary>
+    public Func<HttpResponseMessage>? MeResponse { get; set; }
+
+    public List<string?> MeAuthorizations { get; } = [];
+
+    public Func<HttpResponseMessage>? CreateTenantResponse { get; set; }
+
+    public List<(string? Authorization, string Body)> CreateTenantCalls { get; } = [];
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -109,6 +121,28 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+            case "/api/auth/users/me":
+                lock (_gate)
+                {
+                    MeAuthorizations.Add(request.Headers.Authorization?.ToString());
+                }
+
+                return MeResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""{"id":"{{UserId}}","email":"anna@acme.com","displayName":"Anna Kowalski","emailVerified":true,"createdAt":"2026-11-01T10:00:00Z","memberships":{{MembershipsJson}}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+
+            case "/api/auth/tenants":
+                lock (_gate)
+                {
+                    CreateTenantCalls.Add((request.Headers.Authorization?.ToString(), body));
+                }
+
+                return CreateTenantResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.NotFound);
 
             case "/api/auth/invitations/accept":
                 lock (_gate)

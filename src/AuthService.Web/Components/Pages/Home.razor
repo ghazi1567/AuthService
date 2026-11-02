@@ -1,4 +1,5 @@
-﻿@page "/"
+@page "/"
+@inject NavigationManager Navigation
 
 <PageTitle>Auth Service</PageTitle>
 
@@ -6,12 +7,17 @@
 
 <p>The web console is being built. The tenant console and the platform console arrive with the design (see the Web UI epic).</p>
 
-<AuthorizeView>
-    <Authorized>
-        <p>Signed in as @context.User.Identity?.Name. <a href="/account">Your account</a></p>
-        <SignOutButton />
-    </Authorized>
-    <NotAuthorized>
-        <p><a href="/login">Sign in</a></p>
-    </NotAuthorized>
-</AuthorizeView>
+<p><a href="/login">Sign in</a></p>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    protected override void OnInitialized()
+    {
+        // Someone signed in has no use for this page: they go on to choose an organisation.
+        if (HttpContext?.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo("/choose-organisation");
+        }
+    }
+}

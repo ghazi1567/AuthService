@@ -1,0 +1,13 @@
+@* A status as a small pill: icon and word together, so the state is never shown by colour alone. *@
+<span class="badge badge-@Kind">
+    <Icon Name="@IconName" />@Label
+</span>
+
+@code {
+    /// <summary>"success", "info", "neutral" or "warning".</summary>
+    [Parameter, EditorRequired] public string Kind { get; set; } = "neutral";
+
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    [Parameter, EditorRequired] public string IconName { get; set; } = "";
+}
