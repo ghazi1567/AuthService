@@ -1,0 +1,423 @@
+@page "/console/{TenantId:guid}/api-keys"
+@attribute [Authorize]
+@layout TenantLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject OneTimeSecrets Secrets
+@inject NavigationManager Navigation
+
+<PageTitle>API keys · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">API keys</h1>
+    <ErrorState Title="We couldn't load the API keys" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (console is null || forbidden || !console.Can(PermissionKeys.ApiKeysRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">API keys</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't see API keys">
+        <p class="alert-body">You need the 'API keys · Read only' permission. Ask an admin of @console?.TenantName.</p>
+    </AlertBanner>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">API keys</h1>
+            <p class="page-lead">Keys let your own software call Auth Service for @console.TenantName. A key's value is shown once, when it is created.</p>
+        </div>
+        @if (!canManage)
+        {
+            <span class="has-tip" tabindex="0" data-tip="You need the 'API keys · Full access' permission to create keys.">
+                <button type="button" class="btn btn-primary" disabled aria-disabled="true"><Icon Name="plus" />Create API key</button>
+            </span>
+        }
+        else if (!console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly))
+        {
+            <span class="has-tip" tabindex="0" data-tip="You need the 'Roles · Read only' permission to see which permissions a key can have.">
+                <button type="button" class="btn btn-primary" disabled aria-disabled="true"><Icon Name="plus" />Create API key</button>
+            </span>
+        }
+        else
+        {
+            <a class="btn btn-primary" href="@PagePath?create=1"><Icon Name="plus" />Create API key</a>
+        }
+    </div>
+
+    @if (NoticeCode == "unavailable")
+    {
+        <AlertBanner Kind="AlertKind.Error" Title="We couldn't create the key" Class="auth-alert">
+            <p class="alert-body">Auth Service isn't responding right now. Nothing was created. Try again in a moment.</p>
+        </AlertBanner>
+    }
+
+    @if (keys.Count == 0)
+    {
+        <EmptyState Title="No API keys yet" IconName="key">
+            <p class="empty-body">Create a key to let your own software call Auth Service.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Key</th>
+                        <th scope="col">Product</th>
+                        <th scope="col">Permissions</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Created</th>
+                        <th scope="col">Expires</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var key in keys)
+                    {
+                        <tr>
+                            <td data-label="Name"><span class="person-name">@key.Name</span></td>
+                            <td data-label="Key"><code class="mono">@key.MaskedKey</code></td>
+                            <td data-label="Product">@(key.ApplicationKey ?? "Auth Service")</td>
+                            <td data-label="Permissions">@key.Permissions.Count @(key.Permissions.Count == 1 ? "permission" : "permissions")</td>
+                            <td data-label="Status">
+                                @switch (key.Status)
+                                {
+                                    case "Active": <StatusBadge Kind="success" IconName="check" Label="Active" /> break;
+                                    case "Expiring": <StatusBadge Kind="warning" IconName="clock" Label="Expiring" /> break;
+                                    case "Expired": <StatusBadge Kind="warning" IconName="clock" Label="Expired" /> break;
+                                    default: <StatusBadge Kind="neutral" IconName="slash" Label="Revoked" /> break;
+                                }
+                            </td>
+                            <td data-label="Created"><time datetime="@key.CreatedAt.ToString("O")">@key.CreatedAt.ToString("d MMM yyyy")</time></td>
+                            <td data-label="Expires">@(key.ExpiresAt is { } ends ? ends.ToString("d MMM yyyy") : "Never")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @keys.Count @(keys.Count == 1 ? "key" : "keys")</p>
+    }
+
+    @if (revealed is not null)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="secret-title">
+                <div class="modal-body">
+                    <h2 id="secret-title" class="modal-title">Your new API key</h2>
+                    <AlertBanner Kind="AlertKind.Warning" Title="You won't see this again" Class="dialog-alert">
+                        <p class="alert-body">Copy the key now and keep it somewhere safe. Only a masked version is kept, so we can't show it again. If you lose it, create a new key.</p>
+                    </AlertBanner>
+                    <label class="visually-hidden" for="raw-key">API key</label>
+                    <input id="raw-key" class="input mono secret-value" readonly value="@revealed" autocomplete="off" spellcheck="false" />
+                    <p class="field-message" aria-live="polite" data-copy-status></p>
+                    <button type="button" class="btn btn-secondary" data-needs-script hidden data-copy-from="raw-key"><Icon Name="copy" />Copy key</button>
+                </div>
+                <div class="modal-foot">
+                    <a class="btn btn-primary" href="@PagePath">I've saved it</a>
+                </div>
+            </div>
+        </div>
+    }
+    else if (creating)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="create-title">
+                <div class="modal-body">
+                    <h2 id="create-title" class="modal-title">Create an API key</h2>
+                    <p class="modal-text">Choose what the key is for and what it may do. You can only give a key permissions you hold yourself.</p>
+
+                    @if (errors.Count > 0)
+                    {
+                        <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                            <ul>
+                                @foreach (var error in errors)
+                                {
+                                    <li>@error</li>
+                                }
+                            </ul>
+                        </AlertBanner>
+                    }
+
+                    <form method="get" class="product-picker">
+                        <input type="hidden" name="create" value="1" />
+                        <label for="key-product">Key for</label>
+                        <select id="key-product" name="app" class="input">
+                            <option value="" selected="@(chosenApp is null)">Auth Service itself</option>
+                            @foreach (var application in catalog!.Applications.Where(application => !application.IsBuiltIn))
+                            {
+                                <option value="@application.ApplicationId" selected="@(chosenApp == application.ApplicationId)">@application.Name</option>
+                            }
+                        </select>
+                        <button type="submit" class="btn btn-secondary btn-sm">Show permissions</button>
+                    </form>
+
+                    <form method="post" @onsubmit="CreateAsync" @formname="apikey" data-unsaved-guard>
+                        <AntiforgeryToken />
+                        <input type="hidden" name="app" value="@(chosenApp?.ToString())" />
+                        <div class="field">
+                            <label for="key-name">Key name</label>
+                            <input id="key-name" name="name" class="input" value="@enteredName" maxlength="100" autocomplete="off" />
+                            <p class="field-message">Something that says what uses it, like "CI deploy key".</p>
+                        </div>
+
+                        <fieldset class="choice-group">
+                            <legend>Permissions</legend>
+                            @foreach (var permission in CurrentApplication.Permissions)
+                            {
+                                var held = HeldLevel(permission.Key);
+                                <div class="permission-row">
+                                    <label for="perm-@permission.Key" class="permission-text">
+                                        <span class="permission-label">@permission.Label</span>
+                                        @if (permission.Description is not null)
+                                        {
+                                            <span class="muted">@permission.Description</span>
+                                        }
+                                    </label>
+                                    <select id="perm-@permission.Key" name="perm:@permission.Key" class="input permission-level">
+                                        @foreach (var (level, label, _) in Levels.Where(option => option.Rank <= held))
+                                        {
+                                            <option value="@level" selected="@(ChosenLevel(permission.Key) == level)">@label</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                        </fieldset>
+                        <div class="modal-foot modal-foot-inline">
+                            <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                            <button type="submit" class="btn btn-primary" data-busy-label="Creating…">Create key</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private static readonly (string Level, string Label, int Rank)[] Levels =
+    [
+        ("None", "No access", 0),
+        ("ReadOnly", "View only", 1),
+        ("CreateRead", "View and create", 2),
+        ("Full", "Full access", 3),
+    ];
+
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool forbidden;
+    private bool canManage;
+    private bool creating;
+    private string? reference;
+    private string? revealed;
+    private string enteredName = "";
+    private Guid? chosenApp;
+    private PermissionCatalog? catalog;
+    private readonly List<string> errors = [];
+    private readonly Dictionary<string, string> chosen = [];
+    private List<ApiKeySummary> keys = [];
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "create")] private string? Create { get; set; }
+
+    [SupplyParameterFromQuery(Name = "app")] private Guid? App { get; set; }
+
+    [SupplyParameterFromQuery(Name = "reveal")] private string? Reveal { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    private string PagePath => $"/console/{TenantId}/api-keys";
+
+    private CatalogApplication CurrentApplication =>
+        catalog!.Applications.FirstOrDefault(application => chosenApp is null ? application.IsBuiltIn : application.ApplicationId == chosenApp)
+        ?? catalog.Applications.First();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        canManage = console!.Can(PermissionKeys.ApiKeysManage, AccessLevel.Full);
+        if (!console.Can(PermissionKeys.ApiKeysRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<List<ApiKeySummary>>("/api/auth/apikeys", console.Token, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            if (list.Problem.Status == StatusCodes.Status403Forbidden)
+            {
+                forbidden = true;
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        keys = [.. list.Value!.OrderByDescending(key => key.CreatedAt)];
+
+        // A new key's value is taken back out exactly once: a reload of this page finds nothing.
+        if (Reveal is { Length: > 0 } reference_ && HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
+        {
+            revealed = Secrets.Take(sid.Value, reference_);
+        }
+
+        // A posted create form must already be on the page when the post arrives.
+        creating = revealed is null && canManage && console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly)
+            && (Create == "1" || (HttpContext.Request.HasFormContentType && HttpContext.Request.Form["_handler"] == "apikey"));
+        if (creating)
+        {
+            chosenApp = App ?? (Guid.TryParse(HttpContext.Request.HasFormContentType ? HttpContext.Request.Form["app"].ToString() : "", out var posted) ? posted : null);
+            var catalogResult = await Api.GetAsync<PermissionCatalog>("/api/auth/tenants/me/permissions", console.Token, HttpContext.RequestAborted);
+            if (!catalogResult.IsSuccess)
+            {
+                creating = false;
+                loadFailed = true;
+                reference = Reference();
+                return;
+            }
+
+            catalog = catalogResult.Value;
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        var form = HttpContext!.Request.Form;
+        enteredName = form["name"].ToString().Trim();
+        chosen.Clear();
+        var grants = new List<ApiKeyPermission>();
+        foreach (var permission in CurrentApplication.Permissions)
+        {
+            var level = form[$"perm:{permission.Key}"].ToString();
+            if (Levels.Any(known => known.Level == level))
+            {
+                chosen[permission.Key] = level;
+                if (level != "None")
+                {
+                    grants.Add(new ApiKeyPermission(permission.Key, level));
+                }
+            }
+        }
+
+        errors.Clear();
+        if (enteredName.Length == 0)
+        {
+            errors.Add("Enter a name for the key.");
+        }
+
+        if (grants.Count == 0)
+        {
+            errors.Add("Choose at least one permission for the key.");
+        }
+
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var applicationId = chosenApp is { } app && !CurrentApplication.IsBuiltIn ? app : (Guid?)null;
+        var result = await Api.PostAsync<CreateApiKeyRequest, CreatedApiKey>(
+            "/api/auth/apikeys", new CreateApiKeyRequest(enteredName, applicationId, grants), HttpContext.RequestAborted, console!.Token);
+        if (result.IsSuccess && HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
+        {
+            var reference_ = Secrets.Put(sid.Value, result.Value!.RawKey);
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?reveal={reference_}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            Session.Refresh(HttpContext, TenantId);
+            leaving = true;
+            Navigation.NavigateTo(PagePath);
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(5))
+            {
+                errors.Add(reason);
+            }
+
+            return;
+        }
+
+        errors.Add(problem?.Status == StatusCodes.Status403Forbidden
+            ? "You don't have permission to create keys, or to give a key one of these permissions."
+            : "Auth Service isn't responding right now. Nothing was created. Try again in a moment.");
+    }
+
+    /// <summary>How far a permission may go for this key: the creator's own level for the Auth Service, anything else is checked by the API.</summary>
+    private int HeldLevel(string permissionKey) =>
+        CurrentApplication.IsBuiltIn
+            ? Levels.Where(level => level.Rank > 0 && console!.Can(permissionKey, (AccessLevel)level.Rank)).Select(level => level.Rank).DefaultIfEmpty(0).Max()
+            : 3;
+
+    private string ChosenLevel(string permissionKey) => chosen.TryGetValue(permissionKey, out var level) ? level : "None";
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+}

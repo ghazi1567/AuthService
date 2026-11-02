@@ -118,6 +118,18 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public string RolesJson { get; set; } = "[]";
 
+    /// <summary>The API keys, as the API's JSON array (masked, never raw).</summary>
+    public string ApiKeysJson { get; set; } = "[]";
+
+    public Func<HttpResponseMessage>? ApiKeysResponse { get; set; }
+
+    /// <summary>Answers a key being created; by default it is created and its raw value is <see cref="RawKey"/>.</summary>
+    public Func<string, HttpResponseMessage>? CreateKeyResponse { get; set; }
+
+    public string RawKey { get; set; } = "ask_live_9f8e7d6c5b4a39281706f5e4d3c2b1a0";
+
+    public List<(string? Authorization, string Body)> CreateKeyCalls { get; } = [];
+
     public Func<HttpResponseMessage>? AccessResponse { get; set; }
 
     public List<(string Method, string? Authorization, string Path)> AccessCalls { get; } = [];
@@ -154,6 +166,30 @@ public sealed class FakeAuthApi : HttpMessageHandler
         if (Unreachable && path != "/api/auth/login")
         {
             throw new HttpRequestException("the API is down");
+        }
+
+        if (path == "/api/auth/apikeys")
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    CreateKeyCalls.Add((request.Headers.Authorization?.ToString(), body));
+                }
+
+                return CreateKeyResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        $$"""{"key":{"id":"90000000-0000-4000-8000-000000000001","name":"x","maskedKey":"ask_live_9f8e…a0","applicationId":null,"applicationKey":null,"permissions":[],"status":"Active","createdAt":"2026-11-02T12:00:00Z","expiresAt":null,"revokedAt":null},"rawKey":"{{RawKey}}"}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            return ApiKeysResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(ApiKeysJson, Encoding.UTF8, "application/json"),
+            };
         }
 
         if ((path == "/api/auth/roles" && request.Method == HttpMethod.Post)
