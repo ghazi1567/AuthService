@@ -136,7 +136,7 @@ public sealed class ConsoleMembersPageTests
         html.ShouldContain("permission to manage members.\"");
         Regex.IsMatch(html, "<button[^>]*disabled[^>]*>Disable</button>").ShouldBeTrue();
         html.ShouldNotContain("?disable=", customMessage: "there is nothing to click that the API would refuse");
-        html.ShouldNotContain($"/console/{Acme}/invitations\"");
+        Regex.IsMatch(html, "<a[^>]*btn-primary[^>]*>.*?Invite people", RegexOptions.Singleline).ShouldBeFalse("Invite people is not a link when it is not allowed");
     }
 
     [Fact]
