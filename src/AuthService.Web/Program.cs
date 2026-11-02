@@ -45,6 +45,9 @@ app.MapConsoleEndpoints();
 
 app.MapGet("/healthz", () => Results.Text("ok")).AllowAnonymous();
 
+// The root of the platform console goes to its first part. It shows nothing itself: that part decides, with the API, whether the person may see it.
+app.MapGet("/platform", () => Results.Redirect("/platform/audit")).AllowAnonymous();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 

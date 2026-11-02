@@ -36,6 +36,7 @@ public static class SessionAuthentication
         services.AddSingleton<ConsoleTokenCache>();
         services.AddSingleton<OneTimeSecrets>();
         services.AddScoped<ConsoleSession>();
+        services.AddScoped<PlatformSession>();
 
         services.AddAuthentication(Scheme).AddCookie(Scheme, options =>
         {
