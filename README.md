@@ -180,6 +180,10 @@ What is in place:
   until the API has answered, nothing of the page is drawn either (fail closed). An ended sign-in goes to sign-in, and an API that can't answer is a calm error, not "not allowed".
   `/platform` leads to the first part that exists. **Audit log** (`/platform/audit`): every organisation, newest first, with the organisation and a readable event name; filters for
   what happened, organisation id, a date range and "Only this person" / "Only this organisation"; Load more up to 200. Viewing it is itself recorded.
+- **Webhook events** (`/platform/webhooks`, UI04_T4). What the platform has tried to tell products about, newest first: product, the event in plain words, a status badge (Pending, Delivered,
+  Failed), attempts, what happened or happens next (delivered at, next try, gave up at) and the short reason such as `HTTP 503`. Filter by status and product; Load more up to 200. A
+  **Failed** event offers **Send again**, which asks first, naming the event and product, then calls the API as the signed-in person. The API's reasons (not failed any more, not found, no
+  permission, down) are explained in plain words. Callback addresses and secrets are never shown, and a person the API doesn't accept as a platform admin changes nothing.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

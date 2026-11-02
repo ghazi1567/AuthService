@@ -1862,3 +1862,14 @@ a.org-row:hover {
         grid-template-columns: minmax(180px, 1.3fr) minmax(180px, 1.3fr) 1fr 1fr auto;
     }
 }
+
+.badge-error {
+    background: var(--error-bg);
+    color: var(--error-text);
+}
+
+@media (min-width: 1024px) {
+    .filter-bar-short {
+        grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.5fr) auto;
+    }
+}

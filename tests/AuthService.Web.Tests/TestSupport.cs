@@ -200,6 +200,16 @@ public sealed class FakeAuthApi : HttpMessageHandler
     /// <summary>The webhook outbox, as the API's page object.</summary>
     public string AdminWebhooksJson { get; set; } = """{"items":[],"next":null}""";
 
+    /// <summary>Answers a webhook being sent again; by default it is queued as Pending.</summary>
+    public Func<HttpResponseMessage>? WebhookResendResponse { get; set; }
+
+    public List<(string? Authorization, string Path)> WebhookResendCalls { get; } = [];
+
+    /// <summary>The products anyone signed in may list (<c>GET /api/auth/applications</c>), as the API's JSON array.</summary>
+    public string ProductsJson { get; set; } = "[]";
+
+    public Func<HttpResponseMessage>? ProductsResponse { get; set; }
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -232,6 +242,22 @@ public sealed class FakeAuthApi : HttpMessageHandler
             if (!IsPlatformAdmin)
             {
                 return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            }
+
+            if (path.EndsWith("/resend", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    WebhookResendCalls.Add((request.Headers.Authorization?.ToString(), path));
+                }
+
+                return WebhookResendResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"id":"60000000-0000-4000-8000-000000000001","applicationId":"20000000-0000-4000-8000-000000000001","applicationKey":"helpdesk","eventType":"ApplicationSubscribed","status":"Pending","attempts":0,"lastError":null,"createdAt":"2026-11-02T09:00:00Z","nextAttemptAt":"2026-11-02T10:00:00Z","deadlineAt":"2026-11-03T10:00:00Z","deliveredAt":null}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
             }
 
             var adminJson = path switch
@@ -423,6 +449,9 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             case "/api/auth/roles":
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
+
+            case "/api/auth/applications":
+                return ProductsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ProductsJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenant/me":
                 lock (_gate)
