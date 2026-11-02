@@ -102,6 +102,24 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Path, string Body)> StatusCalls { get; } = [];
 
+    /// <summary>The pending invitations, as the API's JSON array.</summary>
+    public string PendingJson { get; set; } = "[]";
+
+    public Func<HttpResponseMessage>? PendingResponse { get; set; }
+
+    /// <summary>Answers one invitation being sent (given the request body); by default every one is created.</summary>
+    public Func<string, HttpResponseMessage>? InviteResponse { get; set; }
+
+    public List<(string? Authorization, string Body)> InviteCalls { get; } = [];
+
+    public Func<HttpResponseMessage>? ResendResponse { get; set; }
+
+    public List<(string? Authorization, string Path)> ResendCalls { get; } = [];
+
+    public string RolesJson { get; set; } = "[]";
+
+    public string SubscriptionsJson { get; set; } = "[]";
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -117,6 +135,19 @@ public sealed class FakeAuthApi : HttpMessageHandler
         if (Unreachable && path != "/api/auth/login")
         {
             throw new HttpRequestException("the API is down");
+        }
+
+        if (path.StartsWith("/api/auth/tenants/me/invitations/", StringComparison.Ordinal) && path.EndsWith("/resend", StringComparison.Ordinal))
+        {
+            lock (_gate)
+            {
+                ResendCalls.Add((request.Headers.Authorization?.ToString(), path));
+            }
+
+            return ResendResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"membershipId\":\"00000000-0000-0000-0000-000000000000\",\"email\":\"x\",\"status\":\"Invited\",\"roles\":[],\"applicationIds\":[],\"expiresAt\":\"2026-11-09T10:00:00Z\"}", Encoding.UTF8, "application/json"),
+            };
         }
 
         if (path.StartsWith("/api/auth/tenants/me/members/", StringComparison.Ordinal))
@@ -156,6 +187,29 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 {
                     Content = new StringContent($$"""{"accessToken":"{{product}}","tokenType":"Bearer","expiresIn":900}""", Encoding.UTF8, "application/json"),
                 };
+
+            case "/api/auth/tenants/me/invitations" when request.Method == HttpMethod.Post:
+                lock (_gate)
+                {
+                    InviteCalls.Add((request.Headers.Authorization?.ToString(), body));
+                }
+
+                return InviteResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("{\"membershipId\":\"00000000-0000-0000-0000-000000000001\",\"email\":\"x\",\"status\":\"Invited\",\"roles\":[],\"applicationIds\":[],\"expiresAt\":\"2026-11-09T10:00:00Z\"}", Encoding.UTF8, "application/json"),
+                };
+
+            case "/api/auth/tenants/me/invitations":
+                return PendingResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(PendingJson, Encoding.UTF8, "application/json"),
+                };
+
+            case "/api/auth/roles":
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
+
+            case "/api/auth/tenants/me/subscriptions":
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(SubscriptionsJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenants/me/members":
                 lock (_gate)

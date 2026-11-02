@@ -1,0 +1,534 @@
+@page "/console/{TenantId:guid}/invitations"
+@attribute [Authorize]
+@layout TenantLayout
+@using System.Net
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+@inject TimeProvider Time
+
+<PageTitle>Invitations · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">Invitations</h1>
+    <ErrorState Title="We couldn't load the invitations" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (!console!.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">Invitations</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't see invitations">
+        <p class="alert-body">You need the 'Members · Read only' permission. Ask an admin of @console.TenantName.</p>
+    </AlertBanner>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Invitations</h1>
+            <p class="page-lead">People you've invited to @console.TenantName who haven't accepted yet.</p>
+        </div>
+        @if (!canInvite)
+        {
+            <span class="has-tip" tabindex="0" data-tip="You need the 'Members · Full access' permission to invite people.">
+                <button type="button" class="btn btn-primary" disabled aria-disabled="true"><Icon Name="plus" />Invite people</button>
+            </span>
+        }
+        else if (!console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly))
+        {
+            <span class="has-tip" tabindex="0" data-tip="You need the 'Roles · Read only' permission to choose roles for people you invite.">
+                <button type="button" class="btn btn-primary" disabled aria-disabled="true"><Icon Name="plus" />Invite people</button>
+            </span>
+        }
+        else
+        {
+            <a class="btn btn-primary" href="@PagePath?invite=1"><Icon Name="plus" />Invite people</a>
+        }
+    </div>
+
+    @switch (NoticeCode, ErrorCode)
+    {
+        case ("sent", _):
+            <AlertBanner Kind="AlertKind.Success" Title="@(SentCount == 1 ? "Invitation sent" : $"{SentCount} invitations sent")" Class="auth-alert">
+                <p class="alert-body">We've emailed a link to join @console.TenantName. They're listed below until they accept.</p>
+            </AlertBanner>
+            break;
+        case ("resent", _):
+            <AlertBanner Kind="AlertKind.Success" Title="Invitation sent again" Class="auth-alert">
+                <p class="alert-body">@(NameOf(MemberId)) has a new link and a fresh expiry date.</p>
+            </AlertBanner>
+            break;
+        case (_, "resend_too_soon"):
+            <AlertBanner Kind="AlertKind.Warning" Title="Sent a moment ago" Class="auth-alert">
+                <p class="alert-body">This invitation was emailed a moment ago. You can send it again in @(Wait ?? 60) seconds.</p>
+            </AlertBanner>
+            break;
+        case (_, "invitation_not_pending"):
+            <AlertBanner Kind="AlertKind.Info" Title="Already accepted" Class="auth-alert">
+                <p class="alert-body">This person has already accepted, or was withdrawn, so there is nothing to resend.</p>
+            </AlertBanner>
+            break;
+        case (_, "not_found"):
+            <AlertBanner Kind="AlertKind.Warning" Title="That invitation isn't here any more" Class="auth-alert">
+                <p class="alert-body">The list below is up to date.</p>
+            </AlertBanner>
+            break;
+        case (_, "forbidden"):
+            <AlertBanner Kind="AlertKind.Error" Title="You don't have permission to do that" Class="auth-alert">
+                <p class="alert-body">You need the 'Members · Full access' permission to invite people.</p>
+            </AlertBanner>
+            break;
+        case (_, "unavailable"):
+            <AlertBanner Kind="AlertKind.Error" Title="We couldn't send it" Class="auth-alert">
+                <p class="alert-body">Auth Service isn't responding right now. Nothing was changed. Try again in a moment.</p>
+            </AlertBanner>
+            break;
+    }
+
+    @if (pending.Count == 0)
+    {
+        <EmptyState Title="No pending invitations" IconName="mail">
+            <p class="empty-body">When you invite someone, they're listed here until they accept.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Email</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Roles</th>
+                        <th scope="col">Products</th>
+                        <th scope="col">Invited by</th>
+                        <th scope="col">Sent</th>
+                        <th scope="col">Expires</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var invitation in pending)
+                    {
+                        <tr>
+                            <td data-label="Email"><span class="person-name">@invitation.Email</span></td>
+                            <td data-label="Status">
+                                @if (invitation.IsExpired)
+                                {
+                                    <StatusBadge Kind="warning" IconName="clock" Label="Expired" />
+                                }
+                                else
+                                {
+                                    <StatusBadge Kind="warning" IconName="clock" Label="Pending" />
+                                }
+                            </td>
+                            <td data-label="Roles">
+                                <span class="chips">
+                                    @foreach (var role in invitation.Roles)
+                                    {
+                                        <span class="chip @(role.Name == "Owner" ? "chip-owner" : null)">@role.Name</span>
+                                    }
+                                </span>
+                            </td>
+                            <td data-label="Products">@ProductsText(invitation)</td>
+                            <td data-label="Invited by">@invitation.InvitedBy</td>
+                            <td data-label="Sent"><time datetime="@invitation.LastSentAt.ToString("O")">@invitation.LastSentAt.ToString("d MMM yyyy, HH:mm") UTC</time></td>
+                            <td data-label="Expires"><time datetime="@invitation.ExpiresAt.ToString("O")">@invitation.ExpiresAt.ToString("d MMM yyyy")</time></td>
+                            <td data-label="Actions" class="row-actions">
+                                @if (!canInvite)
+                                {
+                                    <span class="has-tip" tabindex="0" data-tip="You need the 'Members · Full access' permission to invite people.">
+                                        <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Resend</button>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <form method="post" action="/console/@TenantId/invitations/@invitation.MembershipId/resend">
+                                        <AntiforgeryToken />
+                                        <button type="submit" class="btn @(invitation.IsExpired ? "btn-primary" : "btn-secondary") btn-sm"
+                                                data-busy-label="Sending…"
+                                                data-countdown="@CooldownSeconds(invitation)"
+                                                data-countdown-label="Resend in {0}s"
+                                                data-countdown-done="Resend">Resend</button>
+                                    </form>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @pending.Count @(pending.Count == 1 ? "invitation" : "invitations")</p>
+    }
+
+    @if (inviting)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="invite-title">
+                <form method="post" @onsubmit="InviteAsync" @formname="invite">
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="invite-title" class="modal-title">Invite people</h2>
+                        <p class="modal-text">We'll email each person a link to join @console.TenantName.</p>
+
+                        @if (results.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Warning" Title="Some invitations weren't sent" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var result in results)
+                                    {
+                                        <li>@result</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        @if (formErrors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(formErrors.Count == 1 ? "Fix 1 problem" : $"Fix {formErrors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in formErrors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="invite-emails">Email addresses</label>
+                            <textarea id="invite-emails" name="emails" class="input textarea" rows="3" autocomplete="off"
+                                      aria-describedby="invite-emails-help">@enteredEmails</textarea>
+                            <p id="invite-emails-help" class="field-message">One per line, or separated by commas.</p>
+                        </div>
+
+                        <fieldset class="choice-group">
+                            <legend>Roles <span class="muted">(choose 1 to 10)</span></legend>
+                            @foreach (var role in roles)
+                            {
+                                var blocked = role.Name == "Owner" && !callerIsOwner;
+                                <label class="check @(blocked ? "is-disabled" : null)">
+                                    <input type="checkbox" name="roleId" value="@role.Id" checked="@chosenRoles.Contains(role.Id)" disabled="@blocked" />
+                                    <span>@role.Name</span>
+                                    @if (blocked)
+                                    {
+                                        <span class="muted">Only an Owner can invite someone as an Owner.</span>
+                                    }
+                                </label>
+                            }
+                        </fieldset>
+
+                        @if (!console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly))
+                        {
+                            <p class="field-message">Product access can be given once they've joined.</p>
+                        }
+                        else if (subscriptions.Count > 0)
+                        {
+                            <fieldset class="choice-group">
+                                <legend>Product access <span class="muted">(optional)</span></legend>
+                                @foreach (var subscription in subscriptions)
+                                {
+                                    var blocked = !subscription.IsActive || !subscription.HasFreeSeat;
+                                    <label class="check @(blocked ? "is-disabled" : null)">
+                                        <input type="checkbox" name="applicationId" value="@subscription.ApplicationId" checked="@chosenApplications.Contains(subscription.ApplicationId)" disabled="@blocked" />
+                                        <span>@subscription.ApplicationName</span>
+                                        <span class="muted">
+                                            @if (!subscription.IsActive)
+                                            {
+                                                @("Not subscribed")
+                                            }
+                                            else if (!subscription.HasFreeSeat)
+                                            {
+                                                @("No free seats")
+                                            }
+                                            else
+                                            {
+                                                @(subscription.MaxSeats is { } max ? $"{subscription.SeatsUsed} of {max} seats used" : $"{subscription.SeatsUsed} seats used")
+                                            }
+                                        </span>
+                                    </label>
+                                }
+                            </fieldset>
+                        }
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Sending…">Send invitations</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private const int CooldownLimit = 60;
+
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool canInvite;
+    private bool inviting;
+    private bool callerIsOwner;
+    private string? reference;
+    private string enteredEmails = "";
+    private readonly List<string> results = [];
+    private readonly List<string> formErrors = [];
+    private readonly HashSet<Guid> chosenRoles = [];
+    private readonly HashSet<Guid> chosenApplications = [];
+    private List<PendingInvitationItem> pending = [];
+    private List<RoleListItem> roles = [];
+    private List<SubscriptionItem> subscriptions = [];
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "invite")] private string? Invite { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "m")] private Guid? MemberId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "n")] private int? SentCount { get; set; }
+
+    [SupplyParameterFromQuery(Name = "wait")] private int? Wait { get; set; }
+
+    private string PagePath => $"/console/{TenantId}/invitations";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        canInvite = console!.Can(PermissionKeys.MembersInvite, AccessLevel.Full);
+        if (!console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<List<PendingInvitationItem>>("/api/auth/tenants/me/invitations", console.Token, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        pending = [.. list.Value!.OrderByDescending(invitation => invitation.IsExpired).ThenBy(invitation => invitation.Email, StringComparer.OrdinalIgnoreCase)];
+
+        // Product names for the list and the dialog, when the person may read subscriptions.
+        if (console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly))
+        {
+            var subs = await Api.GetAsync<List<SubscriptionItem>>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
+            subscriptions = subs.IsSuccess ? [.. subs.Value!] : [];
+        }
+
+        // A posted invitation form must already be on the page when the post arrives.
+        inviting = canInvite && console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly)
+            && (Invite == "1" || (HttpContext.Request.HasFormContentType && HttpContext.Request.Form["_handler"] == "invite"));
+        if (inviting)
+        {
+            await LoadDialogDataAsync();
+        }
+    }
+
+    private async Task LoadDialogDataAsync()
+    {
+        var token = console!.Token;
+        var cancellation = HttpContext!.RequestAborted;
+
+        var roleList = await Api.GetAsync<List<RoleListItem>>("/api/auth/roles", token, cancellation);
+        roles = roleList.IsSuccess ? [.. roleList.Value!.OrderBy(role => role.Name, StringComparer.CurrentCultureIgnoreCase)] : [];
+
+        // The Owner role is only offered to an Owner, who is found among the members.
+        var members = await Api.GetAsync<List<MemberItem>>("/api/auth/tenants/me/members", token, cancellation);
+        callerIsOwner = members.IsSuccess
+            && members.Value!.Any(member => string.Equals(member.Email, console.Email, StringComparison.OrdinalIgnoreCase)
+                && member.Roles.Any(role => role.Name == "Owner"));
+
+        if (!roleList.IsSuccess)
+        {
+            formErrors.Add("We couldn't load the roles. Close this and try again in a moment.");
+        }
+    }
+
+    private async Task InviteAsync()
+    {
+        var form = HttpContext!.Request.Form;
+        enteredEmails = form["emails"].ToString();
+        foreach (var value in form["roleId"]) { if (Guid.TryParse(value, out var id)) { chosenRoles.Add(id); } }
+        foreach (var value in form["applicationId"]) { if (Guid.TryParse(value, out var id)) { chosenApplications.Add(id); } }
+
+        var emails = enteredEmails
+            .Split(['\n', '\r', ',', ';', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        formErrors.Clear();
+        if (emails.Count == 0)
+        {
+            formErrors.Add("Enter at least one email address.");
+        }
+        else if (emails.Count > 20)
+        {
+            formErrors.Add("Invite up to 20 people at a time.");
+        }
+
+        var invalid = emails.Where(email => !email.Contains('@') || email.StartsWith('@') || email.EndsWith('@') || !email[(email.IndexOf('@') + 1)..].Contains('.')).ToList();
+        if (invalid.Count > 0)
+        {
+            formErrors.Add($"{string.Join(", ", invalid)} {(invalid.Count == 1 ? "isn't" : "aren't")} a valid email address, like anna@acme.com.");
+        }
+
+        if (chosenRoles.Count is < 1 or > 10)
+        {
+            formErrors.Add("Choose between 1 and 10 roles.");
+        }
+
+        if (formErrors.Count > 0)
+        {
+            return;
+        }
+
+        var sent = 0;
+        var stillToSend = new List<string>();
+        results.Clear();
+        foreach (var email in emails)
+        {
+            // The answer's body is not needed, so a created invitation is never reported as failed because of how the body reads.
+            var response = await Api.PostNoContentAsync(
+                "/api/auth/tenants/me/invitations",
+                new InviteRequest(email, [.. chosenRoles], [.. chosenApplications]),
+                HttpContext.RequestAborted,
+                console!.Token);
+            if (response.IsSuccess)
+            {
+                sent++;
+                continue;
+            }
+
+            if (response.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            stillToSend.Add(email);
+            results.Add(Explain(email, response.Problem));
+        }
+
+        if (results.Count == 0)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?notice=sent&n={sent}");
+            return;
+        }
+
+        // Some went out, some did not: the dialog stays open with only the ones that still need sending.
+        enteredEmails = string.Join('\n', stillToSend);
+        if (sent > 0)
+        {
+            results.Insert(0, $"{sent} {(sent == 1 ? "invitation was" : "invitations were")} sent.");
+        }
+    }
+
+    private string Explain(string email, ApiProblem problem) => problem.Code switch
+    {
+        "already_member" => $"{email} already belongs to {console!.TenantName}.",
+        "owner_role_restricted" => $"{email}: only an Owner can invite someone as an Owner.",
+        "application_not_subscribed" => $"{email}: {console!.TenantName} isn't subscribed to one of the products you chose.",
+        "no_seat_available" => $"{email}: there is no free seat{SeatProducts(problem.Detail)}. Free a seat or choose fewer products.",
+        "not_found" => $"{email}: one of the roles no longer exists. Close this and open it again.",
+        _ when problem.Status == StatusCodes.Status403Forbidden => $"{email}: you need the 'Members · Full access' permission to invite people.",
+        _ when problem.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } errors
+            => $"{email}: {errors.Values.SelectMany(reasons => reasons).FirstOrDefault() ?? "the invitation was refused"}",
+        _ => $"{email}: Auth Service isn't responding right now. Nothing was sent to this address.",
+    };
+
+    private static string SeatProducts(string? detail)
+    {
+        var start = detail?.IndexOf(" in: ", StringComparison.Ordinal) ?? -1;
+        return start < 0 ? "" : $" in {detail![(start + 5)..].TrimEnd('.')}";
+    }
+
+    private string ProductsText(PendingInvitationItem invitation)
+    {
+        if (invitation.ApplicationIds.Count == 0)
+        {
+            return "None";
+        }
+
+        var names = invitation.ApplicationIds
+            .Select(id => subscriptions.FirstOrDefault(subscription => subscription.ApplicationId == id)?.ApplicationName)
+            .ToList();
+        return names.All(name => name is not null)
+            ? string.Join(", ", names)
+            : $"{invitation.ApplicationIds.Count} {(invitation.ApplicationIds.Count == 1 ? "product" : "products")}";
+    }
+
+    /// <summary>Seconds left before this invitation can be sent again (the API waits a minute between sends), or 0 when it can.</summary>
+    private int CooldownSeconds(PendingInvitationItem invitation) =>
+        Math.Max(0, (int)Math.Ceiling(CooldownLimit - (Time.GetUtcNow() - invitation.LastSentAt).TotalSeconds));
+
+    private string NameOf(Guid? id) =>
+        pending.FirstOrDefault(invitation => invitation.MembershipId == id)?.Email ?? "This person";
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+}

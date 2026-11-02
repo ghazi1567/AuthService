@@ -121,6 +121,14 @@ What is in place:
   redirects back with a notice (with Undo) or an error code the page explains in plain words (last Owner, only an Owner can disable an
   Owner, not accepted yet, no free seat in named products, no permission, API down). Active organisations in the picker have a Manage
   link.
+- **Invitations** (`/console/{tenantId}/invitations`, UI02_T2 and T3). The pending list shows email, status (expired ones first and flagged), roles, products
+  (named when the person may read subscriptions, counted otherwise), who invited, when it was sent and when it expires. **Resend** (needs
+  `members.invite:Full`) shows the API's one-minute wait as a live countdown worked out from when it was last sent; resending too soon, an
+  invitation already accepted and a missing invitation are each explained. **Invite people** opens a dialog (`?invite=1`, plain HTML): one or
+  many addresses (a line or comma each, up to 20), 1 to 10 roles from the role list (Owner only offered to an Owner), and optional product access
+  with seats shown (full or unsubscribed products can't be chosen). Each address is invited in turn; a refusal (already a member, Owner
+  role restricted, product not subscribed, no free seat in named products, role gone, API down) is explained and only the addresses that still
+  need sending stay in the box. Inviting needs `members.invite:Full` and `roles.read`.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
