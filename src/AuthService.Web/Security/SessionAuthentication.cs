@@ -33,6 +33,8 @@ public static class SessionAuthentication
         services.AddSingleton<ISessionStore, MemorySessionStore>();
         services.AddScoped<SessionService>();
         services.AddSingleton<PendingInvitation>();
+        services.AddSingleton<ConsoleTokenCache>();
+        services.AddScoped<ConsoleSession>();
 
         services.AddAuthentication(Scheme).AddCookie(Scheme, options =>
         {

@@ -41,6 +41,7 @@ app.MapStaticAssets();
 
 // For a platform health check. It says only that the web app is running, never anything about the API or its data.
 app.MapSessionEndpoints();
+app.MapConsoleEndpoints();
 
 app.MapGet("/healthz", () => Results.Text("ok")).AllowAnonymous();
 

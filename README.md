@@ -110,6 +110,17 @@ What is in place:
   (`POST /api/auth/tenants`). A list that cannot be loaded shows a calm error with a short reference; a session the API no longer
   accepts goes back to sign in. The shell is `PickerLayout` (logo, an account menu with sign-out, one centred column). The API sends
   no role per organisation, so rows show status only.
+- **The tenant console** (`/console/{tenantId}/...`, UI-02), starting with **Members** (UI02_T1). `ConsoleSession` opens an organisation for the signed-in
+  person: they must be an active member (`users/me`), then their sign-in is traded for a token for the Auth Service's own product
+  (`POST /api/auth/token/exchange`, application `00000000-0000-7000-8000-00000000a07a`), kept on the server in `ConsoleTokenCache` until a minute
+  before it expires and never shown or logged. What the token allows (`permissions`, `key:Level`) decides what the shell and pages show:
+  navigation lists only built pages the person can read; a change they may not make is a disabled button with a tooltip naming the
+  permission, and the API still enforces it. `TenantLayout` is the shell (sidebar, a drawer on small screens, header with the
+  organisation and the person's menu). **Members** lists name, status, roles and products (cards on small screens), with search and a status
+  filter, and enables or disables people: disabling asks first and says what it does; the change is a plain POST (`ConsoleEndpoints`) that
+  redirects back with a notice (with Undo) or an error code the page explains in plain words (last Owner, only an Owner can disable an
+  Owner, not accepted yet, no free seat in named products, no permission, API down). Active organisations in the picker have a Manage
+  link.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

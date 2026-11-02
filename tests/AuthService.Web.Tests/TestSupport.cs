@@ -19,6 +19,14 @@ public sealed class FakeClock(DateTimeOffset start) : TimeProvider
 
 public static class TestTokens
 {
+    /// <summary>A product token shaped like the API's: the person, the organisation and the permissions as key:Level strings.</summary>
+    public static string ProductJwt(Guid userId, Guid tenantId, IEnumerable<string> permissions, int number)
+    {
+        static string Part(string json) => Convert.ToBase64String(Encoding.UTF8.GetBytes(json)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var list = string.Join(",", permissions.Select(permission => $"\"{permission}\""));
+        return $"{Part("""{"alg":"none"}""")}.{Part($$"""{"sub":"{{userId}}","tid":"{{tenantId}}","permissions":[{{list}}],"jti":"p{{number}}"}""")}.psig{number}";
+    }
+
     /// <summary>A token shaped like the API's: three parts, the middle one naming the person. The number keeps each one different.</summary>
     public static string Jwt(Guid userId, int number)
     {
@@ -70,12 +78,38 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> CreateTenantCalls { get; } = [];
 
+    /// <summary>What the tenant-console token allows, as key:Level strings.</summary>
+    public string[] ConsolePermissions { get; set; } =
+    [
+        "members.read:Full", "members.manage:Full", "members.invite:Full", "roles.read:Full", "roles.manage:Full", "roles.assign:Full",
+        "access.manage:Full", "apikeys.read:Full", "apikeys.manage:Full", "subscriptions.read:Full", "audit.read:Full",
+    ];
+
+    public Func<HttpResponseMessage>? ExchangeResponse { get; set; }
+
+    public List<(string? Authorization, string Body)> ExchangeCalls { get; } = [];
+
+    public List<string> ProductTokensIssued { get; } = [];
+
+    /// <summary>The members of the organisation, as the API's JSON array.</summary>
+    public string MembersJson { get; set; } = "[]";
+
+    public Func<HttpResponseMessage>? MembersResponse { get; set; }
+
+    public List<string?> MembersAuthorizations { get; } = [];
+
+    public Func<HttpResponseMessage>? StatusResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> StatusCalls { get; } = [];
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        // A real API answers later, not instantly: pages must cope with the render that happens while they wait.
+        await Task.Yield();
         var path = request.RequestUri!.AbsolutePath;
         var body = request.Content is null ? "{}" : await request.Content.ReadAsStringAsync(cancellationToken);
         using var json = JsonDocument.Parse(body);
@@ -85,8 +119,55 @@ public sealed class FakeAuthApi : HttpMessageHandler
             throw new HttpRequestException("the API is down");
         }
 
+        if (path.StartsWith("/api/auth/tenants/me/members/", StringComparison.Ordinal))
+        {
+            lock (_gate)
+            {
+                StatusCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+            }
+
+            return StatusResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"membershipId\":\"00000000-0000-0000-0000-000000000000\",\"email\":\"x\",\"status\":\"Active\",\"roles\":[],\"applications\":[],\"createdAt\":\"2026-11-01T10:00:00Z\"}", Encoding.UTF8, "application/json"),
+            };
+        }
+
         switch (path)
         {
+            case "/api/auth/token/exchange":
+                lock (_gate)
+                {
+                    ExchangeCalls.Add((request.Headers.Authorization?.ToString(), body));
+                }
+
+                if (ExchangeResponse is not null)
+                {
+                    return ExchangeResponse();
+                }
+
+                string product;
+                lock (_gate)
+                {
+                    product = TestTokens.ProductJwt(UserId, Guid.Parse(json.RootElement.GetProperty("tenantId").GetString()!), ConsolePermissions, ProductTokensIssued.Count + 1);
+                    ProductTokensIssued.Add(product);
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$"""{"accessToken":"{{product}}","tokenType":"Bearer","expiresIn":900}""", Encoding.UTF8, "application/json"),
+                };
+
+            case "/api/auth/tenants/me/members":
+                lock (_gate)
+                {
+                    MembersAuthorizations.Add(request.Headers.Authorization?.ToString());
+                }
+
+                return MembersResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(MembersJson, Encoding.UTF8, "application/json"),
+                };
+
             case "/api/auth/login":
                 return Tokens();
 
@@ -287,7 +368,7 @@ public static partial class WebForms
         foreach (Match form in Regex.Matches(html, "<form(?<attributes>[^>]*)>(?<body>.*?)</form>", RegexOptions.Singleline))
         {
             // A browser posts to the form's action when it has one, otherwise to the address it is on.
-            var action = Regex.Match(form.Groups["attributes"].Value, "\baction=\"([^\"]*)\"") is { Success: true } found
+            var action = Regex.Match(form.Groups["attributes"].Value, "\\baction=\"([^\"]*)\"") is { Success: true } found
                 ? WebUtility.HtmlDecode(found.Groups[1].Value)
                 : path;
             var inputs = InputTag().Matches(form.Groups["body"].Value).Select(match => match.Value).ToList();
@@ -320,6 +401,32 @@ public static partial class WebForms
         }
 
         throw new InvalidOperationException($"The page has no form named \"{formName}\".");
+    }
+
+    /// <summary>Posts the plain form whose action contains <paramref name="action"/>, with every hidden field it carries (its anti-forgery token, the status).</summary>
+    public static async Task<HttpResponseMessage> PostPlainFormAsync(HttpClient client, string html, string action)
+    {
+        foreach (Match form in Regex.Matches(html, "<form(?<attributes>[^>]*)>(?<body>.*?)</form>", RegexOptions.Singleline))
+        {
+            var target = Regex.Match(form.Groups["attributes"].Value, "\\baction=\"([^\"]*)\"") is { Success: true } found ? WebUtility.HtmlDecode(found.Groups[1].Value) : "";
+            if (!target.Contains(action, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var fields = new Dictionary<string, string>();
+            foreach (Match input in InputTag().Matches(form.Groups["body"].Value))
+            {
+                if (input.Value.Contains("type=\"hidden\""))
+                {
+                    fields[FieldName(input.Value)] = WebUtility.HtmlDecode(Regex.Match(input.Value, "value=\"([^\"]*)\"").Groups[1].Value);
+                }
+            }
+
+            return await client.PostAsync(target, new FormUrlEncodedContent(fields), Token);
+        }
+
+        throw new InvalidOperationException($"The page has no form posting to \"{action}\".");
     }
 
     /// <summary>Posts the sign-out form found in <paramref name="html"/> with every hidden field it carries (its anti-forgery token, any return page).</summary>
