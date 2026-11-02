@@ -5,6 +5,7 @@
 @inject AuthApiClient Api
 @inject ConsoleSession Session
 @inject OneTimeSecrets Secrets
+@inject TimeProvider Time
 @inject NavigationManager Navigation
 
 <PageTitle>API keys · Auth Service</PageTitle>
@@ -56,11 +57,9 @@ else
         }
     </div>
 
-    @if (NoticeCode == "unavailable")
+    @if (Notice() is { } notice)
     {
-        <AlertBanner Kind="AlertKind.Error" Title="We couldn't create the key" Class="auth-alert">
-            <p class="alert-body">Auth Service isn't responding right now. Nothing was created. Try again in a moment.</p>
-        </AlertBanner>
+        @notice
     }
 
     @if (keys.Count == 0)
@@ -82,6 +81,7 @@ else
                         <th scope="col">Status</th>
                         <th scope="col">Created</th>
                         <th scope="col">Expires</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -102,7 +102,27 @@ else
                                 }
                             </td>
                             <td data-label="Created"><time datetime="@key.CreatedAt.ToString("O")">@key.CreatedAt.ToString("d MMM yyyy")</time></td>
-                            <td data-label="Expires">@(key.ExpiresAt is { } ends ? ends.ToString("d MMM yyyy") : "Never")</td>
+                            <td data-label="Expires">@ExpiryText(key)</td>
+                            <td data-label="Actions" class="row-actions">
+                                @if (key.Status is "Active" or "Expiring")
+                                {
+                                    @if (canManage)
+                                    {
+                                        @if (key.Status == "Active")
+                                        {
+                                            <a class="btn btn-secondary btn-sm" href="@PagePath?rotate=@key.Id">Rotate</a>
+                                        }
+
+                                        <a class="btn btn-secondary btn-sm" href="@PagePath?revoke=@key.Id">Revoke</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="has-tip" tabindex="0" data-tip="You need the 'API keys · Full access' permission to rotate or revoke keys.">
+                                            <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Revoke</button>
+                                        </span>
+                                    }
+                                }
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -116,7 +136,13 @@ else
         <div class="modal-backdrop">
             <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="secret-title">
                 <div class="modal-body">
-                    <h2 id="secret-title" class="modal-title">Your new API key</h2>
+                    <h2 id="secret-title" class="modal-title">@(Rotated == "1" ? "Your rotated API key" : "Your new API key")</h2>
+                    @if (Rotated == "1")
+                    {
+                        <AlertBanner Kind="AlertKind.Info" Title="@OldKeyTitle" Class="dialog-alert">
+                            <p class="alert-body">@OldKeyBody</p>
+                        </AlertBanner>
+                    }
                     <AlertBanner Kind="AlertKind.Warning" Title="You won't see this again" Class="dialog-alert">
                         <p class="alert-body">Copy the key now and keep it somewhere safe. Only a masked version is kept, so we can't show it again. If you lose it, create a new key.</p>
                     </AlertBanner>
@@ -128,6 +154,51 @@ else
                 <div class="modal-foot">
                     <a class="btn btn-primary" href="@PagePath">I've saved it</a>
                 </div>
+            </div>
+        </div>
+    }
+    else if (rotating is { } toRotate)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="rotate-title">
+                <form method="post" action="/console/@TenantId/api-keys/@toRotate.Id/rotate">
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="rotate-title" class="modal-title">Rotate '@toRotate.Name'?</h2>
+                        <p class="modal-text">We'll create a new key with the same permissions and show it once. Update your software to use it before the old key stops working.</p>
+                        <div class="field">
+                            <label for="grace">How long should the old key keep working?</label>
+                            <select id="grace" name="graceHours" class="input">
+                                @foreach (var (hours, label) in GraceChoices)
+                                {
+                                    <option value="@hours" selected="@(hours == 24)">@label</option>
+                                }
+                            </select>
+                            <p class="field-message">Choose "Not at all" if the old key may have leaked: it stops working at once.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Rotating…">Rotate key</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+    else if (revoking is { } toRevoke)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="revoke-title">
+                <div class="modal-body">
+                    <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                    <h2 id="revoke-title" class="modal-title">Revoke '@toRevoke.Name'?</h2>
+                    <p class="modal-text">Any software using this key will stop working immediately. This can't be undone. To use the same access again you'll need to create a new key.</p>
+                </div>
+                <form method="post" action="/console/@TenantId/api-keys/@toRevoke.Id/revoke" class="modal-foot">
+                    <AntiforgeryToken />
+                    <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                    <button type="submit" class="btn btn-danger" data-busy-label="Revoking…">Revoke key</button>
+                </form>
             </div>
         </div>
     }
@@ -223,6 +294,8 @@ else
     private bool forbidden;
     private bool canManage;
     private bool creating;
+    private ApiKeySummary? rotating;
+    private ApiKeySummary? revoking;
     private string? reference;
     private string? revealed;
     private string enteredName = "";
@@ -243,6 +316,18 @@ else
     [SupplyParameterFromQuery(Name = "reveal")] private string? Reveal { get; set; }
 
     [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "m")] private Guid? KeyId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "rotate")] private Guid? RotateId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "revoke")] private Guid? RevokeId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "rotated")] private string? Rotated { get; set; }
+
+    [SupplyParameterFromQuery(Name = "oldEnds")] private string? OldEnds { get; set; }
 
     private string PagePath => $"/console/{TenantId}/api-keys";
 
@@ -314,6 +399,16 @@ else
         }
 
         keys = [.. list.Value!.OrderByDescending(key => key.CreatedAt)];
+
+        if (canManage && RotateId is { } rotateId)
+        {
+            rotating = keys.FirstOrDefault(key => key.Id == rotateId && key.Status == "Active");
+        }
+
+        if (canManage && RevokeId is { } revokeId)
+        {
+            revoking = keys.FirstOrDefault(key => key.Id == revokeId && (key.Status == "Active" || key.Status == "Expiring"));
+        }
 
         // A new key's value is taken back out exactly once: a reload of this page finds nothing.
         if (Reveal is { Length: > 0 } reference_ && HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
@@ -415,6 +510,85 @@ else
         CurrentApplication.IsBuiltIn
             ? Levels.Where(level => level.Rank > 0 && console!.Can(permissionKey, (AccessLevel)level.Rank)).Select(level => level.Rank).DefaultIfEmpty(0).Max()
             : 3;
+
+    private static readonly (int Hours, string Label)[] GraceChoices =
+    [
+        (0, "Not at all: stop it now"),
+        (1, "1 hour"),
+        (24, "24 hours (recommended)"),
+        (72, "3 days"),
+        (168, "7 days"),
+        (720, "30 days"),
+    ];
+
+    /// <summary>When a key stops working, and how long is left for one that is being rotated out.</summary>
+    private string ExpiryText(ApiKeySummary key)
+    {
+        if (key.ExpiresAt is not { } ends)
+        {
+            return "Never";
+        }
+
+        if (key.Status != "Expiring")
+        {
+            return ends.ToString("d MMM yyyy");
+        }
+
+        var left = ends - Time.GetUtcNow();
+        return left <= TimeSpan.Zero
+            ? $"Stopped {ends:d MMM yyyy, HH:mm} UTC"
+            : $"Stops {ends:d MMM, HH:mm} UTC (in {Remaining(left)})";
+    }
+
+    private static string Remaining(TimeSpan left) =>
+        left.TotalHours >= 48 ? $"{(int)left.TotalDays} days"
+        : left.TotalHours >= 1 ? $"{(int)left.TotalHours} {((int)left.TotalHours == 1 ? "hour" : "hours")}"
+        : $"{Math.Max(1, (int)left.TotalMinutes)} minutes";
+
+    private string OldKeyTitle => OldEnds == "now" ? "The old key stopped working at once" : "The old key keeps working for a while";
+
+    private string OldKeyBody =>
+        OldEnds == "now"
+            ? "You chose to cut it off, so anything still using the old key has already stopped. Update your software to use the new one."
+            : DateTimeOffset.TryParse(OldEnds, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var ends)
+                ? $"It stops working at {ends.UtcDateTime:d MMM yyyy, HH:mm} UTC, in {Remaining(ends - Time.GetUtcNow())}. Update your software to use the new key before then."
+                : "Update your software to use the new key before the old one stops.";
+
+    private RenderFragment? Notice() => builder =>
+    {
+        var name = keys.FirstOrDefault(key => key.Id == KeyId)?.Name ?? "This key";
+        switch (NoticeCode, ErrorCode)
+        {
+            case ("revoked", _):
+                Banner(builder, AlertKind.Success, $"{name} is revoked", "Software using it has stopped working.");
+                break;
+            case (_, "api_key_not_active"):
+                Banner(builder, AlertKind.Warning, $"{name} can't be rotated", "A revoked or expired key can't be rotated. Create a new key instead.");
+                break;
+            case (_, "not_found"):
+                Banner(builder, AlertKind.Warning, "That key isn't here any more", "Someone may have removed it. The list is up to date.");
+                break;
+            case (_, "bad_grace"):
+                Banner(builder, AlertKind.Warning, "Choose how long the old key keeps working", "Pick one of the options, from not at all up to 30 days.");
+                break;
+            case (_, "forbidden"):
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "You need the 'API keys · Full access' permission to rotate or revoke keys.");
+                break;
+            case (_, "unavailable"):
+                Banner(builder, AlertKind.Error, "We couldn't make that change", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+                break;
+        }
+    };
+
+    private static void Banner(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, AlertKind kind, string title, string body)
+    {
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), kind);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    }
 
     private string ChosenLevel(string permissionKey) => chosen.TryGetValue(permissionKey, out var level) ? level : "None";
 

@@ -16,6 +16,8 @@ public static class ConsoleEndpoints
         app.MapPost("/console/{tenantId:guid}/invitations/{membershipId:guid}/resend", ResendInvitationAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/roles/{roleId:guid}/delete", DeleteRoleAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/access/{applicationId:guid}/grant", GrantAccessAsync).AllowAnonymous();
+        app.MapPost("/console/{tenantId:guid}/api-keys/{keyId:guid}/rotate", RotateApiKeyAsync).AllowAnonymous();
+        app.MapPost("/console/{tenantId:guid}/api-keys/{keyId:guid}/revoke", RevokeApiKeyAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/access/{applicationId:guid}/{membershipId:guid}/revoke", RevokeAccessAsync).AllowAnonymous();
         return app;
     }
@@ -233,6 +235,85 @@ public static class ConsoleEndpoints
         var result = await api.DeleteAsync(
             $"/api/auth/tenants/me/members/{membershipId}/applications/{applicationId}", opened.Console!.Token, context.RequestAborted);
         return Finish(result, console, context, tenantId, page, "revoked", membershipId, applicationId);
+    }
+
+    private static async Task<IResult> RotateApiKeyAsync(
+        Guid tenantId,
+        Guid keyId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        ConsoleSession console,
+        AuthApiClient api,
+        OneTimeSecrets secrets)
+    {
+        var form = await ReadCheckedFormAsync(context, antiforgery);
+        if (form is null)
+        {
+            return Results.BadRequest();
+        }
+
+        var page = $"/console/{tenantId}/api-keys";
+        var opened = await OpenAsync(context, console, tenantId, page);
+        if (opened.Redirect is not null)
+        {
+            return opened.Redirect;
+        }
+
+        if (!int.TryParse(form["graceHours"].ToString(), out var grace) || grace is < 0 or > 720)
+        {
+            return Results.Redirect($"{page}?error=bad_grace&m={keyId}");
+        }
+
+        var result = await api.PostAsync<RotateApiKeyRequest, RotatedApiKey>(
+            $"/api/auth/apikeys/{keyId}/rotate", new RotateApiKeyRequest(grace), context.RequestAborted, opened.Console!.Token);
+        if (result.IsSuccess && context.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
+        {
+            // The new key's value waits on the server; the address carries only a reference, how long the old key lives, and no secret.
+            var reference = secrets.Put(sid.Value, result.Value!.RawKey);
+            var oldEnds = grace == 0 ? "now" : result.Value.PreviousKeyExpiresAt?.UtcDateTime.ToString("O") ?? "";
+            return Results.Redirect($"{page}?reveal={reference}&rotated=1&oldEnds={Uri.EscapeDataString(oldEnds)}");
+        }
+
+        return KeyOutcome(result.Problem, console, context, tenantId, page, keyId);
+    }
+
+    private static async Task<IResult> RevokeApiKeyAsync(
+        Guid tenantId,
+        Guid keyId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        ConsoleSession console,
+        AuthApiClient api)
+    {
+        if (await ReadCheckedFormAsync(context, antiforgery) is null)
+        {
+            return Results.BadRequest();
+        }
+
+        var page = $"/console/{tenantId}/api-keys";
+        var opened = await OpenAsync(context, console, tenantId, page);
+        if (opened.Redirect is not null)
+        {
+            return opened.Redirect;
+        }
+
+        var result = await api.DeleteAsync($"/api/auth/apikeys/{keyId}", opened.Console!.Token, context.RequestAborted);
+        return result.IsSuccess
+            ? Results.Redirect($"{page}?notice=revoked&m={keyId}")
+            : KeyOutcome(result.Problem, console, context, tenantId, page, keyId);
+    }
+
+    private static IResult KeyOutcome(ApiProblem? problem, ConsoleSession console, HttpContext context, Guid tenantId, string page, Guid keyId)
+    {
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            console.Refresh(context, tenantId);
+            return Results.Redirect(page);
+        }
+
+        var known = problem?.Code is "api_key_not_active" or "not_found";
+        var code = known ? problem!.Code : problem?.Status == StatusCodes.Status403Forbidden ? "forbidden" : problem?.Status == StatusCodes.Status400BadRequest ? "bad_grace" : "unavailable";
+        return Results.Redirect($"{page}?error={code}&m={keyId}");
     }
 
     /// <summary>The posted form once its anti-forgery token checks out, or null when it does not.</summary>

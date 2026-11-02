@@ -129,3 +129,16 @@ public sealed record ApiKeyPermission(string Permission, string Level);
 
 /// <summary>Body of <c>POST /api/auth/apikeys</c>: a name, an optional product, and what the key may do.</summary>
 public sealed record CreateApiKeyRequest(string Name, Guid? ApplicationId, IReadOnlyList<ApiKeyPermission> Permissions);
+
+/// <summary>Body of <c>POST /api/auth/apikeys/{id}/rotate</c>: how many hours the old key keeps working (0 to 720; 0 cuts it off at once).</summary>
+public sealed record RotateApiKeyRequest(int GraceHours);
+
+/// <summary>A rotated key: the new one with its raw value (shown once), and when the old one stops. It prints nothing but the new key's name.</summary>
+public sealed record RotatedApiKey(ApiKeySummary Key, string RawKey, DateTimeOffset? PreviousKeyExpiresAt)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("Name = ").Append(Key.Name);
+        return true;
+    }
+}

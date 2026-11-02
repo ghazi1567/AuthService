@@ -157,7 +157,11 @@ What is in place:
   opens a dialog: a name, which product the key is for (a plain form that reloads the permission list), and a level for each permission, limited to what the creator holds
   (for the Auth Service itself; the API checks other products). The key's raw value comes back once: `OneTimeSecrets` keeps it on the server for the creating session for two
   minutes and the redirect carries only a random reference, so it is never in an address, never logged, and a reload or another person finds nothing. It is shown in a dialog
-  with the warning "You won't see this again", a read-only field, a Copy button that appears once scripts load, and one button, "I've saved it". Rotate and revoke are the next ticket.
+  with the warning "You won't see this again", a read-only field, a Copy button that appears once scripts load, and one button, "I've saved it".
+  **Rotate and revoke** (UI03_T2): an active key's row has Rotate and Revoke, a key being rotated out (Expiring) only Revoke, and a finished key nothing. Rotate asks how long the old
+  key keeps working (not at all, 1 hour, 24 hours suggested, 3, 7 or 30 days), then shows the new value in the same once-only dialog, with a note saying when the old key stops.
+  Revoke is a confirmation naming the key and what happens; both are plain posts, anti-forgery checked, and the dialogs only open for someone who may manage keys. The API's reasons
+  (not active, not found, no permission, down) are explained in plain words.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
