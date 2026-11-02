@@ -162,6 +162,10 @@ What is in place:
   key keeps working (not at all, 1 hour, 24 hours suggested, 3, 7 or 30 days), then shows the new value in the same once-only dialog, with a note saying when the old key stops.
   Revoke is a confirmation naming the key and what happens; both are plain posts, anti-forgery checked, and the dialogs only open for someone who may manage keys. The API's reasons
   (not active, not found, no permission, down) are explained in plain words.
+- **Subscriptions** (`/console/{tenantId}/subscriptions`, UI03_T3). One row per product the organisation uses: a status badge (Active, Suspended, Cancelled) with a sentence on what it
+  means for people, and seats used against the limit as the API reports them (a meter with "Almost full" at 80% and "No seats left" at the limit, or "no seat limit"). Working
+  products come first. Active products link to Product access (for someone who may manage it); a banner says how many products aren't active. Read-only: subscriptions are
+  created and changed by the platform administrator, so there are no actions here.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

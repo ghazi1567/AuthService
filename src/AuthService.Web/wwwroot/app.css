@@ -1333,6 +1333,32 @@ a.org-row:hover {
     .row-actions {
         text-align: right;
     }
+
+    .seat-block {
+        min-width: 240px;
+    }
+
+    .status-note {
+        margin-top: 4px;
+    }
+}
+
+/* Subscriptions: a status badge with what it means for the people, and a seat meter */
+.status-cell {
+    flex-wrap: wrap;
+}
+
+.status-note {
+    display: block;
+    flex-basis: 100%;
+    max-width: 44ch;
+    color: var(--text-secondary);
+    font: 400 13px/18px var(--font-ui);
+}
+
+.seat-block {
+    flex: 1;
+    min-width: 0;
 }
 
 /* A tooltip on anything that cannot be used: shown on hover and on keyboard focus */

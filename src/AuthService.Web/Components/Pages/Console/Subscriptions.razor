@@ -1,0 +1,228 @@
+@page "/console/{TenantId:guid}/subscriptions"
+@attribute [Authorize]
+@layout TenantLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Subscriptions · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">Subscriptions</h1>
+    <ErrorState Title="We couldn't load the subscriptions" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (console is null || forbidden || !console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">Subscriptions</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't see subscriptions">
+        <p class="alert-body">You need the 'Subscriptions · Read only' permission. Ask an admin of @console?.TenantName.</p>
+    </AlertBanner>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Subscriptions</h1>
+            <p class="page-lead">The products @console.TenantName uses, and how many of their seats are taken. Each person with access to a product uses one seat.</p>
+        </div>
+    </div>
+
+    @if (subscriptions.Any(subscription => !subscription.IsActive))
+    {
+        <AlertBanner Kind="AlertKind.Warning" Title="@NotActiveTitle" Class="auth-alert">
+            <p class="alert-body">People can't open these products until they are active again. Details are in the list below.</p>
+        </AlertBanner>
+    }
+
+    @if (subscriptions.Count == 0)
+    {
+        <EmptyState Title="No products yet" IconName="building">
+            <p class="empty-body">@console.TenantName doesn't use any products yet. Products are connected by the platform administrator.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Product</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Seats</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var subscription in subscriptions)
+                    {
+                        var full = !subscription.HasFreeSeat;
+                        <tr>
+                            <td data-label="Product"><span class="person-name">@subscription.ApplicationName</span></td>
+                            <td data-label="Status" class="status-cell">
+                                @switch (subscription.Status)
+                                {
+                                    case "Active": <StatusBadge Kind="success" IconName="check" Label="Active" /> break;
+                                    case "Suspended": <StatusBadge Kind="warning" IconName="alert-triangle" Label="Suspended" /> break;
+                                    default: <StatusBadge Kind="neutral" IconName="slash" Label="@subscription.Status" /> break;
+                                }
+                                <span class="status-note">@Meaning(subscription)</span>
+                            </td>
+                            <td data-label="Seats" class="seat-cell">
+                                <div class="seat-block">
+                                <p class="seat-text">
+                                    @if (subscription.MaxSeats is { } max)
+                                    {
+                                        <span>@subscription.SeatsUsed of @max seats used</span>
+                                        @if (full)
+                                        {
+                                            <span class="seat-flag is-error"><Icon Name="alert-circle" />No seats left</span>
+                                        }
+                                        else if (subscription.SeatsUsed * 100 >= max * 80)
+                                        {
+                                            <span class="seat-flag is-warning"><Icon Name="alert-triangle" />Almost full</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <span>@subscription.SeatsUsed @(subscription.SeatsUsed == 1 ? "seat" : "seats") used · no seat limit</span>
+                                    }
+                                </p>
+                                @if (subscription.MaxSeats is { } limit && limit > 0)
+                                {
+                                    <div class="meter @(full ? "is-full" : subscription.SeatsUsed * 100 >= limit * 80 ? "is-near" : null)" role="progressbar" aria-valuemin="0" aria-valuemax="@limit" aria-valuenow="@subscription.SeatsUsed" aria-label="Seats used in @subscription.ApplicationName">
+                                        <span style="width: @(Math.Min(100, subscription.SeatsUsed * 100 / limit))%"></span>
+                                    </div>
+                                }
+                                </div>
+                            </td>
+                            <td data-label="Actions" class="row-actions">
+                                @if (subscription.IsActive && canManageAccess)
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="/console/@TenantId/access#product-@subscription.ApplicationId">Manage access</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @subscriptions.Count @(subscriptions.Count == 1 ? "subscription" : "subscriptions")</p>
+    }
+}
+
+@code {
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool forbidden;
+    private bool canManageAccess;
+    private string? reference;
+    private List<SubscriptionItem> subscriptions = [];
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private string PagePath => $"/console/{TenantId}/subscriptions";
+
+    private string NotActiveTitle
+    {
+        get
+        {
+            var count = subscriptions.Count(subscription => !subscription.IsActive);
+            return count == 1 ? "1 product isn't active" : $"{count} products aren't active";
+        }
+    }
+
+    private static string Meaning(SubscriptionItem subscription) => subscription.Status switch
+    {
+        "Active" => "People you give access to can open it.",
+        "Suspended" => "Paused. Nobody can open it, and no one can be given access, until it is active again. Ask the platform administrator to resume it.",
+        "Cancelled" => "Ended. Nobody can open it any more. To use it again, the platform administrator needs to set it up again.",
+        _ => "This product isn't available right now.",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        canManageAccess = console!.Can(PermissionKeys.AccessManage, AccessLevel.ReadOnly) && console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly);
+        if (!console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<List<SubscriptionItem>>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            if (list.Problem.Status == StatusCodes.Status403Forbidden)
+            {
+                forbidden = true;
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        // Working products first, then paused or ended ones, each group by name.
+        subscriptions = [.. list.Value!.OrderBy(subscription => subscription.IsActive ? 0 : 1).ThenBy(subscription => subscription.ApplicationName, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+}
