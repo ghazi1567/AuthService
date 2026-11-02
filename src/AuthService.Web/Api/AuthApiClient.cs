@@ -72,6 +72,14 @@ public sealed class AuthApiClient(HttpClient httpClient)
         return SendAsync(request, (_, _) => Task.FromResult(true), cancellationToken);
     }
 
+    /// <summary>Changes a resource with a JSON body and ignores the answer's body, as the person holding <paramref name="bearerToken"/>.</summary>
+    public Task<ApiResult<bool>> PatchNoContentAsync<TRequest>(string path, TRequest body, string bearerToken, CancellationToken cancellationToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Patch, path) { Content = JsonContent.Create(body) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+        return SendAsync(request, (_, _) => Task.FromResult(true), cancellationToken);
+    }
+
     /// <summary>Changes a resource with a JSON body and reads the JSON answer, as the person holding <paramref name="bearerToken"/>.</summary>
     public Task<ApiResult<TResponse>> PatchAsync<TRequest, TResponse>(
         string path, TRequest body, string bearerToken, CancellationToken cancellationToken)

@@ -80,3 +80,18 @@ public sealed record SubscriptionItem(
 /// <summary>Body of <c>POST /api/auth/tenants/me/invitations</c>: one person, one to ten roles, optional products.</summary>
 public sealed record InviteRequest(string Email, IReadOnlyList<Guid> RoleIds, IReadOnlyList<Guid> ApplicationIds);
 
+
+/// <summary>One permission of a product that a role can grant.</summary>
+public sealed record CatalogPermission(string Key, string Label, string? Description);
+
+/// <summary>A product whose permissions the organisation's roles can grant (the Auth Service itself, and every product it uses).</summary>
+public sealed record CatalogApplication(Guid ApplicationId, string Key, string Name, bool IsBuiltIn, IReadOnlyList<CatalogPermission> Permissions);
+
+/// <summary>What a role can grant: the levels, and the permissions of each product in use.</summary>
+public sealed record PermissionCatalog(IReadOnlyList<string> Levels, IReadOnlyList<CatalogApplication> Applications);
+
+/// <summary>One permission a role grants, as sent to the API.</summary>
+public sealed record RoleGrantInput(Guid ApplicationId, string Permission, string Level);
+
+/// <summary>Body of <c>POST /api/auth/roles</c> and <c>PATCH /api/auth/roles/{id}</c>. The permissions replace the whole set.</summary>
+public sealed record SaveRoleRequest(string Name, IReadOnlyList<RoleGrantInput> Permissions);

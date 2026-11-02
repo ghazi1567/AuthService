@@ -1,0 +1,375 @@
+@page "/console/{TenantId:guid}/roles/new"
+@page "/console/{TenantId:guid}/roles/{RoleId:guid}"
+@attribute [Authorize]
+@layout TenantLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>@(IsNew ? "Create role" : "Edit role") · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">@(IsNew ? "Create role" : "Edit role")</h1>
+    <ErrorState Title="We couldn't load this page" RetryHref="@Navigation.Uri" Reference="@reference" />
+}
+else if (!console!.Can(PermissionKeys.RolesManage, AccessLevel.Full))
+{
+    <h1 class="page-title">@(IsNew ? "Create role" : "Edit role")</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't change roles">
+        <p class="alert-body">You need the 'Roles · Full access' permission. Ask an admin of @console.TenantName.</p>
+    </AlertBanner>
+    <a class="btn btn-secondary" href="@RolesPath">Back to roles</a>
+}
+else if (existing is null && !IsNew)
+{
+    <h1 class="page-title">That role isn't here</h1>
+    <p class="page-lead">It may have been deleted. The list of roles is up to date.</p>
+    <a class="btn btn-secondary" href="@RolesPath">Back to roles</a>
+}
+else if (existing is { IsBuiltIn: true })
+{
+    <h1 class="page-title">The Owner role can't be changed</h1>
+    <p class="page-lead">The built-in Owner role can never be edited, downgraded or deleted. It always holds full access.</p>
+    <a class="btn btn-secondary" href="@RolesPath">Back to roles</a>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@(IsNew ? "Create role" : $"Edit '{existing!.Name}'")</h1>
+            <p class="page-lead">A role is a set of permissions. Give it to people to give them these permissions.</p>
+        </div>
+    </div>
+
+    @if (problem == Problem.Unavailable)
+    {
+        <AlertBanner Kind="AlertKind.Error" Title="We couldn't save the role" Class="auth-alert">
+            <p class="alert-body">Auth Service isn't responding right now. Nothing was saved. Try again in a moment.</p>
+        </AlertBanner>
+    }
+    else if (problem == Problem.Forbidden)
+    {
+        <AlertBanner Kind="AlertKind.Error" Title="You don't have permission to do that" Class="auth-alert">
+            <p class="alert-body">You need the 'Roles · Full access' permission to change roles.</p>
+        </AlertBanner>
+    }
+    else if (problem == Problem.Gone)
+    {
+        <AlertBanner Kind="AlertKind.Warning" Title="This role isn't here any more" Class="auth-alert">
+            <p class="alert-body">Someone may have deleted it. <a href="@RolesPath">Back to roles</a></p>
+        </AlertBanner>
+    }
+
+    @if (errors.Count > 0)
+    {
+        <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem to save" : $"Fix {errors.Count} problems to save")" Class="auth-alert">
+            <ul>
+                @foreach (var error in errors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </AlertBanner>
+    }
+
+    <form method="post" @onsubmit="SaveAsync" @formname="role" class="editor" data-unsaved-guard>
+        <AntiforgeryToken />
+
+        <div class="field">
+            <label for="role-name">Role name</label>
+            <input id="role-name" name="name" class="input @(nameError is null ? null : "is-invalid")" value="@name" maxlength="100"
+                   aria-invalid="@(nameError is null ? null : "true")" aria-describedby="@(nameError is null ? null : "role-name-error")" autocomplete="off" />
+            @if (nameError is not null)
+            {
+                <p id="role-name-error" class="field-message is-error"><Icon Name="alert-circle" /><span>@nameError</span></p>
+            }
+        </div>
+
+        @foreach (var application in catalog!.Applications)
+        {
+            <details class="permission-group" open>
+                <summary class="permission-summary">
+                    <span>@application.Name</span>
+                    <span class="muted">@GrantedCount(application) of @application.Permissions.Count permissions</span>
+                </summary>
+                <ul class="permission-list">
+                    @foreach (var permission in application.Permissions)
+                    {
+                        var field = $"grant:{application.ApplicationId}:{permission.Key}";
+                        <li class="permission-row">
+                            <label for="@field" class="permission-text">
+                                <span class="permission-label">@permission.Label</span>
+                                @if (permission.Description is not null)
+                                {
+                                    <span class="muted">@permission.Description</span>
+                                }
+                            </label>
+                            <select id="@field" name="@field" class="input permission-level">
+                                @foreach (var (level, label) in Levels)
+                                {
+                                    <option value="@level" selected="@(LevelOf(application, permission) == level)">@label</option>
+                                }
+                            </select>
+                        </li>
+                    }
+                </ul>
+            </details>
+        }
+
+        @if (inactive.Count > 0)
+        {
+            <AlertBanner Kind="AlertKind.Warning" Title="Some permissions are for products that aren't active" Class="auth-alert">
+                <p class="alert-body">@string.Join(", ", inactive.Select(grant => grant.ApplicationKey).Distinct()) isn't active for @console.TenantName any more, so those permissions can't be changed. Saving removes them from this role.</p>
+            </AlertBanner>
+        }
+
+        <div class="editor-actions">
+            <a class="btn btn-secondary" href="@RolesPath">Cancel</a>
+            <button type="submit" class="btn btn-primary" data-busy-label="Saving…">@(IsNew ? "Create role" : "Save changes")</button>
+        </div>
+    </form>
+}
+
+@code {
+    private static readonly (string Level, string Label)[] Levels =
+    [
+        ("None", "No access"),
+        ("ReadOnly", "View only"),
+        ("CreateRead", "View and create"),
+        ("Full", "Full access"),
+    ];
+
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private string? reference;
+    private PermissionCatalog? catalog;
+    private RoleListItem? existing;
+    private string name = "";
+    private string? nameError;
+    private readonly List<string> errors = [];
+    private readonly Dictionary<string, string> chosen = [];
+    private List<RoleGrant> inactive = [];
+    private Problem problem = Problem.None;
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [Parameter] public Guid? RoleId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private bool IsNew => RoleId is null;
+
+    private string RolesPath => $"/console/{TenantId}/roles";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(HttpContext.Request.Path)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        if (!console!.Can(PermissionKeys.RolesManage, AccessLevel.Full) || !console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var catalogResult = await Api.GetAsync<PermissionCatalog>("/api/auth/tenants/me/permissions", console.Token, HttpContext.RequestAborted);
+        if (!catalogResult.IsSuccess)
+        {
+            if (catalogResult.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(HttpContext.Request.Path);
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        catalog = catalogResult.Value;
+
+        if (!IsNew)
+        {
+            var roles = await Api.GetAsync<List<RoleListItem>>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
+            if (!roles.IsSuccess)
+            {
+                loadFailed = true;
+                reference = Reference();
+                return;
+            }
+
+            existing = roles.Value!.FirstOrDefault(role => role.Id == RoleId);
+            if (existing is not null)
+            {
+                name = existing.Name;
+                foreach (var grant in existing.Permissions ?? [])
+                {
+                    if (catalog!.Applications.Any(application => application.ApplicationId == grant.ApplicationId))
+                    {
+                        chosen[$"grant:{grant.ApplicationId}:{grant.Permission}"] = grant.Level;
+                    }
+                    else if (grant.Level != "None")
+                    {
+                        inactive.Add(grant);
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var form = HttpContext!.Request.Form;
+        name = form["name"].ToString().Trim();
+        chosen.Clear();
+        var grants = new List<RoleGrantInput>();
+        foreach (var application in catalog!.Applications)
+        {
+            foreach (var permission in application.Permissions)
+            {
+                var field = $"grant:{application.ApplicationId}:{permission.Key}";
+                var level = form[field].ToString();
+                if (Levels.Any(known => known.Level == level))
+                {
+                    chosen[field] = level;
+                    if (level != "None")
+                    {
+                        grants.Add(new RoleGrantInput(application.ApplicationId, permission.Key, level));
+                    }
+                }
+            }
+        }
+
+        errors.Clear();
+        nameError = null;
+        if (name.Length == 0)
+        {
+            nameError = "Enter a name for the role.";
+        }
+        else if (name.Length > 100)
+        {
+            nameError = "Use 100 characters or fewer.";
+        }
+
+        if (nameError is not null)
+        {
+            errors.Add(nameError);
+            return;
+        }
+
+        var body = new SaveRoleRequest(name, grants);
+        var result = IsNew
+            ? await Api.PostNoContentAsync("/api/auth/roles", body, HttpContext.RequestAborted, console!.Token)
+            : await Api.PatchNoContentAsync($"/api/auth/roles/{RoleId}", body, console!.Token, HttpContext.RequestAborted);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{RolesPath}?notice=saved");
+            return;
+        }
+
+        var apiProblem = result.Problem!;
+        switch (apiProblem.Code)
+        {
+            case "role_name_taken":
+                nameError = "A role with this name already exists. Choose a different name.";
+                errors.Add(nameError);
+                return;
+            case "owner_role_immutable":
+                leaving = true;
+                Navigation.NavigateTo($"{RolesPath}?error=owner_role_immutable");
+                return;
+            case "not_found":
+                problem = Problem.Gone;
+                return;
+        }
+
+        if (apiProblem.Status == StatusCodes.Status401Unauthorized)
+        {
+            Session.Refresh(HttpContext, TenantId);
+            leaving = true;
+            Navigation.NavigateTo(HttpContext.Request.Path);
+            return;
+        }
+
+        if (apiProblem.Status == StatusCodes.Status400BadRequest && apiProblem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(5))
+            {
+                errors.Add(reason);
+            }
+
+            if (apiErrors.TryGetValue("Name", out var nameReasons) && nameReasons.Length > 0)
+            {
+                nameError = nameReasons[0];
+            }
+
+            return;
+        }
+
+        problem = apiProblem.Status == StatusCodes.Status403Forbidden ? Problem.Forbidden : Problem.Unavailable;
+    }
+
+    private string LevelOf(CatalogApplication application, CatalogPermission permission) =>
+        chosen.TryGetValue($"grant:{application.ApplicationId}:{permission.Key}", out var level) ? level : "None";
+
+    private int GrantedCount(CatalogApplication application) =>
+        application.Permissions.Count(permission => LevelOf(application, permission) != "None");
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+
+    private enum Problem
+    {
+        None,
+        Unavailable,
+        Forbidden,
+        Gone,
+    }
+}
