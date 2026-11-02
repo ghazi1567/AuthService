@@ -94,6 +94,15 @@ public sealed class ConsoleTokenCache(TimeProvider time)
     /// <summary>Forgets the token, for example when the API refused it, so the next page trades for a new one.</summary>
     public void Forget(string sessionId, Guid tenantId) => _entries.TryRemove((sessionId, tenantId), out _);
 
+    /// <summary>Forgets every organisation's token for a session, for example when the person goes to choose another organisation. None is reused after that.</summary>
+    public void ForgetSession(string sessionId)
+    {
+        foreach (var key in _entries.Keys.Where(key => key.SessionId == sessionId))
+        {
+            _entries.TryRemove(key, out _);
+        }
+    }
+
     private sealed record Entry(ConsoleContext Console, DateTimeOffset ExpiresAt);
 }
 
@@ -109,6 +118,20 @@ public sealed class ConsoleSession(AuthApiClient api, SessionService sessions, C
 
     private Task<ConsoleResult>? _loaded;
     private Guid _loadedTenant;
+
+    /// <summary>When the API asked us to slow down while opening the console, how many seconds to wait. Null otherwise.</summary>
+    public int? RetryAfterSeconds { get; private set; }
+
+    /// <summary>Forgets every token of this person's session, so choosing another organisation starts from a fresh exchange.</summary>
+    public void ForgetTokens(HttpContext httpContext)
+    {
+        if (httpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
+        {
+            cache.ForgetSession(sid.Value);
+        }
+
+        _loaded = null;
+    }
 
     public Task<ConsoleResult> LoadAsync(HttpContext httpContext, Guid tenantId)
     {
@@ -130,6 +153,15 @@ public sealed class ConsoleSession(AuthApiClient api, SessionService sessions, C
         }
 
         _loaded = null;
+    }
+
+    /// <summary>Remembers how long the API asked us to wait, rounded up, so the page can show a countdown. A missing wait is a minute.</summary>
+    private void NoteRateLimit(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status429TooManyRequests)
+        {
+            RetryAfterSeconds = (int)Math.Clamp(Math.Ceiling((problem.RetryAfter ?? TimeSpan.FromSeconds(60)).TotalSeconds), 1, 3600);
+        }
     }
 
     private async Task<ConsoleResult> OpenAsync(HttpContext httpContext, Guid tenantId)
@@ -154,6 +186,7 @@ public sealed class ConsoleSession(AuthApiClient api, SessionService sessions, C
         var me = await api.GetAsync<CurrentUser>("/api/auth/users/me", identityToken, cancellation);
         if (!me.IsSuccess)
         {
+            NoteRateLimit(me.Problem!);
             return new ConsoleResult(me.Problem!.Status == StatusCodes.Status401Unauthorized ? ConsoleOutcome.SessionEnded : ConsoleOutcome.Unavailable);
         }
 
@@ -167,6 +200,7 @@ public sealed class ConsoleSession(AuthApiClient api, SessionService sessions, C
             "/api/auth/token/exchange", new TokenExchangeRequest(tenantId, BuiltInApplicationId), cancellation, identityToken);
         if (!exchange.IsSuccess)
         {
+            NoteRateLimit(exchange.Problem!);
             return new ConsoleResult(exchange.Problem!.Status switch
             {
                 StatusCodes.Status401Unauthorized => ConsoleOutcome.SessionEnded,

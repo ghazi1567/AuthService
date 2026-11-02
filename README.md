@@ -197,6 +197,11 @@ What is in place:
   details), explaining that a product connects an organisation itself, so the admin asks the product's team. Other members see "Nothing to open from here yet" and that their admin decides which
   products they can use. An organisation the person can't open (not an active member, or suspended) is explained. The list of **products a person can open** (UI05_T2) and the hand-off into a product
   (UI05_T4) still need the API to say which products a person has access to and where to send them.
+- **When the token exchange says no or slow down** (UI05_T3). A refusal reads "You don't have access" / "You can't open this organisation" with a way to choose another, and says no more than the API
+  does. A 429 shows "You're going a little fast" with the API's Retry-After as a live countdown on the retry button (a form, so it works without scripts; the countdown is rounded up, a missing wait is
+  a minute, and it is kept between 1 second and an hour), on every console page and on the page after choosing an organisation. The console token is kept and reused until close to its end, so
+  browsing makes one exchange. **Switching organisation** (UI05_T5): going to choose an organisation drops every console token of the session, so the one for the organisation being left is never used
+  again; each organisation's pages use only their own token and the header shows the organisation the token is for.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
