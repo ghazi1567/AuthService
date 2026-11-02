@@ -45,7 +45,7 @@ public static class TenantAuditEndpoints
 
         var userId = caller.GetUserId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a user id.");
         var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
-        var page = await AuditPaging.PageAsync(db, tenantId, action, actorId, before, beforeId, take, cancellationToken);
+        var page = await AuditPaging.PageAsync(db, tenantId, action, actorId, before, beforeId, take, cancellationToken, tenantScoped: true);
 
         // Reading the log is itself traced, as it is for the platform admin. Recorded after the query, so a read never lists itself.
         audit.Record(AuditActions.TenantAuditRead, AuditActor.User(userId), tenantId);

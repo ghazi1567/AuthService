@@ -380,6 +380,7 @@ A platform admin reads the whole log with `GET /api/auth/admin/audit` (see "Plat
 
 - The tenant is the token's `tid`; a `tenantId` in the query string is ignored, and entries that belong to no tenant (such as failed
   logins) are never shown. Another tenant's entries cannot be reached.
+- Every entry carries **`actorName`** (AUD-02), on both reads: a person's display name or, without one, their email; a product's name; `null` for an anonymous or system actor. A tenant admin is only told the name of a person who belongs to **their own** organisation, so someone from another organisation (or a platform admin acting from outside) stays unnamed and their email is not shown; a platform admin sees every name.
 - It pages exactly like the platform read: newest first, `limit` 1 to 200 (default 50), filters `action` and `actorId`, and the
   returned `next` values passed back as `before` and `beforeId`.
 - Reading the log is itself recorded (`auth.tenant.audit_read`), after the query, so a read never lists itself.
