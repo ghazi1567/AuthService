@@ -1,5 +1,6 @@
 @using System.Linq.Expressions
-@* A labelled text input. The label is always visible; a validation message replaces the helper text and is linked to the input. *@
+@* A labelled text input. The label is always visible; a validation message replaces the helper text and is linked to the input.
+   A password field never renders its value, so a rejected form can never send a password back into the page. *@
 <div class="field @(Error is null ? null : "field-error")">
     <div class="field-label-row">
         <label for="@Id">@Label</label>
@@ -12,7 +13,7 @@
                    autocomplete="@Autocomplete"
                    aria-invalid="@(Error is null ? null : "true")"
                    aria-describedby="@DescribedBy"
-                   Value="@Value"
+                   Value="@(Type == "password" ? null : Value)"
                    ValueChanged="@ValueChanged"
                    ValueExpression="@ValueExpression" />
         @if (Suffix is not null)
