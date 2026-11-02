@@ -1,0 +1,361 @@
+@page "/accept-invitation"
+@layout AuthLayout
+@using System.ComponentModel.DataAnnotations
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject SessionService Sessions
+@inject PendingInvitation Pending
+@inject NavigationManager Navigation
+
+<PageTitle>@Title · Auth Service</PageTitle>
+
+@switch (view)
+{
+    case View.Done:
+        <div class="auth-sent">
+            <div class="icon-tile is-success"><Icon Name="check-circle" /></div>
+            <h1 class="auth-title">You've joined the team</h1>
+            <p class="auth-lead">Your invitation is accepted. You can open your organisation's products now.</p>
+            <div class="auth-actions">
+                <a class="btn btn-primary btn-lg btn-block" href="/">Continue</a>
+            </div>
+        </div>
+        break;
+
+    case View.LoginNeeded:
+        <div class="auth-sent">
+            <div class="icon-tile"><Icon Name="info" /></div>
+            <h1 class="auth-title">Sign in to accept</h1>
+            <p class="auth-lead">The email this invitation was sent to already has an account. Sign in with that account and we'll bring you back here to accept.</p>
+            <div class="auth-actions">
+                <a class="btn btn-primary btn-lg btn-block" href="@SignInUrl">Sign in</a>
+            </div>
+        </div>
+        break;
+
+    case View.WrongAccount:
+        <div class="auth-sent">
+            <div class="icon-tile is-warning"><Icon Name="alert-triangle" /></div>
+            <h1 class="auth-title">This invitation is for a different account</h1>
+            <p class="auth-lead">You're signed in as <strong>@Email</strong>, but the invitation was sent to another email address. Sign out and sign in with the account it was sent to.</p>
+            <div class="auth-actions">
+                <SignOutButton Class="btn-lg btn-block" Label="Sign out and switch account" ReturnUrl="/accept-invitation" />
+            </div>
+        </div>
+        break;
+
+    case View.Existing:
+        <h1 class="auth-title">Accept your invitation</h1>
+        <p class="auth-lead">You're signed in as <strong>@Email</strong>. Accept the invitation with this account?</p>
+
+        @ProblemBanner
+
+        <form method="post" action="/accept-invitation" @onsubmit="AcceptExistingAsync" @formname="accept-existing" class="auth-actions">
+            <AntiforgeryToken />
+            <input type="hidden" name="token" value="@token" />
+            <button type="submit" class="btn btn-primary btn-lg btn-block" data-busy-label="Accepting…">Accept invitation</button>
+        </form>
+
+        <p class="auth-alt">Not you? <a href="/accept-invitation#switch">Use a different account</a></p>
+        <div id="switch" class="auth-actions">
+            <SignOutButton Class="btn-lg btn-block" Label="Sign out and switch account" ReturnUrl="/accept-invitation" />
+        </div>
+        break;
+
+    case View.Choose:
+        <h1 class="auth-title">Accept your invitation</h1>
+        <p class="auth-lead">@(isNewAccountHint ? "This invitation is for a new account. Choose a password to finish." : "Choose a password to create your account and join the team.")</p>
+
+        @ProblemBanner
+
+        @* The link's token lives only in this form: app.js takes it out of the address bar and the history entry as the page loads,
+           and the form posts to a clean address. *@
+        <EditForm Model="Model" FormName="accept-new" method="post" action="/accept-invitation" OnValidSubmit="AcceptNewAsync" novalidate class="auth-form" data-link-form="clean">
+            <DataAnnotationsValidator />
+            <input type="hidden" name="token" value="@token" />
+
+            @{
+                var messages = context.GetValidationMessages().ToList();
+            }
+            @if (messages.Count > 0)
+            {
+                <AlertBanner Kind="AlertKind.Error" Title="@(messages.Count == 1 ? "Fix 1 problem to accept" : $"Fix {messages.Count} problems to accept")">
+                    <ul>
+                        @foreach (var (field, id) in Fields)
+                        {
+                            @if (context.GetValidationMessages(context.Field(field)).FirstOrDefault() is { } message)
+                            {
+                                <li><a href="#@id">@message</a></li>
+                            }
+                        }
+                    </ul>
+                </AlertBanner>
+            }
+
+            <PasswordField Id="accept-password"
+                           Label="Password"
+                           Autocomplete="new-password"
+                           @bind-Value="Model.Password"
+                           Error="@context.GetValidationMessages(context.Field(nameof(NewPersonInput.Password))).FirstOrDefault()"
+                           BelowId="accept-rules">
+                <Below><PasswordRules Id="accept-rules" ForField="accept-password" /></Below>
+            </PasswordField>
+
+            <PasswordField Id="accept-confirm"
+                           Label="Confirm password"
+                           Autocomplete="new-password"
+                           @bind-Value="Model.Confirm"
+                           Error="@context.GetValidationMessages(context.Field(nameof(NewPersonInput.Confirm))).FirstOrDefault()" />
+
+            <div class="auth-actions">
+                @if (problem == Problem.RateLimited && waitSeconds is > 0)
+                {
+                    <button type="submit" class="btn btn-primary btn-lg btn-block"
+                            data-busy-label="Creating account…"
+                            data-countdown="@waitSeconds"
+                            data-countdown-label="Try again in {0}s"
+                            data-countdown-done="Accept and create account"
+                            data-countdown-announce="accept-announce"
+                            data-countdown-message="You can try again now.">Accept and create account</button>
+                    <div id="accept-announce" class="visually-hidden" aria-live="polite"></div>
+                }
+                else
+                {
+                    <button type="submit" class="btn btn-primary btn-lg btn-block" data-busy-label="Creating account…">Accept and create account</button>
+                }
+            </div>
+        </EditForm>
+
+        <p class="auth-alt">Already have an account? <a href="@SignInUrl">Sign in to accept</a></p>
+        break;
+
+    default:
+        <div class="auth-sent">
+            <div class="icon-tile is-warning"><Icon Name="alert-triangle" /></div>
+            <h1 class="auth-title">This invitation can't be used</h1>
+            <p class="auth-lead">It has expired, was already used, or was withdrawn. Ask the person who invited you to send a new one.</p>
+            <div class="auth-actions">
+                <a class="btn btn-secondary btn-lg btn-block" href="/login">Back to sign in</a>
+            </div>
+        </div>
+        break;
+}
+
+@code {
+    private static readonly (string Field, string Id)[] Fields =
+    [
+        (nameof(NewPersonInput.Password), "accept-password"),
+        (nameof(NewPersonInput.Confirm), "accept-confirm"),
+    ];
+
+    private View view = View.Invalid;
+    private Problem problem = Problem.None;
+    private int? waitSeconds;
+    private string token = "";
+    private bool isNewAccountHint;
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    /// <summary>The link from the email. It is only ever read here, then taken out of the address bar by app.js.</summary>
+    [SupplyParameterFromQuery(Name = "token")] private string? QueryToken { get; set; }
+
+    /// <summary>"done" or "invalid" after the link was used (these say nothing secret).</summary>
+    [SupplyParameterFromQuery(Name = "result")] private string? Result { get; set; }
+
+    [SupplyParameterFromForm(FormName = "accept-new", Name = "token")] private string? PostedNewToken { get; set; }
+
+    [SupplyParameterFromForm(FormName = "accept-existing", Name = "token")] private string? PostedExistingToken { get; set; }
+
+    [SupplyParameterFromForm(FormName = "accept-new", Name = "Model")] private NewPersonInput? Posted { get; set; }
+
+    private NewPersonInput Model => Posted ??= new();
+
+    private bool SignedIn => HttpContext?.User.Identity?.IsAuthenticated == true;
+
+    private string? Email => HttpContext?.User.Identity?.Name;
+
+    private string SignInUrl => $"/login?returnUrl={Uri.EscapeDataString("/accept-invitation")}";
+
+    private string Title => view switch
+    {
+        View.Done => "Invitation accepted",
+        View.LoginNeeded => "Sign in to accept",
+        View.WrongAccount => "Different account",
+        View.Existing or View.Choose => "Accept your invitation",
+        _ => "Invitation can't be used",
+    };
+
+    private CancellationToken Cancellation => HttpContext?.RequestAborted ?? CancellationToken.None;
+
+    protected override void OnInitialized()
+    {
+        // A posted form must already be on the page when the post arrives, so the view that holds it is chosen first.
+        if (!string.IsNullOrEmpty(PostedNewToken))
+        {
+            token = PostedNewToken;
+            view = View.Choose;
+        }
+        else if (!string.IsNullOrEmpty(PostedExistingToken))
+        {
+            token = PostedExistingToken;
+            view = View.Existing;
+        }
+        else if (Result == "done")
+        {
+            view = View.Done;
+            return;
+        }
+        else if (Result == "invalid")
+        {
+            return;
+        }
+        else
+        {
+            token = QueryToken ?? (HttpContext is null ? null : Pending.Read(HttpContext)) ?? "";
+            if (token.Length == 0)
+            {
+                return;
+            }
+
+            view = SignedIn ? View.Existing : View.Choose;
+        }
+
+        // The link waits in an encrypted cookie while the person signs in, so it never travels in an address.
+        if (HttpContext is not null)
+        {
+            Pending.Store(HttpContext, token);
+        }
+    }
+
+    private async Task AcceptNewAsync(EditContext context)
+    {
+        var result = await Api.PostNoContentAsync("/api/auth/invitations/accept", new AcceptInvitationRequest(token, Model.Password), Cancellation);
+
+        // Never carry a password back into the page.
+        Model.Password = null;
+        Model.Confirm = null;
+
+        await HandleAsync(result, context, signedInAttempt: false);
+    }
+
+    private async Task AcceptExistingAsync()
+    {
+        var accessToken = HttpContext?.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid
+            ? await Sessions.GetAccessTokenAsync(sid.Value, Cancellation)
+            : null;
+        if (accessToken is null)
+        {
+            // The session ended meanwhile: sign in again, and the link is still waiting in its cookie.
+            view = View.LoginNeeded;
+            return;
+        }
+
+        var result = await Api.PostNoContentAsync("/api/auth/invitations/accept", new AcceptInvitationRequest(token, null), Cancellation, accessToken);
+        await HandleAsync(result, context: null, signedInAttempt: true);
+    }
+
+    private Task HandleAsync(ApiResult<bool> result, EditContext? context, bool signedInAttempt)
+    {
+        if (result.IsSuccess)
+        {
+            Finish("/accept-invitation?result=done");
+            return Task.CompletedTask;
+        }
+
+        var apiProblem = result.Problem!;
+        switch (apiProblem.Code)
+        {
+            case "invitation_invalid":
+                Finish("/accept-invitation?result=invalid");
+                return Task.CompletedTask;
+
+            case "login_required":
+                // The email already has an account: the person signs in and comes back to the waiting link.
+                view = View.LoginNeeded;
+                return Task.CompletedTask;
+
+            case "wrong_account":
+                view = View.WrongAccount;
+                return Task.CompletedTask;
+        }
+
+        if (apiProblem.Status == StatusCodes.Status400BadRequest && apiProblem.Errors is { Count: > 0 } errors
+            && errors.TryGetValue("Password", out var reasons) && reasons.Length > 0)
+        {
+            if (signedInAttempt)
+            {
+                // Accepting without a password was refused because this email has no account yet: it needs a password after all.
+                isNewAccountHint = true;
+                view = View.Choose;
+            }
+            else if (context is not null)
+            {
+                new ValidationMessageStore(context).Add(context.Field(nameof(NewPersonInput.Password)), reasons[0]);
+                context.NotifyValidationStateChanged();
+            }
+
+            return Task.CompletedTask;
+        }
+
+        problem = apiProblem.Code == "rate_limited" ? Problem.RateLimited : Problem.Unavailable;
+        waitSeconds = problem == Problem.RateLimited && apiProblem.RetryAfter is { } retryAfter
+            ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
+            : null;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>The link is used up (or can never work), so it stops waiting and the result is shown on a clean address.</summary>
+    private void Finish(string resultUrl)
+    {
+        if (HttpContext is not null)
+        {
+            Pending.Clear(HttpContext);
+        }
+
+        Navigation.NavigateTo(resultUrl);
+    }
+
+    private RenderFragment ProblemBanner => @<text>
+        @if (problem == Problem.RateLimited)
+        {
+            <AlertBanner Kind="AlertKind.Warning" Title="Too many attempts" Class="auth-alert">
+                <p class="alert-body">@(waitSeconds is { } seconds ? $"Wait {seconds} seconds, then try again." : "Wait a moment, then try again.")</p>
+            </AlertBanner>
+        }
+        else if (problem == Problem.Unavailable)
+        {
+            <AlertBanner Kind="AlertKind.Error" Title="We couldn't accept the invitation" Class="auth-alert">
+                <p class="alert-body">Auth Service isn't responding right now. Your invitation is still good. Try again in a moment.</p>
+            </AlertBanner>
+        }
+    </text>;
+
+    private enum View
+    {
+        Invalid,
+        Choose,
+        Existing,
+        LoginNeeded,
+        WrongAccount,
+        Done,
+    }
+
+    private enum Problem
+    {
+        None,
+        RateLimited,
+        Unavailable,
+    }
+
+    public sealed class NewPersonInput
+    {
+        [Required(ErrorMessage = "Choose a password.")]
+        [StringLength(PasswordPolicy.MaxLength, MinimumLength = PasswordPolicy.MinLength,
+            ErrorMessage = "Use between 8 and 128 characters.")]
+        public string? Password { get; set; }
+
+        [Required(ErrorMessage = "Type the password again.")]
+        [Compare(nameof(Password), ErrorMessage = "The two passwords don't match.")]
+        public string? Confirm { get; set; }
+    }
+}

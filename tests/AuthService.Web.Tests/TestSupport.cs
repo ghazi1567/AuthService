@@ -53,6 +53,11 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<string> LogoutTokensSent { get; } = [];
 
+    /// <summary>How the fake answers an invitation being accepted; the call is recorded in <see cref="AcceptCalls"/> first.</summary>
+    public Func<HttpResponseMessage>? AcceptResponse { get; set; }
+
+    public List<(string? Authorization, string Body)> AcceptCalls { get; } = [];
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -104,6 +109,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.NoContent);
+
+            case "/api/auth/invitations/accept":
+                lock (_gate)
+                {
+                    AcceptCalls.Add((request.Headers.Authorization?.ToString(), body));
+                }
+
+                return AcceptResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.NotFound);
 
             default:
                 return new HttpResponseMessage(HttpStatusCode.NotFound);
@@ -273,6 +286,23 @@ public static partial class WebForms
         }
 
         throw new InvalidOperationException($"The page has no form named \"{formName}\".");
+    }
+
+    /// <summary>Posts the sign-out form found in <paramref name="html"/> with every hidden field it carries (its anti-forgery token, any return page).</summary>
+    public static async Task<HttpResponseMessage> PostLogoutFromHtmlAsync(HttpClient client, string html)
+    {
+        var logout = Regex.Match(html, "<form[^>]*action=\"/logout\"[^>]*>(?<body>.*?)</form>", RegexOptions.Singleline);
+        logout.Success.ShouldBeTrue("the page has a sign-out form");
+        var form = new Dictionary<string, string>();
+        foreach (Match input in InputTag().Matches(logout.Groups["body"].Value))
+        {
+            if (input.Value.Contains("type=\"hidden\""))
+            {
+                form[FieldName(input.Value)] = WebUtility.HtmlDecode(Regex.Match(input.Value, "value=\"([^\"]*)\"").Groups[1].Value);
+            }
+        }
+
+        return await client.PostAsync("/logout", new FormUrlEncodedContent(form), Token);
     }
 
     private static string FieldName(string tag) => WebUtility.HtmlDecode(Regex.Match(tag, "name=\"([^\"]+)\"").Groups[1].Value);

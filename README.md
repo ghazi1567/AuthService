@@ -89,6 +89,14 @@ What is in place:
   stays usable, because the API checks the password before it touches the link), then "Your password is changed" and on to sign in,
   or "This link can't be used" with a way to ask for a new one. There is no separate "checking your link" screen here: the API has
   no way to check a reset link without using it, so the form shows at once and the link is only used when the password is sent.
+- **`/accept-invitation`** (UI01_T6). A new person chooses a password (with the rule and a confirm box) and joins; a person who already
+  has an account accepts while signed in, as themselves, with no password. The API cannot say whether the invited email is new, so the
+  page asks anonymous visitors for a password and, if the API answers "this email has an account", sends them to sign in and back. The
+  link's token is held only in the form (taken out of the address bar and history by `app.js`) and, while the person signs in, in an
+  encrypted, HttpOnly, one-hour cookie (`invitation_pending`), so it never travels in the login address; the cookie is cleared as soon
+  as the invitation is used or can never work. Signed in as the wrong person: it says so and offers "Sign out and switch account",
+  which returns to this page after the next sign-in. Expired, used or withdrawn invitations, rate limits and an unreachable API each
+  have their own message. Success leads to `/` until the organisation picker exists.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

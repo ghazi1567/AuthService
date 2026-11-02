@@ -1,9 +1,18 @@
 @* Signs out with a form post, never a link: a page or an image on another site must not be able to sign someone out. *@
 <form method="post" action="@SessionAuthentication.LogoutPath">
     <AntiforgeryToken />
-    <button type="submit" class="btn btn-secondary @Class">Sign out</button>
+    @if (ReturnUrl is not null)
+    {
+        <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+    }
+    <button type="submit" class="btn btn-secondary @Class">@Label</button>
 </form>
 
 @code {
     [Parameter] public string? Class { get; set; }
+
+    [Parameter] public string Label { get; set; } = "Sign out";
+
+    /// <summary>A page on this site to go back to after signing in again (switching account). Without it the person lands on the login page.</summary>
+    [Parameter] public string? ReturnUrl { get; set; }
 }
