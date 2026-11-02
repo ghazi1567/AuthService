@@ -225,6 +225,52 @@ public static partial class WebForms
         return await client.PostAsync("/logout", new FormUrlEncodedContent(form), Token);
     }
 
+    /// <summary>Loads <paramref name="path"/>, fills in the form named <paramref name="formName"/> (text values by input id) and posts it.</summary>
+    public static async Task<HttpResponseMessage> PostFormAsync(
+        HttpClient client, string path, string formName, IReadOnlyDictionary<string, string> valuesById)
+    {
+        var page = await client.GetStringAsync(path, Token);
+        return await PostFormFromHtmlAsync(client, path, page, formName, valuesById);
+    }
+
+    /// <summary>Posts the form named <paramref name="formName"/> found in <paramref name="html"/>, as a browser would.</summary>
+    public static async Task<HttpResponseMessage> PostFormFromHtmlAsync(
+        HttpClient client, string path, string html, string formName, IReadOnlyDictionary<string, string>? valuesById = null)
+    {
+        foreach (Match form in Regex.Matches(html, "<form[^>]*>(?<body>.*?)</form>", RegexOptions.Singleline))
+        {
+            var inputs = InputTag().Matches(form.Groups["body"].Value).Select(match => match.Value).ToList();
+            var handler = inputs.FirstOrDefault(tag => FieldName(tag) == "_handler");
+            if (handler is null || Regex.Match(handler, "value=\"([^\"]*)\"").Groups[1].Value != formName)
+            {
+                continue;
+            }
+
+            var fields = new Dictionary<string, string>();
+            foreach (var tag in inputs)
+            {
+                var id = Regex.Match(tag, "\\bid=\"([^\"]+)\"").Groups[1].Value;
+                if (id.Length > 0 && valuesById is not null && valuesById.TryGetValue(id, out var typed))
+                {
+                    fields[FieldName(tag)] = typed;
+                }
+                else if (tag.Contains("type=\"hidden\""))
+                {
+                    fields[FieldName(tag)] = WebUtility.HtmlDecode(Regex.Match(tag, "value=\"([^\"]*)\"").Groups[1].Value);
+                }
+                else if (!tag.Contains("type=\"checkbox\""))
+                {
+                    // A text box nobody typed in still sends its (empty) value.
+                    fields[FieldName(tag)] = "";
+                }
+            }
+
+            return await client.PostAsync(path, new FormUrlEncodedContent(fields), Token);
+        }
+
+        throw new InvalidOperationException($"The page has no form named \"{formName}\".");
+    }
+
     private static string FieldName(string tag) => WebUtility.HtmlDecode(Regex.Match(tag, "name=\"([^\"]+)\"").Groups[1].Value);
 
     [GeneratedRegex("<input[^>]*>")]
