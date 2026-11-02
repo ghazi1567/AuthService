@@ -32,6 +32,7 @@ public static class SessionAuthentication
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ISessionStore, MemorySessionStore>();
         services.AddScoped<SessionService>();
+        services.AddSingleton<PendingInvitation>();
 
         services.AddAuthentication(Scheme).AddCookie(Scheme, options =>
         {
@@ -121,7 +122,11 @@ public static class SessionAuthentication
             }
 
             await context.SignOutAsync(Scheme);
-            return Results.Redirect(LoginPath);
+
+            // Switching account: the person signs in again and lands back on the page they came from (a path on this site only).
+            var form = await context.Request.ReadFormAsync();
+            var returnUrl = LocalRedirect.Safe(form["returnUrl"]);
+            return Results.Redirect(returnUrl == LocalRedirect.Home ? LoginPath : $"{LoginPath}?returnUrl={Uri.EscapeDataString(returnUrl)}");
         }).AllowAnonymous();
 
         return app;
