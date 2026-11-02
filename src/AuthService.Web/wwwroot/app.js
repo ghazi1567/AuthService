@@ -4,7 +4,7 @@
 (function () {
     // Show or hide a password. The button is rendered hidden and only appears once this script has loaded.
     function revealToggles() {
-        document.querySelectorAll("[data-toggle-password]").forEach(function (button) {
+        document.querySelectorAll("[data-toggle-password], [data-needs-script]").forEach(function (button) {
             button.hidden = false;
         });
     }
@@ -147,6 +147,30 @@
             });
         });
     }
+
+    // Copy a value to the clipboard. The button is rendered hidden and only appears once this script has loaded.
+    document.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-copy-from]");
+        if (!button) {
+            return;
+        }
+
+        var source = document.getElementById(button.getAttribute("data-copy-from"));
+        var status = document.querySelector("[data-copy-status]");
+        if (!source || !navigator.clipboard) {
+            if (source) {
+                source.select();
+            }
+
+            return;
+        }
+
+        navigator.clipboard.writeText(source.value).then(function () {
+            if (status) {
+                status.textContent = "Copied to clipboard";
+            }
+        });
+    });
 
     function init() {
         revealToggles();

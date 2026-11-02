@@ -98,3 +98,34 @@ public sealed record SaveRoleRequest(string Name, IReadOnlyList<RoleGrantInput> 
 
 /// <summary>Body of <c>PUT /api/auth/tenants/me/members/{id}/roles</c>: the whole set of roles the member should hold (1 to 10).</summary>
 public sealed record AssignRolesRequest(IReadOnlyList<Guid> RoleIds);
+
+/// <summary>One permission an API key has, at a level.</summary>
+public sealed record ApiKeyScope(string Permission, string Level);
+
+/// <summary>An API key as it is listed: masked, never the raw value. Status is Active, Expiring, Expired or Revoked.</summary>
+public sealed record ApiKeySummary(
+    Guid Id,
+    string Name,
+    string MaskedKey,
+    Guid? ApplicationId,
+    string? ApplicationKey,
+    IReadOnlyList<ApiKeyScope> Permissions,
+    string Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ExpiresAt,
+    DateTimeOffset? RevokedAt);
+
+/// <summary>The one answer that carries a new key's raw value. It prints nothing but the key's name.</summary>
+public sealed record CreatedApiKey(ApiKeySummary Key, string RawKey)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("Name = ").Append(Key.Name);
+        return true;
+    }
+}
+
+public sealed record ApiKeyPermission(string Permission, string Level);
+
+/// <summary>Body of <c>POST /api/auth/apikeys</c>: a name, an optional product, and what the key may do.</summary>
+public sealed record CreateApiKeyRequest(string Name, Guid? ApplicationId, IReadOnlyList<ApiKeyPermission> Permissions);

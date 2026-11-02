@@ -1652,3 +1652,35 @@ a.org-row:hover {
         height: 36px;
         font-size: 14px;
     }
+
+/* The create-key dialog keeps its buttons inside the form, and a new key is shown in a monospace field */
+.modal-foot-inline {
+    margin: 16px -24px -24px;
+}
+
+.product-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0;
+}
+
+    .product-picker .input {
+        flex: 1 1 200px;
+        max-width: 280px;
+        height: 36px;
+        font-size: 14px;
+    }
+
+.secret-value {
+    margin: 8px 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--bg-sunken);
+}
+
+.mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+}

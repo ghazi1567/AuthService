@@ -153,6 +153,11 @@ What is in place:
   tooltip naming the permission, or absent; a forced `?disable=`, `?delete=`, `?revoke=` or `?invite=1` link shows no confirmation or dialog; the editor pages say which permission is
   needed; a list the API refuses with 403 reads as "you can't see this", not a broken page; and a forced write the API refuses comes back as "You don't have permission to do that"
   naming the permission, never a raw code. The server is still the authority. `PermissionAwareConsoleTests` runs these across every console page.
+- **API keys** (`/console/{tenantId}/api-keys`, UI03_T1). Lists keys masked, with product, permission count, status (active, expiring, expired, revoked) and dates. **Create API key**
+  opens a dialog: a name, which product the key is for (a plain form that reloads the permission list), and a level for each permission, limited to what the creator holds
+  (for the Auth Service itself; the API checks other products). The key's raw value comes back once: `OneTimeSecrets` keeps it on the server for the creating session for two
+  minutes and the redirect carries only a random reference, so it is never in an address, never logged, and a reload or another person finds nothing. It is shown in a dialog
+  with the warning "You won't see this again", a read-only field, a Copy button that appears once scripts load, and one button, "I've saved it". Rotate and revoke are the next ticket.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
