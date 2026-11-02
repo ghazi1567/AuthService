@@ -1,0 +1,352 @@
+@page "/console/{TenantId:guid}/access"
+@attribute [Authorize]
+@layout TenantLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Product access · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">Product access</h1>
+    <ErrorState Title="We couldn't load product access" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (!console!.Can(PermissionKeys.AccessManage, AccessLevel.ReadOnly) || !console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly) || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">Product access</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't see product access">
+        <p class="alert-body">You need to be able to see product access, subscriptions and members. Ask an admin of @console.TenantName.</p>
+    </AlertBanner>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Product access</h1>
+            <p class="page-lead">Who in @console.TenantName can open each product. Each person with access uses one seat.</p>
+        </div>
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    @if (subscriptions.Count == 0)
+    {
+        <EmptyState Title="No products yet" IconName="key">
+            <p class="empty-body">@console.TenantName isn't subscribed to any product. Subscriptions are managed by Auth Service.</p>
+        </EmptyState>
+    }
+
+    @foreach (var subscription in subscriptions)
+    {
+        var holders = members.Where(member => member.Applications.Any(app => app.ApplicationId == subscription.ApplicationId)).ToList();
+        var eligible = members.Where(member => member.Status != "Disabled" && !holders.Contains(member)).ToList();
+        var full = !subscription.HasFreeSeat;
+        <section class="product-card" aria-labelledby="product-@subscription.ApplicationId">
+            <div class="product-head">
+                <h2 id="product-@subscription.ApplicationId" class="product-name">@subscription.ApplicationName</h2>
+                @if (subscription.IsActive)
+                {
+                    <StatusBadge Kind="success" IconName="check" Label="Active" />
+                }
+                else
+                {
+                    <StatusBadge Kind="@(subscription.Status == "Suspended" ? "warning" : "neutral")" IconName="@(subscription.Status == "Suspended" ? "alert-triangle" : "slash")" Label="@subscription.Status" />
+                }
+            </div>
+
+            <div class="seat-meter">
+                <p class="seat-text">
+                    @if (subscription.MaxSeats is { } max)
+                    {
+                        <span>@subscription.SeatsUsed of @max seats used</span>
+                        @if (full)
+                        {
+                            <span class="seat-flag is-error"><Icon Name="alert-circle" />No seats left</span>
+                        }
+                        else if (subscription.SeatsUsed * 100 >= max * 80)
+                        {
+                            <span class="seat-flag is-warning"><Icon Name="alert-triangle" />Almost full</span>
+                        }
+                    }
+                    else
+                    {
+                        <span>@subscription.SeatsUsed @(subscription.SeatsUsed == 1 ? "seat" : "seats") used · no seat limit</span>
+                    }
+                </p>
+                @if (subscription.MaxSeats is { } limit && limit > 0)
+                {
+                    <div class="meter @(full ? "is-full" : subscription.SeatsUsed * 100 >= limit * 80 ? "is-near" : null)" role="progressbar" aria-valuemin="0" aria-valuemax="@limit" aria-valuenow="@subscription.SeatsUsed" aria-label="Seats used">
+                        <span style="width: @(Math.Min(100, subscription.SeatsUsed * 100 / limit))%"></span>
+                    </div>
+                }
+            </div>
+
+            @if (!subscription.IsActive)
+            {
+                <p class="field-message">This subscription is @subscription.Status.ToLowerInvariant(), so nobody can be given access until it is active again.</p>
+            }
+
+            @if (holders.Count == 0)
+            {
+                <p class="muted">Nobody has access yet.</p>
+            }
+            else
+            {
+                <ul class="holder-list">
+                    @foreach (var holder in holders)
+                    {
+                        <li class="holder">
+                            <span class="person-text">
+                                <span class="person-name">@(holder.DisplayName ?? holder.Email)</span>
+                                @if (holder.Status == "Disabled")
+                                {
+                                    <span class="person-email">Disabled · doesn't use a seat</span>
+                                }
+                                else if (holder.DisplayName is not null)
+                                {
+                                    <span class="person-email">@holder.Email</span>
+                                }
+                            </span>
+                            @if (canManage)
+                            {
+                                <a class="btn btn-secondary btn-sm" href="@PagePath?revoke=@holder.MembershipId&app=@subscription.ApplicationId">Remove access</a>
+                            }
+                            else
+                            {
+                                <span class="has-tip" tabindex="0" data-tip="You need the 'Product access · Full access' permission to change who can open a product.">
+                                    <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Remove access</button>
+                                </span>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+
+            @if (subscription.IsActive)
+            {
+                @if (!canManage)
+                {
+                    <span class="has-tip" tabindex="0" data-tip="You need the 'Product access · Full access' permission to change who can open a product.">
+                        <button type="button" class="btn btn-primary btn-sm" disabled aria-disabled="true">Give access</button>
+                    </span>
+                }
+                else if (full)
+                {
+                    <span class="has-tip" tabindex="0" data-tip="All @subscription.MaxSeats seats are in use. Remove someone's access to free a seat.">
+                        <button type="button" class="btn btn-primary btn-sm" disabled aria-disabled="true">Give access</button>
+                    </span>
+                }
+                else if (eligible.Count == 0)
+                {
+                    <p class="field-message">Everyone who can be given access already has it. Disabled people can't be given access until they're enabled.</p>
+                }
+                else
+                {
+                    <form method="post" action="/console/@TenantId/access/@subscription.ApplicationId/grant" class="grant-form">
+                        <AntiforgeryToken />
+                        <label class="visually-hidden" for="grant-@subscription.ApplicationId">Person to give access to @subscription.ApplicationName</label>
+                        <select id="grant-@subscription.ApplicationId" name="membershipId" class="input">
+                            <option value="">Choose a person…</option>
+                            @foreach (var person in eligible)
+                            {
+                                <option value="@person.MembershipId">@(person.DisplayName ?? person.Email)@(person.Status == "Invited" ? " (invited)" : "")</option>
+                            }
+                        </select>
+                        <button type="submit" class="btn btn-primary btn-sm" data-busy-label="Giving access…">Give access</button>
+                    </form>
+                }
+            }
+        </section>
+    }
+
+    @if (confirming is { } target)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="revoke-title">
+                <div class="modal-body">
+                    <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                    <h2 id="revoke-title" class="modal-title">Remove @(target.Member.DisplayName ?? target.Member.Email)'s access to @target.Subscription.ApplicationName?</h2>
+                    <p class="modal-text">They won't be able to open @target.Subscription.ApplicationName any more, and their seat is freed. It takes effect the next time they open a product, within about 15 minutes. You can give them access again at any time if a seat is free.</p>
+                </div>
+                <form method="post" action="/console/@TenantId/access/@target.Subscription.ApplicationId/@target.Member.MembershipId/revoke" class="modal-foot">
+                    <AntiforgeryToken />
+                    <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                    <button type="submit" class="btn btn-danger" data-busy-label="Removing…">Remove access</button>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool canManage;
+    private string? reference;
+    private List<SubscriptionItem> subscriptions = [];
+    private List<MemberItem> members = [];
+    private (MemberItem Member, SubscriptionItem Subscription)? confirming;
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "revoke")] private Guid? RevokeId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "app")] private Guid? AppId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "m")] private Guid? MemberId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "a")] private Guid? ApplicationId { get; set; }
+
+    private string PagePath => $"/console/{TenantId}/access";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        canManage = console!.Can(PermissionKeys.AccessManage, AccessLevel.Full);
+        if (!console.Can(PermissionKeys.AccessManage, AccessLevel.ReadOnly)
+            || !console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly)
+            || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var subs = await Api.GetAsync<List<SubscriptionItem>>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
+        var membersResult = await Api.GetAsync<List<MemberItem>>("/api/auth/tenants/me/members", console.Token, HttpContext.RequestAborted);
+        if (!subs.IsSuccess || !membersResult.IsSuccess)
+        {
+            if (subs.Problem?.Status == StatusCodes.Status401Unauthorized || membersResult.Problem?.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        subscriptions = [.. subs.Value!.OrderBy(subscription => subscription.ApplicationName, StringComparer.CurrentCultureIgnoreCase)];
+        members = [.. membersResult.Value!.OrderBy(member => member.DisplayName ?? member.Email, StringComparer.CurrentCultureIgnoreCase)];
+
+        if (RevokeId is { } memberId && AppId is { } appId
+            && members.FirstOrDefault(member => member.MembershipId == memberId) is { } holder
+            && subscriptions.FirstOrDefault(subscription => subscription.ApplicationId == appId) is { } product
+            && holder.Applications.Any(app => app.ApplicationId == appId))
+        {
+            confirming = (holder, product);
+        }
+    }
+
+    private string NameOf(Guid? id) =>
+        members.FirstOrDefault(member => member.MembershipId == id) is { } member ? member.DisplayName ?? member.Email : "This person";
+
+    private string ProductOf(Guid? id) =>
+        subscriptions.FirstOrDefault(subscription => subscription.ApplicationId == id)?.ApplicationName ?? "this product";
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+
+    private RenderFragment? Notice() => builder =>
+    {
+        var who = NameOf(MemberId);
+        var product = ProductOf(ApplicationId);
+        switch (NoticeCode, ErrorCode)
+        {
+            case ("granted", _):
+                Banner(builder, AlertKind.Success, $"{who} can open {product}", "It takes effect the next time they open a product, within about 15 minutes.");
+                break;
+            case ("revoked", _):
+                Banner(builder, AlertKind.Success, $"{who} can't open {product} any more", "Their seat is free again. It takes effect the next time they open a product, within about 15 minutes.");
+                break;
+            case (_, "choose_member"):
+                Banner(builder, AlertKind.Warning, "Choose a person first", $"Pick who to give access to {product}.");
+                break;
+            case (_, "no_seat_available"):
+                Banner(builder, AlertKind.Warning, $"No seat left in {product}", "All seats are in use. Remove someone's access to free a seat, then try again.");
+                break;
+            case (_, "membership_disabled"):
+                Banner(builder, AlertKind.Warning, $"{who} is disabled", "A disabled person can't be given access. Enable them in Members first.");
+                break;
+            case (_, "application_not_subscribed"):
+                Banner(builder, AlertKind.Warning, $"{product} isn't active", "The organisation has no active subscription to this product, so nobody can be given access.");
+                break;
+            case (_, "not_found"):
+                Banner(builder, AlertKind.Warning, "That person isn't here any more", "Someone may have removed them. The list is up to date.");
+                break;
+            case (_, "forbidden"):
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "You need the 'Product access · Full access' permission to change who can open a product.");
+                break;
+            case (_, "unavailable"):
+                Banner(builder, AlertKind.Error, "We couldn't make that change", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+                break;
+        }
+    };
+
+    private static void Banner(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, AlertKind kind, string title, string body)
+    {
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), kind);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    }
+}

@@ -15,6 +15,8 @@ public static class ConsoleEndpoints
         app.MapPost("/console/{tenantId:guid}/members/{membershipId:guid}/status", SetMemberStatusAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/invitations/{membershipId:guid}/resend", ResendInvitationAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/roles/{roleId:guid}/delete", DeleteRoleAsync).AllowAnonymous();
+        app.MapPost("/console/{tenantId:guid}/access/{applicationId:guid}/grant", GrantAccessAsync).AllowAnonymous();
+        app.MapPost("/console/{tenantId:guid}/access/{applicationId:guid}/{membershipId:guid}/revoke", RevokeAccessAsync).AllowAnonymous();
         return app;
     }
 
@@ -174,6 +176,111 @@ public static class ConsoleEndpoints
         var known = problem.Code is "role_in_use" or "owner_role_immutable" or "not_found";
         var code = known ? problem.Code : problem.Status == StatusCodes.Status403Forbidden ? "forbidden" : "unavailable";
         return Results.Redirect($"{page}?error={code}&m={roleId}");
+    }
+
+    private static async Task<IResult> GrantAccessAsync(
+        Guid tenantId,
+        Guid applicationId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        ConsoleSession console,
+        AuthApiClient api)
+    {
+        var form = await ReadCheckedFormAsync(context, antiforgery);
+        if (form is null)
+        {
+            return Results.BadRequest();
+        }
+
+        var page = $"/console/{tenantId}/access";
+        if (!Guid.TryParse(form["membershipId"].ToString(), out var membershipId))
+        {
+            return Results.Redirect($"{page}?error=choose_member&a={applicationId}");
+        }
+
+        var opened = await OpenAsync(context, console, tenantId, page);
+        if (opened.Redirect is not null)
+        {
+            return opened.Redirect;
+        }
+
+        var result = await api.PutNoContentAsync(
+            $"/api/auth/tenants/me/members/{membershipId}/applications/{applicationId}", new { }, opened.Console!.Token, context.RequestAborted);
+        return Finish(result, console, context, tenantId, page, "granted", membershipId, applicationId);
+    }
+
+    private static async Task<IResult> RevokeAccessAsync(
+        Guid tenantId,
+        Guid applicationId,
+        Guid membershipId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        ConsoleSession console,
+        AuthApiClient api)
+    {
+        if (await ReadCheckedFormAsync(context, antiforgery) is null)
+        {
+            return Results.BadRequest();
+        }
+
+        var page = $"/console/{tenantId}/access";
+        var opened = await OpenAsync(context, console, tenantId, page);
+        if (opened.Redirect is not null)
+        {
+            return opened.Redirect;
+        }
+
+        var result = await api.DeleteAsync(
+            $"/api/auth/tenants/me/members/{membershipId}/applications/{applicationId}", opened.Console!.Token, context.RequestAborted);
+        return Finish(result, console, context, tenantId, page, "revoked", membershipId, applicationId);
+    }
+
+    /// <summary>The posted form once its anti-forgery token checks out, or null when it does not.</summary>
+    private static async Task<IFormCollection?> ReadCheckedFormAsync(HttpContext context, IAntiforgery antiforgery)
+    {
+        try
+        {
+            await antiforgery.ValidateRequestAsync(context);
+        }
+        catch (AntiforgeryValidationException)
+        {
+            return null;
+        }
+
+        return await context.Request.ReadFormAsync();
+    }
+
+    /// <summary>Opens the console for a post, or says where to send the person instead (sign in, or back to the page).</summary>
+    private static async Task<(ConsoleContext? Console, IResult? Redirect)> OpenAsync(HttpContext context, ConsoleSession console, Guid tenantId, string page)
+    {
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return (null, Results.Redirect($"{SessionAuthentication.LoginPath}?returnUrl={Uri.EscapeDataString(page)}"));
+        }
+
+        var opened = await console.LoadAsync(context, tenantId);
+        return opened.Outcome == ConsoleOutcome.Ready ? (opened.Console, null) : (null, Results.Redirect(page));
+    }
+
+    /// <summary>Redirects back with a notice for success, or an error code the page explains.</summary>
+    private static IResult Finish(
+        ApiResult<bool> result, ConsoleSession console, HttpContext context, Guid tenantId, string page, string notice, Guid membershipId, Guid applicationId)
+    {
+        if (result.IsSuccess)
+        {
+            return Results.Redirect($"{page}?notice={notice}&m={membershipId}&a={applicationId}");
+        }
+
+        var problem = result.Problem!;
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            console.Refresh(context, tenantId);
+            return Results.Redirect(page);
+        }
+
+        var known = problem.Code is "no_seat_available" or "membership_disabled" or "application_not_subscribed" or "not_found";
+        var code = known ? problem.Code : problem.Status == StatusCodes.Status403Forbidden ? "forbidden" : "unavailable";
+        return Results.Redirect($"{page}?error={code}&m={membershipId}&a={applicationId}");
     }
 
     /// <summary>The product names in "...there is no free seat in: a, b." so the notice can name them. Nothing else from the message is shown.</summary>

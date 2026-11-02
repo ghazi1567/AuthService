@@ -76,7 +76,7 @@ public sealed class ConsoleMembersPageTests
         html.ShouldContain("Acme Ltd");
         html.ShouldContain("Switch organisation");
         html.ShouldContain("Skip to content");
-        html.ShouldNotContain($"/console/{Acme}/access", customMessage: "pages that are not built yet are not offered");
+        html.ShouldNotContain($"/console/{Acme}/api-keys", customMessage: "pages that are not built yet are not offered");
     }
 
     [Fact]

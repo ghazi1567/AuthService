@@ -118,6 +118,10 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public string RolesJson { get; set; } = "[]";
 
+    public Func<HttpResponseMessage>? AccessResponse { get; set; }
+
+    public List<(string Method, string? Authorization, string Path)> AccessCalls { get; } = [];
+
     public Func<HttpResponseMessage>? AssignRolesResponse { get; set; }
 
     public List<(string? Authorization, string Path, string Body)> AssignRolesCalls { get; } = [];
@@ -186,6 +190,19 @@ public sealed class FakeAuthApi : HttpMessageHandler
             return ResendResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("{\"membershipId\":\"00000000-0000-0000-0000-000000000000\",\"email\":\"x\",\"status\":\"Invited\",\"roles\":[],\"applicationIds\":[],\"expiresAt\":\"2026-11-09T10:00:00Z\"}", Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (path.StartsWith("/api/auth/tenants/me/members/", StringComparison.Ordinal) && path.Contains("/applications/", StringComparison.Ordinal))
+        {
+            lock (_gate)
+            {
+                AccessCalls.Add((request.Method.Method, request.Headers.Authorization?.ToString(), path));
+            }
+
+            return AccessResponse?.Invoke() ?? new HttpResponseMessage(request.Method == HttpMethod.Delete ? HttpStatusCode.NoContent : HttpStatusCode.Created)
+            {
+                Content = request.Method == HttpMethod.Delete ? null : new StringContent("{}", Encoding.UTF8, "application/json"),
             };
         }
 
