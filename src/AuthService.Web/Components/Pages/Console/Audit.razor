@@ -1,0 +1,357 @@
+@page "/console/{TenantId:guid}/audit"
+@attribute [Authorize]
+@layout TenantLayout
+@using System.Globalization
+@using System.Security.Claims
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Audit log · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">Audit log</h1>
+    <ErrorState Title="We couldn't load the audit log" RetryHref="@Link(Take)" Reference="@reference" />
+}
+else if (console is null || forbidden || !console.Can(PermissionKeys.AuditRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">Audit log</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't see the audit log">
+        <p class="alert-body">You need the 'Audit log · Read only' permission. Ask an admin of @console?.TenantName.</p>
+    </AlertBanner>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Audit log</h1>
+            <p class="page-lead">What happened in @console.TenantName, newest first: who did it, what it was, when, and where it came from. Times are UTC. Passwords and keys are never recorded.</p>
+        </div>
+    </div>
+
+    <form method="get" action="@PagePath" class="filter-bar" aria-label="Filter the audit log">
+        <div class="field">
+            <label for="f-action">What happened</label>
+            <select id="f-action" name="action" class="input">
+                <option value="">Anything</option>
+                @foreach (var choice in AuditLabels.Choices)
+                {
+                    <option value="@choice.Code" selected="@(choice.Code == Action)">@choice.Label</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="f-from">From</label>
+            <input id="f-from" name="from" type="date" class="input" value="@From" />
+        </div>
+        <div class="field">
+            <label for="f-to">Up to and including</label>
+            <input id="f-to" name="to" type="date" class="input" value="@To" />
+        </div>
+        @if (actor is { } onlyActor)
+        {
+            <input type="hidden" name="actor" value="@onlyActor" />
+        }
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-secondary">Apply filters</button>
+            @if (Filtered)
+            {
+                <a class="btn btn-ghost" href="@PagePath">Clear filters</a>
+            }
+        </div>
+    </form>
+
+    @if (actor is { } shown)
+    {
+        <p class="filter-chip">
+            <span>Only actions by @Who(shown, "User")</span>
+            <a href="@Link(Take, withActor: false)" aria-label="Show everyone's actions again">Show everyone</a>
+        </p>
+    }
+
+    @if (rangeProblem is not null)
+    {
+        <AlertBanner Kind="AlertKind.Warning" Title="Check the dates" Class="auth-alert">
+            <p class="alert-body">@rangeProblem</p>
+        </AlertBanner>
+    }
+    else if (entries.Count == 0)
+    {
+        @if (Filtered)
+        {
+            <EmptyState Title="No matching entries" IconName="list">
+                <p class="empty-body">Nothing in the log matches these filters. Try a wider range, or clear the filters.</p>
+                <a class="btn btn-secondary" href="@PagePath">Clear filters</a>
+            </EmptyState>
+        }
+        else
+        {
+            <EmptyState Title="Nothing recorded yet" IconName="list">
+                <p class="empty-body">Changes to people, roles, access and keys will appear here.</p>
+            </EmptyState>
+        }
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">When</th>
+                        <th scope="col">Who</th>
+                        <th scope="col">What</th>
+                        <th scope="col">From</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in entries)
+                    {
+                        <tr>
+                            <td data-label="When"><time datetime="@entry.OccurredAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)">@entry.OccurredAt.UtcDateTime.ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture)</time></td>
+                            <td data-label="Who">
+                                <span class="person-name">@Who(entry.ActorId, entry.ActorType)</span>
+                                @if (entry.ActorType == "User" && entry.ActorId is { } person && person != me)
+                                {
+                                    <a class="row-link" href="@Link(Take, actorOverride: person)">Only this person</a>
+                                }
+                            </td>
+                            <td data-label="What">
+                                <span>@AuditLabels.Describe(entry.Action)</span>
+                                @if (!string.IsNullOrWhiteSpace(entry.Detail))
+                                {
+                                    <code class="mono audit-detail">@entry.Detail</code>
+                                }
+                            </td>
+                            <td data-label="From">@(string.IsNullOrWhiteSpace(entry.SourceIp) ? "Unknown" : entry.SourceIp)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="table-foot-row">
+            <p class="table-foot">Showing @entries.Count @(entries.Count == 1 ? "entry" : "entries")@(more ? "" : ". That's everything that matches.")</p>
+            @if (more && Take < MaxTake)
+            {
+                <a class="btn btn-secondary" href="@Link(Take + Step)">Load more</a>
+            }
+            else if (more)
+            {
+                <p class="table-foot">This is the most that can be shown at once. Use the filters to narrow it down.</p>
+            }
+        </div>
+    }
+}
+
+@code {
+    private const int Step = 50;
+    private const int MaxTake = 200;
+
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool forbidden;
+    private bool more;
+    private string? reference;
+    private string? rangeProblem;
+    private Guid me;
+    private Guid? actor;
+    private List<AuditEntryItem> entries = [];
+    private readonly Dictionary<Guid, string> products = [];
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "action")] private string? Action { get; set; }
+
+    [SupplyParameterFromQuery(Name = "actor")] private Guid? ActorQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "from")] private string? From { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")] private string? To { get; set; }
+
+    [SupplyParameterFromQuery(Name = "take")] private int? TakeQuery { get; set; }
+
+    private string PagePath => $"/console/{TenantId}/audit";
+
+    private int Take => TakeQuery is { } asked && asked is >= Step and <= MaxTake ? asked / Step * Step : Step;
+
+    private bool Filtered => !string.IsNullOrWhiteSpace(Action) || actor is not null || ParseDay(From) is not null || ParseDay(To) is not null;
+
+    private static DateTimeOffset? ParseDay(string? text) =>
+        DateTime.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var day)
+            ? new DateTimeOffset(day, TimeSpan.Zero)
+            : null;
+
+    /// <summary>The page's own address for the filters in force, asking for <paramref name="take"/> entries.</summary>
+    private string Link(int take, bool withActor = true, Guid? actorOverride = null)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(Action))
+        {
+            parts.Add($"action={Uri.EscapeDataString(Action)}");
+        }
+
+        if ((actorOverride ?? (withActor ? actor : null)) is { } who)
+        {
+            parts.Add($"actor={who}");
+        }
+
+        if (ParseDay(From) is not null)
+        {
+            parts.Add($"from={From}");
+        }
+
+        if (ParseDay(To) is not null)
+        {
+            parts.Add($"to={To}");
+        }
+
+        if (take > Step)
+        {
+            parts.Add($"take={take}");
+        }
+
+        return parts.Count == 0 ? PagePath : $"{PagePath}?{string.Join('&', parts)}";
+    }
+
+    private string Who(Guid? id, string type) => type switch
+    {
+        "User" when id == me => "You",
+        "User" when id is { } person => $"A person ({person.ToString("N")[..8]})",
+        "Product" when id is { } product && products.TryGetValue(product, out var name) => name,
+        "Product" => "A product",
+        "System" => "Auth Service",
+        _ => "Nobody identified",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(Link(Take))}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        if (!console!.Can(PermissionKeys.AuditRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        _ = Guid.TryParse(HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out me);
+        actor = ActorQuery;
+
+        var from = ParseDay(From);
+        var to = ParseDay(To);
+        if (from is { } start && to is { } end && start > end)
+        {
+            rangeProblem = "The start date is after the end date. Swap them, or clear one.";
+            return;
+        }
+
+        var query = new List<string> { $"limit={Take}" };
+        if (!string.IsNullOrWhiteSpace(Action))
+        {
+            query.Add($"action={Uri.EscapeDataString(Action)}");
+        }
+
+        if (actor is { } who)
+        {
+            query.Add($"actorId={who}");
+        }
+
+        if (to is { } last)
+        {
+            // "Up to and including" a day means before the start of the next one.
+            query.Add($"before={Uri.EscapeDataString(last.AddDays(1).ToString("O", CultureInfo.InvariantCulture))}");
+        }
+
+        var page = await Api.GetAsync<AuditPage>($"/api/auth/tenants/me/audit?{string.Join('&', query)}", console.Token, HttpContext.RequestAborted);
+        if (!page.IsSuccess)
+        {
+            if (page.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(Link(Take));
+                return;
+            }
+
+            if (page.Problem.Status == StatusCodes.Status403Forbidden)
+            {
+                forbidden = true;
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        entries = [.. page.Value!.Items];
+        more = page.Value.Next is not null;
+
+        // The log is newest first, so everything from the first entry older than the start date on is out of range.
+        if (from is { } since && entries.Any(entry => entry.OccurredAt < since))
+        {
+            entries = [.. entries.Where(entry => entry.OccurredAt >= since)];
+            more = false;
+        }
+
+        if (console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly) && entries.Any(entry => entry.ActorType == "Product"))
+        {
+            var subscriptions = await Api.GetAsync<List<SubscriptionItem>>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
+            if (subscriptions.IsSuccess)
+            {
+                foreach (var subscription in subscriptions.Value!)
+                {
+                    products[subscription.ApplicationId] = subscription.ApplicationName;
+                }
+            }
+        }
+    }
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+}

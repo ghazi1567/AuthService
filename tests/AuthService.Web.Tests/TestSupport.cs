@@ -167,6 +167,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public Func<HttpResponseMessage>? SubscriptionsResponse { get; set; }
 
+    /// <summary>The audit log, as the API's page object: <c>{"items":[...],"next":null}</c>.</summary>
+    public string AuditJson { get; set; } = """{"items":[],"next":null}""";
+
+    /// <summary>Answers a read of the audit log (given its query string); by default <see cref="AuditJson"/>.</summary>
+    public Func<string, HttpResponseMessage>? AuditResponse { get; set; }
+
+    public List<(string? Authorization, string Query)> AuditCalls { get; } = [];
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -364,6 +372,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             case "/api/auth/roles":
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
+
+            case "/api/auth/tenants/me/audit":
+                lock (_gate)
+                {
+                    AuditCalls.Add((request.Headers.Authorization?.ToString(), request.RequestUri.Query));
+                }
+
+                return AuditResponse?.Invoke(request.RequestUri.Query) ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(AuditJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenants/me/subscriptions":
                 return SubscriptionsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(SubscriptionsJson, Encoding.UTF8, "application/json") };
