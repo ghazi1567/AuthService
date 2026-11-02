@@ -67,7 +67,7 @@ else
     @if (actor is { } shown)
     {
         <p class="filter-chip">
-            <span>Only actions by @Who(shown, "User")</span>
+            <span>Only actions by @Who(shown, "User", entries.FirstOrDefault(entry => entry.ActorId == shown)?.ActorName)</span>
             <a href="@Link(Take, withActor: false)" aria-label="Show everyone's actions again">Show everyone</a>
         </p>
     }
@@ -113,7 +113,7 @@ else
                         <tr>
                             <td data-label="When"><time datetime="@entry.OccurredAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)">@entry.OccurredAt.UtcDateTime.ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture)</time></td>
                             <td data-label="Who">
-                                <span class="person-name">@Who(entry.ActorId, entry.ActorType)</span>
+                                <span class="person-name">@Who(entry.ActorId, entry.ActorType, entry.ActorName)</span>
                                 @if (entry.ActorType == "User" && entry.ActorId is { } person && person != me)
                                 {
                                     <a class="row-link" href="@Link(Take, actorOverride: person)">Only this person</a>
@@ -233,10 +233,12 @@ else
         return parts.Count == 0 ? "/platform/audit" : $"/platform/audit?{string.Join('&', parts)}";
     }
 
-    private string Who(Guid? id, string type) => type switch
+    private string Who(Guid? id, string type, string? name = null) => type switch
     {
         "User" when id == me => "You",
+        "User" when name is { Length: > 0 } => name,
         "User" when id is { } person => $"A person ({person.ToString("N")[..8]})",
+        "Product" when name is { Length: > 0 } => name,
         "Product" when id is { } product => $"A product ({product.ToString("N")[..8]})",
         "System" => "Auth Service",
         _ => "Nobody identified",

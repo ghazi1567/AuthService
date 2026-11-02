@@ -99,7 +99,9 @@ else
             <EmptyState Title="Nothing to open here yet" IconName="building">
                 <p class="empty-body">@(products.Count == 0
                     ? "There are no products to open yet."
-                    : "You can't open any of these yet.") Your organisation's admin decides which products you can use. Once you have access, it will show up here.</p>
+                    : "You can't open any of these yet.") @(consoleHref is null
+                        ? "Your organisation's admin decides which products you can use. Once you have access, it will show up here."
+                        : "Connect a product below, then give people access to it in the admin console.")</p>
             </EmptyState>
         }
 
@@ -188,9 +190,9 @@ else
     private string Reason(MyProductItem product) => product.State switch
     {
         ProductState.NoAccess => $"You don't have a seat. Ask an admin at {organisationName} for access.",
-        ProductState.NotSubscribed => $"Not included in {organisationName}'s subscription.",
-        ProductState.SubscriptionSuspended => $"{organisationName}'s subscription to {product.Name} is suspended.",
-        ProductState.SubscriptionCancelled => $"{organisationName}'s subscription to {product.Name} has ended.",
+        ProductState.NotSubscribed => $"{organisationName} hasn't subscribed to {product.Name}.",
+        ProductState.SubscriptionSuspended => $"The subscription to {product.Name} is suspended, so it can't be opened.",
+        ProductState.SubscriptionCancelled => $"The subscription to {product.Name} has ended.",
         ProductState.Available => "It isn't ready to open yet. Ask the platform administrator to set where it opens.",
         _ => "It can't be opened right now.",
     };

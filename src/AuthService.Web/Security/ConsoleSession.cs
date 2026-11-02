@@ -122,6 +122,12 @@ public sealed class ConsoleSession(AuthApiClient api, SessionService sessions, C
     /// <summary>When the API asked us to slow down while opening the console, how many seconds to wait. Null otherwise.</summary>
     public int? RetryAfterSeconds { get; private set; }
 
+    /// <summary>
+    /// The name of the organisation, when the console could not be opened because it is suspended and this person is an active member of it
+    /// (the API tells exactly them). Null in every other case, so nobody else learns anything.
+    /// </summary>
+    public string? SuspendedTenantName { get; private set; }
+
     /// <summary>Forgets every token of this person's session, so choosing another organisation starts from a fresh exchange.</summary>
     public void ForgetTokens(HttpContext httpContext)
     {
@@ -201,6 +207,11 @@ public sealed class ConsoleSession(AuthApiClient api, SessionService sessions, C
         if (!exchange.IsSuccess)
         {
             NoteRateLimit(exchange.Problem!);
+            if (exchange.Problem!.Code == "tenant_suspended")
+            {
+                SuspendedTenantName = membership.TenantName;
+            }
+
             return new ConsoleResult(exchange.Problem!.Status switch
             {
                 StatusCodes.Status401Unauthorized => ConsoleOutcome.SessionEnded,

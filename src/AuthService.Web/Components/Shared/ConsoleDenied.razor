@@ -1,0 +1,16 @@
+@inject ConsoleSession Session
+
+@* Why the admin console isn't open to this person. A person who is an active member of a suspended organisation is told that; anyone else
+   is told they aren't an active member, which is all the API says. *@
+@if (Session.SuspendedTenantName is { } name)
+{
+    <h1 class="page-title">@name is suspended</h1>
+    <p class="page-lead">Nothing can be opened in @name right now, and its admin console is closed too. Ask the platform administrator to switch it back on.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose another organisation</a>
+}
+else
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
