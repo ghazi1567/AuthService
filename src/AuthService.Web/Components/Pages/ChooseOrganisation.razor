@@ -1,0 +1,226 @@
+@page "/choose-organisation"
+@attribute [Authorize]
+@layout PickerLayout
+@using System.ComponentModel.DataAnnotations
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject SessionService Sessions
+@inject NavigationManager Navigation
+
+<PageTitle>Choose an organisation · Auth Service</PageTitle>
+
+@if (leaving)
+{
+    @* The person is being sent straight on; nothing to show. *@
+}
+else if (loadError)
+{
+    <h1 class="picker-title">Choose an organisation</h1>
+    <ErrorState Title="We couldn't load your organisations" RetryHref="/choose-organisation?change=1" Reference="@reference" />
+}
+else
+{
+    <h1 class="picker-title">Choose an organisation</h1>
+
+    @if (memberships.Count == 0)
+    {
+        <EmptyState Title="You're not part of an organisation">
+            <p class="empty-body">Create one to get started, or ask an admin to invite you.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <p class="picker-lead">Pick where you want to work.</p>
+
+        <ul class="org-list">
+            @foreach (var membership in memberships)
+            {
+                <li>
+                    @if (membership.Status == MembershipStatus.Active)
+                    {
+                        <a class="org-row" href="/choose-product?tenantId=@membership.TenantId">
+                            <span class="org-tile" aria-hidden="true">@Initials(membership.TenantName)</span>
+                            <span class="org-name">@membership.TenantName</span>
+                            <span class="visually-hidden">Open</span>
+                            <Icon Name="chevron-right" />
+                        </a>
+                    }
+                    else
+                    {
+                        <div class="org-row is-unavailable">
+                            <span class="org-tile" aria-hidden="true">@Initials(membership.TenantName)</span>
+                            <span class="org-text">
+                                <span class="org-name">@membership.TenantName</span>
+                                <span class="org-note">
+                                    @(membership.Status == MembershipStatus.Invited
+                                        ? "Open the link in your invitation email to join."
+                                        : "Your access is turned off. Ask an admin.")
+                                </span>
+                            </span>
+                            @if (membership.Status == MembershipStatus.Invited)
+                            {
+                                <StatusBadge Kind="info" IconName="mail" Label="Invited" />
+                            }
+                            else
+                            {
+                                <StatusBadge Kind="neutral" IconName="slash" Label="Disabled" />
+                            }
+                        </div>
+                    }
+                </li>
+            }
+        </ul>
+    }
+
+    @switch (problem)
+    {
+        case Problem.AccountDisabled:
+            <AlertBanner Kind="AlertKind.Error" Title="This account is turned off" Class="auth-alert">
+                <p class="alert-body">You can't create an organisation. Contact Auth Service support.</p>
+            </AlertBanner>
+            break;
+        case Problem.Unavailable:
+            <AlertBanner Kind="AlertKind.Error" Title="We couldn't create the organisation" Class="auth-alert">
+                <p class="alert-body">Auth Service isn't responding right now. Your details are safe. Try again in a moment.</p>
+            </AlertBanner>
+            break;
+    }
+
+    <details class="disclosure" open="@(memberships.Count == 0 || problem != Problem.None || hasFormErrors)">
+        <summary class="disclosure-summary"><Icon Name="plus" />@(memberships.Count == 0 ? "Create an organisation" : "Create another organisation")</summary>
+        <EditForm Model="Model" FormName="create" method="post" OnValidSubmit="CreateAsync" novalidate class="auth-form disclosure-body">
+            <DataAnnotationsValidator />
+            <TextField Id="org-name"
+                       Label="Organisation name"
+                       Autocomplete="organization"
+                       Helper="This is how your team will see you. You can't change it later."
+                       @bind-Value="Model.TenantName"
+                       Error="@context.GetValidationMessages(context.Field(nameof(CreateInput.TenantName))).FirstOrDefault()" />
+            <div class="auth-actions">
+                <button type="submit" class="btn btn-primary btn-lg btn-block" data-busy-label="Creating…">Create organisation</button>
+            </div>
+        </EditForm>
+    </details>
+}
+
+@code {
+    private List<MembershipSummary> memberships = [];
+    private bool loadError;
+    private bool leaving;
+    private bool hasFormErrors;
+    private string? reference;
+    private Problem problem = Problem.None;
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    /// <summary>"1" when the person chose to see the list even though there is only one organisation.</summary>
+    [SupplyParameterFromQuery(Name = "change")] private string? Change { get; set; }
+
+    [SupplyParameterFromForm(FormName = "create", Name = "Model")] private CreateInput? Posted { get; set; }
+
+    private CreateInput Model => Posted ??= new();
+
+    private CancellationToken Cancellation => HttpContext?.RequestAborted ?? CancellationToken.None;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var accessToken = await AccessTokenAsync();
+        if (accessToken is null)
+        {
+            SessionEnded();
+            return;
+        }
+
+        var result = await Api.GetAsync<CurrentUser>("/api/auth/users/me", accessToken, Cancellation);
+        if (!result.IsSuccess)
+        {
+            if (result.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                SessionEnded();
+                return;
+            }
+
+            loadError = true;
+            reference = HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+            return;
+        }
+
+        memberships = [.. result.Value!.Memberships.OrderBy(m => m.TenantName, StringComparer.CurrentCultureIgnoreCase)];
+
+        // Someone in exactly one organisation is not asked: they go straight on (unless they came back here to switch).
+        var onlyOne = memberships is [{ Status: MembershipStatus.Active }];
+        if (onlyOne && Change != "1" && HttpContext is not null && HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/choose-product?tenantId={memberships[0].TenantId}");
+        }
+    }
+
+    private async Task CreateAsync(EditContext context)
+    {
+        var accessToken = await AccessTokenAsync();
+        if (accessToken is null)
+        {
+            SessionEnded();
+            return;
+        }
+
+        var result = await Api.PostAsync<CreateTenantRequest, CreateTenantResponse>(
+            "/api/auth/tenants", new CreateTenantRequest(Model.TenantName!.Trim()), Cancellation, accessToken);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/choose-product?tenantId={result.Value!.TenantId}");
+            return;
+        }
+
+        var apiProblem = result.Problem!;
+        if (apiProblem.Status == StatusCodes.Status400BadRequest && apiProblem.Errors is { Count: > 0 } errors
+            && errors.TryGetValue("TenantName", out var reasons) && reasons.Length > 0)
+        {
+            new ValidationMessageStore(context).Add(context.Field(nameof(CreateInput.TenantName)), reasons[0]);
+            context.NotifyValidationStateChanged();
+            hasFormErrors = true;
+            return;
+        }
+
+        problem = apiProblem.Code == "account_disabled" ? Problem.AccountDisabled : Problem.Unavailable;
+    }
+
+    private async Task<string?> AccessTokenAsync() =>
+        HttpContext?.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid
+            ? await Sessions.GetAccessTokenAsync(sid.Value, Cancellation)
+            : null;
+
+    /// <summary>The session ended while the page loaded: sign in again, and come back here.</summary>
+    private void SessionEnded()
+    {
+        leaving = true;
+        Navigation.NavigateTo("/login?returnUrl=%2Fchoose-organisation&reason=expired");
+    }
+
+    private static string Initials(string name)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length switch
+        {
+            0 => "?",
+            1 => char.ToUpperInvariant(words[0][0]).ToString(),
+            _ => string.Concat(char.ToUpperInvariant(words[0][0]), char.ToUpperInvariant(words[1][0])),
+        };
+    }
+
+    private enum Problem
+    {
+        None,
+        AccountDisabled,
+        Unavailable,
+    }
+
+    public sealed class CreateInput
+    {
+        [Required(ErrorMessage = "Enter a name for the organisation.")]
+        [StringLength(200, ErrorMessage = "Use 200 characters or fewer.")]
+        public string? TenantName { get; set; }
+    }
+}

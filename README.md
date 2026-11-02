@@ -102,6 +102,14 @@ What is in place:
   `Referrer-Policy: no-referrer` and `Cache-Control: no-store`, and never log it. A password field never renders a value, so a form that is
   shown again (a validation error, a rate limit) cannot send a password back into the page, and each password field says whether it
   holds an old (`current-password`) or a new (`new-password`) password. `LinkTokenSecurityTests` covers each page.
+- **`/choose-organisation`** (UI05_T1), the page everyone lands on after signing in (`/` sends signed-in people there). It reads the
+  person's organisations from `GET /api/auth/users/me` as them (their access token is renewed first when needed) and lists them by name:
+  Active ones open the product picker (`/choose-product?tenantId=...`, the next ticket); Invited and Disabled ones are shown with why
+  they can't be opened and are not links. Someone in exactly one active organisation is sent straight on (`?change=1` shows the list
+  anyway); someone in none sees an empty state with the create form open; "Create another organisation" is a plain `<details>` form
+  (`POST /api/auth/tenants`). A list that cannot be loaded shows a calm error with a short reference; a session the API no longer
+  accepts goes back to sign in. The shell is `PickerLayout` (logo, an account menu with sign-out, one centred column). The API sends
+  no role per organisation, so rows show status only.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

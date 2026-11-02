@@ -1,0 +1,41 @@
+@inherits LayoutComponentBase
+
+@* Shell for choosing an organisation and a product after signing in (UI-05): a top bar with the logo and the person's menu, and one
+   centred column. *@
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="shell shell-picker">
+    <header class="picker-bar">
+        <a class="logo" href="/" aria-label="Auth Service home"><LogoMark />Auth Service</a>
+        @if (email is not null)
+        {
+            <details class="menu">
+                <summary class="menu-trigger" aria-label="Account menu for @email">
+                    <span class="avatar" aria-hidden="true">@char.ToUpperInvariant(email[0])</span>
+                    <span class="menu-email">@email</span>
+                    <Icon Name="chevron-down" />
+                </summary>
+                <div class="menu-panel">
+                    <p class="menu-who">Signed in as<br /><strong>@email</strong></p>
+                    <SignOutButton Class="btn-block" />
+                </div>
+            </details>
+        }
+    </header>
+    <main id="main" tabindex="-1" class="picker-main">
+        @Body
+    </main>
+</div>
+
+<UnhandledErrorBar />
+
+@code {
+    private string? email;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var name = AuthenticationState is null ? null : (await AuthenticationState).User.Identity?.Name;
+        email = string.IsNullOrEmpty(name) ? null : name;
+    }
+}

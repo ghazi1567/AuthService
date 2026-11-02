@@ -14,6 +14,7 @@ public sealed class LayoutTests
     [InlineData(typeof(AuthLayout))]
     [InlineData(typeof(TenantLayout))]
     [InlineData(typeof(PlatformLayout))]
+    [InlineData(typeof(PickerLayout))]
     public async Task EveryShellHasASkipLinkAMainLandmarkAndTheErrorBar(Type layout)
     {
         var html = await RenderAsync(layout);

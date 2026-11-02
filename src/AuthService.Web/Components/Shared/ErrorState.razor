@@ -1,0 +1,20 @@
+@* Something could not be loaded: what failed, a reassurance, a way to try again, and a short reference to quote to support. *@
+<div class="error-state" role="alert">
+    <div class="icon-tile is-error"><Icon Name="alert-circle" /></div>
+    <h2 class="empty-title">@Title</h2>
+    <p class="empty-body">Your data is safe. Nothing was changed.</p>
+    <a class="btn btn-secondary" href="@RetryHref">Try again</a>
+    @if (Reference is not null)
+    {
+        <p class="error-reference">Reference <code>@Reference</code></p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    [Parameter, EditorRequired] public string RetryHref { get; set; } = "";
+
+    /// <summary>A short code that lets someone find this request in the logs. It says nothing about the person or the data.</summary>
+    [Parameter] public string? Reference { get; set; }
+}
