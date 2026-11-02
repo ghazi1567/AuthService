@@ -175,6 +175,14 @@
     function init() {
         revealToggles();
         startCountdowns();
+
+        // A form that carries on by itself (the product picker with one product, and the hand-off). Without scripts it keeps its Continue button.
+        document.querySelectorAll("form[data-autosubmit]").forEach(function (form) {
+            if (!form.getAttribute("data-autosubmit-done")) {
+                form.setAttribute("data-autosubmit-done", "true");
+                form.submit();
+            }
+        });
         startRules();
         startLinkForms();
         startUnsavedGuards();

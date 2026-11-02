@@ -7,19 +7,25 @@
 @inject SessionService Sessions
 @inject NavigationManager Navigation
 
-<PageTitle>@(console?.TenantName ?? "Your organisation") · Auth Service</PageTitle>
+<PageTitle>@(organisationName ?? "Your organisation") · Auth Service</PageTitle>
 
 @if (leaving || !ready)
 {
     @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
 }
-else if (outcome == ConsoleOutcome.Denied)
+else if (view == View.Suspended)
+{
+    <h1 class="picker-title">@organisationName is suspended</h1>
+    <p class="picker-lead">Nothing can be opened in @organisationName right now, and its admin console is closed too. Ask the platform administrator to switch it back on.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose another organisation</a>
+}
+else if (view == View.Denied)
 {
     <h1 class="picker-title">You can't open this organisation</h1>
-    <p class="picker-lead">You may not be an active member, or the organisation may be suspended. Ask an admin of the organisation.</p>
+    <p class="picker-lead">You may not be an active member. Ask an admin of the organisation.</p>
     <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
 }
-else if (outcome != ConsoleOutcome.Ready || console is null)
+else if (view == View.Failed)
 {
     <h1 class="picker-title">Your organisation</h1>
     <ErrorState Title="We couldn't open this organisation" RetryHref="@PagePath" Reference="@reference" />
@@ -27,54 +33,121 @@ else if (outcome != ConsoleOutcome.Ready || console is null)
 else
 {
     <p class="context-line">
-        <span class="org-tile org-tile-sm" aria-hidden="true">@Initials(console.TenantName)</span>
-        <span class="org-name">@console.TenantName</span>
+        <span class="org-tile org-tile-sm" aria-hidden="true">@Initials(organisationName!)</span>
+        <span class="org-name">@organisationName</span>
         <a href="/choose-organisation?change=1">Change</a>
     </p>
-    <h1 class="picker-title">What would you like to do?</h1>
 
-    @if (consoleHref is not null)
+    @if (Problem() is { } problem)
     {
-        <a class="org-row" href="@consoleHref">
-            <span class="org-tile" aria-hidden="true"><Icon Name="shield" /></span>
-            <span class="org-text">
-                <span class="org-name">Admin console</span>
-                <span class="org-note">Manage people, roles, product access, API keys and more for @console.TenantName.</span>
-            </span>
-            <Icon Name="chevron-right" />
-        </a>
+        @problem
+    }
 
-        <h2 class="picker-section">Connect a product</h2>
-        <p class="picker-lead">A product connects your organisation itself. Ask the team behind the product to connect @console.TenantName. Once they have, it appears under Subscriptions in the admin console, and you can give people access.</p>
-        @if (connectFailed)
-        {
-            <AlertBanner Kind="AlertKind.Warning" Title="We couldn't load the list of products" Class="auth-alert">
-                <p class="alert-body">Nothing is wrong with your organisation. <a href="@PagePath">Try again</a> in a moment.</p>
-            </AlertBanner>
-        }
-        else if (connectable.Count == 0)
-        {
-            <p class="muted">No products are available to connect right now.</p>
-        }
-        else
-        {
-            <ul class="connect-list" aria-label="Products that can be connected">
-                @foreach (var product in connectable)
-                {
-                    <li>@product.Name</li>
-                }
-            </ul>
-        }
+    @if (opening is { } only)
+    {
+        <h1 class="picker-title">Opening @organisationName · @only.Name…</h1>
+        <p class="picker-lead">It's the only product you can open here, so we're taking you straight there.</p>
+        <form method="post" action="/choose-product/open" data-autosubmit>
+            <AntiforgeryToken />
+            <input type="hidden" name="tenantId" value="@TenantId" />
+            <input type="hidden" name="applicationId" value="@only.ApplicationId" />
+            <button type="submit" class="btn btn-primary">Continue</button>
+            <a class="btn btn-secondary" href="@PagePath&stay=1">Choose another</a>
+        </form>
     }
     else
     {
-        <EmptyState Title="Nothing to open from here yet" IconName="building">
-            <p class="empty-body">Your organisation's admin decides which products you can use. Once you have access, open the product and sign in with your Auth Service account.</p>
-        </EmptyState>
+        <h1 class="picker-title">What would you like to do?</h1>
+
+        @if (products.Count > 0)
+        {
+            <ul class="launch-grid" aria-label="Products">
+                @foreach (var product in products)
+                {
+                    <li>
+                        @if (CanOpen(product))
+                        {
+                            <form method="post" action="/choose-product/open" class="launch-card">
+                                <AntiforgeryToken />
+                                <input type="hidden" name="tenantId" value="@TenantId" />
+                                <input type="hidden" name="applicationId" value="@product.ApplicationId" />
+                                <span class="org-tile" aria-hidden="true">@Initials(product.Name)</span>
+                                <span class="launch-text">
+                                    <span class="org-name">@product.Name</span>
+                                    <span class="org-note">You have a seat.</span>
+                                </span>
+                                <button type="submit" class="btn btn-primary btn-sm" data-busy-label="Opening…" aria-label="Open @product.Name">Open</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <div class="launch-card is-unavailable">
+                                <span class="org-tile" aria-hidden="true"><Icon Name="lock" /></span>
+                                <span class="launch-text">
+                                    <span class="org-name">@product.Name</span>
+                                    <span class="org-note">@Reason(product)</span>
+                                </span>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        @if (!products.Any(CanOpen))
+        {
+            <EmptyState Title="Nothing to open here yet" IconName="building">
+                <p class="empty-body">@(products.Count == 0
+                    ? "There are no products to open yet."
+                    : "You can't open any of these yet.") Your organisation's admin decides which products you can use. Once you have access, it will show up here.</p>
+            </EmptyState>
+        }
+
+        @if (consoleHref is not null)
+        {
+            <a class="org-row" href="@consoleHref">
+                <span class="org-tile" aria-hidden="true"><Icon Name="shield" /></span>
+                <span class="org-text">
+                    <span class="org-name">Admin console</span>
+                    <span class="org-note">Manage people, roles, product access, API keys and more for @organisationName.</span>
+                </span>
+                <Icon Name="chevron-right" />
+            </a>
+
+            <h2 class="picker-section">Connect a product</h2>
+            <p class="picker-lead">A product connects your organisation itself. Ask the team behind the product to connect @organisationName. Once they have, it appears under Subscriptions in the admin console, and you can give people access.</p>
+            @if (connectFailed)
+            {
+                <AlertBanner Kind="AlertKind.Warning" Title="We couldn't load the list of products" Class="auth-alert">
+                    <p class="alert-body">Nothing is wrong with your organisation. <a href="@PagePath">Try again</a> in a moment.</p>
+                </AlertBanner>
+            }
+            else if (connectable.Count == 0)
+            {
+                <p class="muted">No products are available to connect right now.</p>
+            }
+            else
+            {
+                <ul class="connect-list" aria-label="Products that can be connected">
+                    @foreach (var product in connectable)
+                    {
+                        <li>@product.Name</li>
+                    }
+                </ul>
+            }
+        }
     }
 }
 
 @code {
+    private enum View
+    {
+        Ready,
+        Suspended,
+        Denied,
+        Failed,
+    }
+
     private static readonly (string Permission, string Path)[] ConsolePages =
     [
         (PermissionKeys.MembersRead, "members"),
@@ -85,20 +158,67 @@ else
         (PermissionKeys.AuditRead, "audit"),
     ];
 
-    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
-    private ConsoleContext? console;
+    private View view = View.Ready;
     private bool leaving;
     private bool ready;
     private bool connectFailed;
     private string? reference;
+    private string? organisationName;
     private string? consoleHref;
+    private MyProductItem? opening;
+    private List<MyProductItem> products = [];
     private List<ProductSummary> connectable = [];
 
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
 
     [SupplyParameterFromQuery(Name = "tenantId")] private Guid? TenantId { get; set; }
 
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "app")] private Guid? AppId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "wait")] private int? Wait { get; set; }
+
+    [SupplyParameterFromQuery(Name = "stay")] private string? Stay { get; set; }
+
     private string PagePath => TenantId is { } id ? $"/choose-product?tenantId={id}" : "/choose-organisation?change=1";
+
+    private static bool CanOpen(MyProductItem product) => product.State == ProductState.Available && !string.IsNullOrWhiteSpace(product.LaunchUrl);
+
+    private string Reason(MyProductItem product) => product.State switch
+    {
+        ProductState.NoAccess => $"You don't have a seat. Ask an admin at {organisationName} for access.",
+        ProductState.NotSubscribed => $"Not included in {organisationName}'s subscription.",
+        ProductState.SubscriptionSuspended => $"{organisationName}'s subscription to {product.Name} is suspended.",
+        ProductState.SubscriptionCancelled => $"{organisationName}'s subscription to {product.Name} has ended.",
+        ProductState.Available => "It isn't ready to open yet. Ask the platform administrator to set where it opens.",
+        _ => "It can't be opened right now.",
+    };
+
+    private RenderFragment? Problem() => builder =>
+    {
+        var name = products.FirstOrDefault(product => product.ApplicationId == AppId)?.Name ?? "That product";
+        var (title, body) = ErrorCode switch
+        {
+            "not_available" => ($"{name} can't be opened right now", "Nothing was changed. Its status may have just changed; the list below is up to date."),
+            "tenant_suspended" => ($"{organisationName} is suspended", "Nothing can be opened until it is switched back on. Ask the platform administrator."),
+            "rate_limited" => ("You're going a little fast", $"Auth Service asked us to slow down for a moment. Try again in {(Wait is > 0 ? Wait : 60)} seconds."),
+            "expired" => ("Please try again", "Your sign-in needed renewing. Choose the product again."),
+            "unavailable" => ($"We couldn't open {name}", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment."),
+            _ => (null, null),
+        };
+        if (title is null)
+        {
+            return;
+        }
+
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), ErrorCode == "unavailable" ? AlertKind.Error : AlertKind.Warning);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body!)}</p>")));
+        builder.CloseComponent();
+    };
 
     private static string Initials(string name)
     {
@@ -123,6 +243,12 @@ else
         }
     }
 
+    private void SessionEnded()
+    {
+        leaving = true;
+        Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+    }
+
     private async Task LoadAsync()
     {
         if (HttpContext is null)
@@ -137,46 +263,90 @@ else
             return;
         }
 
-        var result = await Session.LoadAsync(HttpContext, tenantId);
-        outcome = result.Outcome;
-        if (outcome == ConsoleOutcome.SessionEnded)
-        {
-            leaving = true;
-            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
-            return;
-        }
-
-        if (outcome != ConsoleOutcome.Ready)
-        {
-            reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
-            return;
-        }
-
-        console = result.Console;
-
-        // Someone who may read any part of the admin console is an admin here; everyone else is just a member.
-        var first = ConsolePages.FirstOrDefault(page => console!.Can(page.Permission, AccessLevel.ReadOnly));
-        if (first.Path is null)
-        {
-            return;
-        }
-
-        consoleHref = $"/console/{tenantId}/{first.Path}";
-
-        // The products that can be connected are the same for everyone; only their names are shown.
         var identityToken = HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid
             ? await Sessions.GetAccessTokenAsync(sid.Value, HttpContext.RequestAborted)
             : null;
-        var list = identityToken is null
-            ? null
-            : await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", identityToken, HttpContext.RequestAborted);
-        if (list is { IsSuccess: true })
+        if (identityToken is null)
         {
-            connectable = [.. list.Value!.OrderBy(product => product.Name, StringComparer.OrdinalIgnoreCase)];
+            SessionEnded();
+            return;
         }
-        else
+
+        reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+
+        // The organisation's name and whether this person is an active member of it.
+        var me = await Api.GetAsync<CurrentUser>("/api/auth/users/me", identityToken, HttpContext.RequestAborted);
+        if (!me.IsSuccess)
         {
-            connectFailed = true;
+            if (me.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                SessionEnded();
+                return;
+            }
+
+            view = View.Failed;
+            return;
+        }
+
+        var membership = me.Value!.Memberships.FirstOrDefault(candidate => candidate.TenantId == tenantId);
+        organisationName = membership?.TenantName ?? "this organisation";
+        if (membership is not { Status: MembershipStatus.Active })
+        {
+            view = View.Denied;
+            return;
+        }
+
+        // The products this person can open here, and why the others can't be opened.
+        var mine = await Api.GetAsync<List<MyProductItem>>($"/api/auth/users/me/applications?tenantId={tenantId}", identityToken, HttpContext.RequestAborted);
+        if (!mine.IsSuccess)
+        {
+            switch (mine.Problem!)
+            {
+                case { Status: StatusCodes.Status401Unauthorized }:
+                    SessionEnded();
+                    break;
+                case { Status: StatusCodes.Status403Forbidden, Code: "tenant_suspended" }:
+                    view = View.Suspended;
+                    break;
+                case { Status: StatusCodes.Status403Forbidden }:
+                    view = View.Denied;
+                    break;
+                default:
+                    view = View.Failed;
+                    break;
+            }
+
+            return;
+        }
+
+        products = [.. mine.Value!];
+
+        // Someone who may read any part of the admin console is an admin here; everyone else is just a member.
+        var console = await Session.LoadAsync(HttpContext, tenantId);
+        if (console is { Outcome: ConsoleOutcome.Ready, Console: { } context })
+        {
+            var first = ConsolePages.FirstOrDefault(page => context.Can(page.Permission, AccessLevel.ReadOnly));
+            if (first.Path is not null)
+            {
+                consoleHref = $"/console/{tenantId}/{first.Path}";
+                var list = await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", identityToken, HttpContext.RequestAborted);
+                if (list.IsSuccess)
+                {
+                    connectable = [.. list.Value!.OrderBy(product => product.Name, StringComparer.OrdinalIgnoreCase)];
+                }
+                else
+                {
+                    connectFailed = true;
+                }
+            }
+        }
+
+        // Exactly one product can be opened, and the person has nothing else to do here (no admin console, nothing just went wrong, and they
+        // didn't ask to choose): go straight there.
+        var openable = products.Where(CanOpen).ToList();
+        if (openable.Count == 1 && consoleHref is null && Stay != "1" && ErrorCode is null)
+        {
+            opening = openable[0];
         }
     }
 }

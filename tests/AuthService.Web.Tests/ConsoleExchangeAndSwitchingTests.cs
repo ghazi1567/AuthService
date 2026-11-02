@@ -57,18 +57,19 @@ public sealed class ConsoleExchangeAndSwitchingTests
     }
 
     [Fact]
-    public async Task TheRateLimitOnTheChooseProductPageKeepsTheOrganisationInTheRetryForm()
+    public async Task ARateLimitedConsoleExchangeNeverStopsThePersonChoosingAProduct()
     {
         var api = Api();
         api.ExchangeResponse = () => RateLimited(10);
+        api.MyApplicationsJson = $$"""[{"applicationId":"{{Guid.NewGuid()}}","key":"helpdesk","name":"Helpdesk","state":"NoAccess","launchUrl":null}]""";
         await using var factory = new WebAppFactory(api);
         using var client = await SignedInAsync(factory);
 
         var html = await client.GetStringAsync($"/choose-product?tenantId={Acme}", Token);
 
-        html.ShouldContain("data-countdown=\"10\"");
-        html.ShouldContain("action=\"/choose-product\"");
-        html.ShouldContain($"<input type=\"hidden\" name=\"tenantId\" value=\"{Acme}\"");
+        html.ShouldContain("Helpdesk");
+        html.ShouldNotContain("Admin console", customMessage: "the console entry waits until the exchange works");
+        html.ShouldNotContain("data-countdown");
     }
 
     [Fact]
@@ -80,13 +81,10 @@ public sealed class ConsoleExchangeAndSwitchingTests
         using var client = await SignedInAsync(factory);
 
         var console = WebUtility.HtmlDecode(await client.GetStringAsync($"/console/{Acme}/members", Token));
-        var product = WebUtility.HtmlDecode(await client.GetStringAsync($"/choose-product?tenantId={Acme}", Token));
 
         console.ShouldContain("You don't have access");
         console.ShouldContain("You're not an active member of this organisation");
         console.ShouldNotContain("You're going a little fast");
-        product.ShouldContain("You can't open this organisation");
-        product.ShouldContain("Ask an admin of the organisation.");
     }
 
     [Fact]

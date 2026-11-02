@@ -43,6 +43,7 @@ app.MapStaticAssets();
 app.MapSessionEndpoints();
 app.MapConsoleEndpoints();
 app.MapPlatformEndpoints();
+app.MapProductEndpoints();
 
 app.MapGet("/healthz", () => Results.Text("ok")).AllowAnonymous();
 
