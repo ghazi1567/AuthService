@@ -1885,3 +1885,39 @@ a.org-row:hover {
     .consequence-list li {
         margin-bottom: 6px;
     }
+
+/* Choosing what to do in an organisation: the organisation, then the admin console and the products that can be connected */
+.context-line {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 16px;
+    color: var(--text-secondary);
+    font: 500 14px/20px var(--font-ui);
+}
+
+    .context-line .org-name {
+        color: var(--text-primary);
+    }
+
+.picker-section {
+    margin: 32px 0 8px;
+    font: 600 18px/26px var(--font-ui);
+}
+
+.connect-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+    .connect-list li {
+        padding: 12px 16px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        font: 500 14px/20px var(--font-ui);
+    }

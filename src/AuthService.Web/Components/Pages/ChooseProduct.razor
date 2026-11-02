@@ -1,0 +1,182 @@
+@page "/choose-product"
+@attribute [Authorize]
+@layout PickerLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject SessionService Sessions
+@inject NavigationManager Navigation
+
+<PageTitle>@(console?.TenantName ?? "Your organisation") · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="picker-title">You can't open this organisation</h1>
+    <p class="picker-lead">You may not be an active member, or the organisation may be suspended. Ask an admin of the organisation.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || console is null)
+{
+    <h1 class="picker-title">Your organisation</h1>
+    <ErrorState Title="We couldn't open this organisation" RetryHref="@PagePath" Reference="@reference" />
+}
+else
+{
+    <p class="context-line">
+        <span class="org-tile org-tile-sm" aria-hidden="true">@Initials(console.TenantName)</span>
+        <span class="org-name">@console.TenantName</span>
+        <a href="/choose-organisation?change=1">Change</a>
+    </p>
+    <h1 class="picker-title">What would you like to do?</h1>
+
+    @if (consoleHref is not null)
+    {
+        <a class="org-row" href="@consoleHref">
+            <span class="org-tile" aria-hidden="true"><Icon Name="shield" /></span>
+            <span class="org-text">
+                <span class="org-name">Admin console</span>
+                <span class="org-note">Manage people, roles, product access, API keys and more for @console.TenantName.</span>
+            </span>
+            <Icon Name="chevron-right" />
+        </a>
+
+        <h2 class="picker-section">Connect a product</h2>
+        <p class="picker-lead">A product connects your organisation itself. Ask the team behind the product to connect @console.TenantName. Once they have, it appears under Subscriptions in the admin console, and you can give people access.</p>
+        @if (connectFailed)
+        {
+            <AlertBanner Kind="AlertKind.Warning" Title="We couldn't load the list of products" Class="auth-alert">
+                <p class="alert-body">Nothing is wrong with your organisation. <a href="@PagePath">Try again</a> in a moment.</p>
+            </AlertBanner>
+        }
+        else if (connectable.Count == 0)
+        {
+            <p class="muted">No products are available to connect right now.</p>
+        }
+        else
+        {
+            <ul class="connect-list" aria-label="Products that can be connected">
+                @foreach (var product in connectable)
+                {
+                    <li>@product.Name</li>
+                }
+            </ul>
+        }
+    }
+    else
+    {
+        <EmptyState Title="Nothing to open from here yet" IconName="building">
+            <p class="empty-body">Your organisation's admin decides which products you can use. Once you have access, open the product and sign in with your Auth Service account.</p>
+        </EmptyState>
+    }
+}
+
+@code {
+    private static readonly (string Permission, string Path)[] ConsolePages =
+    [
+        (PermissionKeys.MembersRead, "members"),
+        (PermissionKeys.RolesRead, "roles"),
+        (PermissionKeys.AccessManage, "access"),
+        (PermissionKeys.ApiKeysRead, "api-keys"),
+        (PermissionKeys.SubscriptionsRead, "subscriptions"),
+        (PermissionKeys.AuditRead, "audit"),
+    ];
+
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool connectFailed;
+    private string? reference;
+    private string? consoleHref;
+    private List<ProductSummary> connectable = [];
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tenantId")] private Guid? TenantId { get; set; }
+
+    private string PagePath => TenantId is { } id ? $"/choose-product?tenantId={id}" : "/choose-organisation?change=1";
+
+    private static string Initials(string name)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length switch
+        {
+            0 => "?",
+            1 => char.ToUpperInvariant(words[0][0]).ToString(),
+            _ => string.Concat(char.ToUpperInvariant(words[0][0]), char.ToUpperInvariant(words[1][0])),
+        };
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        if (TenantId is not { } tenantId)
+        {
+            leaving = true;
+            Navigation.NavigateTo("/choose-organisation?change=1");
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, tenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+            return;
+        }
+
+        console = result.Console;
+
+        // Someone who may read any part of the admin console is an admin here; everyone else is just a member.
+        var first = ConsolePages.FirstOrDefault(page => console!.Can(page.Permission, AccessLevel.ReadOnly));
+        if (first.Path is null)
+        {
+            return;
+        }
+
+        consoleHref = $"/console/{tenantId}/{first.Path}";
+
+        // The products that can be connected are the same for everyone; only their names are shown.
+        var identityToken = HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid
+            ? await Sessions.GetAccessTokenAsync(sid.Value, HttpContext.RequestAborted)
+            : null;
+        var list = identityToken is null
+            ? null
+            : await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", identityToken, HttpContext.RequestAborted);
+        if (list is { IsSuccess: true })
+        {
+            connectable = [.. list.Value!.OrderBy(product => product.Name, StringComparer.OrdinalIgnoreCase)];
+        }
+        else
+        {
+            connectFailed = true;
+        }
+    }
+}
