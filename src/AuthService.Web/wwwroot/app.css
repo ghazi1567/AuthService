@@ -1786,3 +1786,18 @@ a.org-row:hover {
     justify-content: space-between;
     gap: 12px;
 }
+
+/* Console header: the organisation's status beside its name, and the banner for a suspended one */
+.menu-status {
+    display: none;
+}
+
+@media (min-width: 640px) {
+    .menu-status {
+        display: inline-flex;
+    }
+}
+
+.suspended-banner {
+    margin-bottom: 24px;
+}

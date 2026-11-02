@@ -166,6 +166,9 @@ What is in place:
   means for people, and seats used against the limit as the API reports them (a meter with "Almost full" at 80% and "No seats left" at the limit, or "no seat limit"). Working
   products come first. Active products link to Product access (for someone who may manage it); a banner says how many products aren't active. Read-only: subscriptions are
   created and changed by the platform administrator, so there are no actions here.
+- **Organisation in the header** (UI03_T5). Every console page reads `GET /api/auth/tenant/me` with the console token and shows the organisation's name with its status as a badge (Active,
+  Trial, Suspended; "Status unknown" if the profile can't be read, the page still works), and in the menu for small screens. A suspended organisation gets a banner on every page saying
+  what is blocked: people can't open its products, its API keys have stopped working and no new products can be added.
 - **Audit log** (`/console/{tenantId}/audit`, UI03_T4). The organisation's own entries, newest first: when (UTC), who, what in plain words (action codes have readable names; a code with no
   name reads as its last words) and the source address, with the entry's detail underneath. Filters: what happened, from, up to and including, and "Only this person" on any entry. **Load more**
   asks the API for 50 more, up to 200 (the most it allows), then says to narrow the filters. The organisation always comes from the token, never the address; reading the log is itself recorded by

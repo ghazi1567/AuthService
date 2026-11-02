@@ -1,5 +1,6 @@
 @inherits LayoutComponentBase
 @using System.Text.RegularExpressions
+@using AuthService.Web.Api
 @inject IServiceProvider Services
 
 @* Shell for the tenant console: members, invitations, roles, product access, API keys, subscriptions, audit (UI-02, UI-03).
@@ -42,11 +43,13 @@
                 <details class="menu">
                     <summary class="menu-trigger" aria-label="Account menu for @console.Email">
                         <span class="org-tile org-tile-sm" aria-hidden="true">@Initials(console.TenantName)</span>
-                        <span class="menu-email">@console.TenantName</span>
+                        <span class="menu-email">@(profile?.Name ?? console.TenantName)</span>
+                        <span class="menu-status">@Badge(profile?.Status)</span>
                         <Icon Name="chevron-down" />
                     </summary>
                     <div class="menu-panel">
                         <p class="menu-who">Signed in as<br /><strong>@console.Email</strong></p>
+                        <p class="menu-who">Organisation status<br />@Badge(profile?.Status)</p>
                         <a class="btn btn-secondary btn-block menu-link" href="/choose-organisation?change=1">Switch organisation</a>
                         <SignOutButton Class="btn-block" />
                     </div>
@@ -54,6 +57,13 @@
             }
         </header>
         <main id="main" tabindex="-1" class="console-content">
+            @if (profile is { IsSuspended: true })
+            {
+                <AlertBanner Kind="AlertKind.Error" Title="@($"{profile.Name} is suspended")" Class="suspended-banner">
+                    <p class="alert-body">People can't open its products, its API keys have stopped working, and no new products can be added until it is switched back on. Contact the platform administrator.</p>
+                </AlertBanner>
+            }
+
             @Body
         </main>
     </div>
@@ -74,6 +84,7 @@
     ];
 
     private ConsoleContext? console;
+    private TenantProfile? profile;
     private Guid tenantId;
 
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
@@ -96,8 +107,32 @@
         {
             var result = await session.LoadAsync(HttpContext, tenantId);
             console = result.Console;
+
+            // The header always shows the organisation the token is for. If the profile can't be read the name still shows, with an unknown status.
+            if (console is not null && Services.GetService<AuthApiClient>() is { } api)
+            {
+                var read = await api.GetAsync<TenantProfile>("/api/auth/tenant/me", console.Token, HttpContext.RequestAborted);
+                profile = read.IsSuccess ? read.Value : null;
+            }
         }
     }
+
+    /// <summary>The organisation's status as a badge: icon and word together. Unknown when the profile couldn't be read.</summary>
+    private static RenderFragment Badge(string? status) => builder =>
+    {
+        var (kind, icon, label) = status switch
+        {
+            "Active" => ("success", "check", "Active"),
+            "Trial" => ("info", "clock", "Trial"),
+            "Suspended" => ("warning", "alert-triangle", "Suspended"),
+            _ => ("neutral", "info", "Status unknown"),
+        };
+        builder.OpenComponent<Shared.StatusBadge>(0);
+        builder.AddAttribute(1, nameof(Shared.StatusBadge.Kind), kind);
+        builder.AddAttribute(2, nameof(Shared.StatusBadge.IconName), icon);
+        builder.AddAttribute(3, nameof(Shared.StatusBadge.Label), label);
+        builder.CloseComponent();
+    };
 
     private string CurrentPath =>
         Services.GetService<NavigationManager>() is { } navigation ? new Uri(navigation.Uri).AbsolutePath : "";

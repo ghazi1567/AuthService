@@ -167,6 +167,16 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public Func<HttpResponseMessage>? SubscriptionsResponse { get; set; }
 
+    /// <summary>What the organisation's profile says its status is: Trial, Active or Suspended.</summary>
+    public string TenantStatus { get; set; } = "Active";
+
+    public string TenantName { get; set; } = "Acme Ltd";
+
+    /// <summary>Overrides the answer of <c>GET /api/auth/tenant/me</c> (an error, for instance).</summary>
+    public Func<HttpResponseMessage>? TenantProfileResponse { get; set; }
+
+    public List<string?> TenantProfileAuthorizations { get; } = [];
+
     /// <summary>The audit log, as the API's page object: <c>{"items":[...],"next":null}</c>.</summary>
     public string AuditJson { get; set; } = """{"items":[],"next":null}""";
 
@@ -372,6 +382,20 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             case "/api/auth/roles":
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
+
+            case "/api/auth/tenant/me":
+                lock (_gate)
+                {
+                    TenantProfileAuthorizations.Add(request.Headers.Authorization?.ToString());
+                }
+
+                return TenantProfileResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""{"id":"7d8e6b92-2d0b-4f43-9e0a-0d6a0f0f4d11","name":"{{TenantName}}","status":"{{TenantStatus}}","createdAt":"2026-09-01T10:00:00Z"}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
 
             case "/api/auth/tenants/me/audit":
                 lock (_gate)
