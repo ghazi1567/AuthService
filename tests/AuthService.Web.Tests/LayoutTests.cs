@@ -13,7 +13,6 @@ public sealed class LayoutTests
     [InlineData(typeof(MainLayout))]
     [InlineData(typeof(AuthLayout))]
     [InlineData(typeof(TenantLayout))]
-    [InlineData(typeof(PlatformLayout))]
     [InlineData(typeof(PickerLayout))]
     public async Task EveryShellHasASkipLinkAMainLandmarkAndTheErrorBar(Type layout)
     {
@@ -28,6 +27,18 @@ public sealed class LayoutTests
     }
 
     [Fact]
+    public async Task ThePlatformShellHasTheLandmarksAndShowsNoPageUntilTheApiHasSaidThePersonMayBeThere()
+    {
+        var html = await RenderAsync(typeof(PlatformLayout));
+
+        html.ShouldContain("""<a class="skip-link" href="#main" """.TrimEnd());
+        html.ShouldContain("""<main id="main" tabindex="-1" """.TrimEnd());
+        html.ShouldContain("""id="blazor-error-ui" """.TrimEnd());
+        html.ShouldNotContain("<p>page content</p>", customMessage: "with no answer from the API the page behind is held back (fail closed)");
+        html.ShouldNotContain("""<nav aria-label="Main" """.TrimEnd());
+    }
+
+    [Fact]
     public async Task TheConsolesHaveAHeaderAndNavigationAndThePlatformOneSaysWhereYouAre()
     {
         var tenant = await RenderAsync(typeof(TenantLayout));
@@ -36,9 +47,8 @@ public sealed class LayoutTests
         tenant.ShouldContain("<header");
         tenant.ShouldContain("""<nav aria-label="Main" """.TrimEnd());
         platform.ShouldContain("<header");
-        platform.ShouldContain("""<nav aria-label="Main" """.TrimEnd());
-        platform.ShouldContain("Platform administration");
-        tenant.ShouldNotContain("Platform administration");
+        platform.ShouldContain("Platform admin");
+        tenant.ShouldNotContain("Platform admin");
     }
 
     private static async Task<string> RenderAsync(Type layout)

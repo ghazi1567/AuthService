@@ -1,16 +1,143 @@
 @inherits LayoutComponentBase
+@using System.Text.RegularExpressions
+@inject IServiceProvider Services
 
-@* Shell for the platform admin console: products, catalogs, webhooks, signing keys, audit (UI-04). It is visually distinct from the
-   tenant console so an operator always knows where they are. Details arrive with UI-00 / shell / platform (UI00_T4). *@
+@* Shell for the platform console (UI-04): for the people who run the platform, never the organisations' admins. The header is dark and always says
+   "Platform admin", so it cannot be mistaken for an organisation's console. Whether the person may be here is decided by the API: if it says no, this
+   shell shows a plain "not allowed" page and the page behind it is never drawn, so no admin data can reach them. Desktop only. *@
 <a class="skip-link" href="#main">Skip to content</a>
-<div class="shell shell-platform">
-    <header>
-        <span class="shell-title">Auth Service · Platform administration</span>
-    </header>
-    <nav aria-label="Main"></nav>
-    <main id="main" tabindex="-1">
-        @Body
-    </main>
+<div class="platform-small-notice" role="status">
+    <div class="icon-tile"><Icon Name="info" /></div>
+    <h1 class="page-title">Use a larger screen</h1>
+    <p class="page-lead">The platform console is built for a desktop or laptop screen. Open it on a wider window to continue.</p>
+</div>
+<div class="shell shell-tenant shell-platform">
+    <aside class="console-sidebar" id="nav">
+        <div class="console-sidebar-head">
+            <a class="logo" href="/" aria-label="Auth Service home"><LogoMark />Platform admin</a>
+        </div>
+        @if (allowed)
+        {
+            <p class="overline">Operate</p>
+            <nav aria-label="Main">
+                @foreach (var item in Items.Where(item => item.Built))
+                {
+                    <a class="console-nav-item" href="/platform/@item.Path" aria-current="@(IsCurrent(item) ? "page" : null)"><Icon Name="@item.Icon" />@item.Label</a>
+                }
+            </nav>
+        }
+
+        <div class="console-sidebar-foot">
+            <a class="console-nav-item" href="/choose-organisation?change=1"><Icon Name="building" />My organisations</a>
+        </div>
+    </aside>
+    <div class="console-column">
+        <header class="console-header">
+            <p class="console-crumb" aria-label="You are here">
+                <span class="platform-label"><Icon Name="shield" />Platform admin</span>
+                @if (allowed && CurrentItem is { } current)
+                {
+                    <Icon Name="chevron-right" />
+                    <span aria-current="page">@current.Label</span>
+                }
+            </p>
+            @if (email is not null)
+            {
+                <details class="menu">
+                    <summary class="menu-trigger" aria-label="Account menu for @email">
+                        <span class="avatar" aria-hidden="true">@char.ToUpperInvariant(email[0])</span>
+                        <span class="menu-email">@email</span>
+                        <Icon Name="chevron-down" />
+                    </summary>
+                    <div class="menu-panel">
+                        <p class="menu-who">Signed in as<br /><strong>@email</strong></p>
+                        <SignOutButton Class="btn-block" />
+                    </div>
+                </details>
+            }
+        </header>
+        <main id="main" tabindex="-1" class="console-content">
+            @if (!decided)
+            {
+                @* Waiting for the API to say whether this person may be here. *@
+            }
+            else if (outcome == PlatformOutcome.NotAllowed)
+            {
+                <div class="empty-state not-allowed">
+                    <div class="icon-tile"><Icon Name="lock" /></div>
+                    <h1 class="empty-title">You don't have access to this page</h1>
+                    <p class="empty-body">This part of Auth Service is for the people who run the platform. If you think you should be able to open it, ask them.</p>
+                    <a class="btn btn-secondary" href="/choose-organisation?change=1">Go to my organisations</a>
+                </div>
+            }
+            else if (outcome == PlatformOutcome.Unavailable)
+            {
+                <ErrorState Title="We couldn't open the platform console" RetryHref="@CurrentPath" Reference="@reference" />
+            }
+            else if (allowed)
+            {
+                @Body
+            }
+        </main>
+    </div>
 </div>
 
 <UnhandledErrorBar />
+
+@code {
+    private static readonly NavItem[] Items =
+    [
+        new("Products", "products", "building", Built: false),
+        new("Webhook events", "webhooks", "mail", Built: false),
+        new("Signing keys", "signing-keys", "key", Built: false),
+        new("Audit log", "audit", "list", Built: true),
+    ];
+
+    private PlatformOutcome outcome = PlatformOutcome.Unavailable;
+    private bool decided;
+    private string? email;
+    private string? reference;
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    // Blazor draws once before the check below has an answer; until it does, nothing of the page behind is created, let alone asked for data.
+    private bool allowed => decided && outcome == PlatformOutcome.Allowed;
+
+    private string CurrentPath =>
+        Services.GetService<NavigationManager>() is { } navigation ? new Uri(navigation.Uri).PathAndQuery : "/platform";
+
+    private NavItem? CurrentItem => Items.FirstOrDefault(IsCurrent);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var name = AuthenticationState is null ? null : (await AuthenticationState).User.Identity?.Name;
+        email = string.IsNullOrEmpty(name) ? null : name;
+
+        if (HttpContext is null || Services.GetService<PlatformSession>() is not { } session)
+        {
+            return;
+        }
+
+        outcome = (await session.LoadAsync(HttpContext)).Outcome;
+        decided = true;
+        switch (outcome)
+        {
+            case PlatformOutcome.SessionEnded:
+                Services.GetRequiredService<NavigationManager>().NavigateTo($"/login?returnUrl={Uri.EscapeDataString(CurrentPath)}&reason=expired");
+                break;
+            case PlatformOutcome.NotAllowed:
+                HttpContext.Response.StatusCode = StatusCodes.Status403Forbidden;
+                break;
+            case PlatformOutcome.Unavailable:
+                reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+                break;
+        }
+    }
+
+    private bool IsCurrent(NavItem item) =>
+        new Uri(Services.GetRequiredService<NavigationManager>().Uri).AbsolutePath.StartsWith($"/platform/{item.Path}", StringComparison.OrdinalIgnoreCase);
+
+    private sealed record NavItem(string Label, string Path, string Icon, bool Built);
+}

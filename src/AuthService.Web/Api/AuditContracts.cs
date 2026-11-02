@@ -49,10 +49,39 @@ public static class AuditLabels
         ["auth.invitation.sent"] = "Invitation sent",
         ["auth.invitation.resent"] = "Invitation sent again",
         ["auth.invitation.accepted"] = "Invitation accepted",
+        ["auth.admin.audit_read"] = "Platform audit log viewed",
+        ["auth.application.registered"] = "Product registered",
+        ["auth.application.secret_rotated"] = "Product secret replaced",
+        ["auth.application.permissions_registered"] = "Product permissions registered",
+        ["auth.application.activated"] = "Product made available",
+        ["auth.application.deactivated"] = "Product withdrawn",
+        ["auth.application.webhook_configured"] = "Product webhook set",
+        ["auth.webhook.resent"] = "Webhook sent again",
+        ["auth.signing_key.created"] = "Signing key created",
+        ["auth.signing_key.rotated"] = "Signing key rotated",
+    };
+
+    /// <summary>Events only the people who run the platform cause or see; an organisation's own log never offers them.</summary>
+    private static readonly HashSet<string> PlatformOnly = new(StringComparer.Ordinal)
+    {
+        "auth.admin.audit_read",
+        "auth.application.registered",
+        "auth.application.secret_rotated",
+        "auth.application.permissions_registered",
+        "auth.application.activated",
+        "auth.application.deactivated",
+        "auth.application.webhook_configured",
+        "auth.webhook.resent",
+        "auth.signing_key.created",
+        "auth.signing_key.rotated",
     };
 
     /// <summary>The events an organisation's admin can have in their own log, by name, for the filter.</summary>
     public static IReadOnlyList<(string Code, string Label)> Choices { get; } =
+        [.. Labels.Where(pair => !PlatformOnly.Contains(pair.Key)).Select(pair => (pair.Key, pair.Value)).OrderBy(choice => choice.Value, StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>Every event, for the platform admin's log.</summary>
+    public static IReadOnlyList<(string Code, string Label)> PlatformChoices { get; } =
         [.. Labels.Select(pair => (pair.Key, pair.Value)).OrderBy(choice => choice.Value, StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>A readable name for an action code. A code with no name here reads as its last words, not as a raw code.</summary>

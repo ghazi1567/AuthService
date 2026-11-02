@@ -173,6 +173,13 @@ What is in place:
   name reads as its last words) and the source address, with the entry's detail underneath. Filters: what happened, from, up to and including, and "Only this person" on any entry. **Load more**
   asks the API for 50 more, up to 200 (the most it allows), then says to narrow the filters. The organisation always comes from the token, never the address; reading the log is itself recorded by
   the API. The API returns only an id for who did something, so a person other than you reads as "A person (a1b2c3d4)"; you are "You" and a product is named when the organisation has it.
+- **Platform console** (`/platform`, UI04_T6 and UI04_T7). For the people who run the platform, never linked from an organisation's console. A dark header always says "Platform admin"
+  and the console is desktop only ("Use a larger screen" below 1024 px). **The API decides who may enter**: the web app makes one cheap read that only platform admins may make
+  (`GET /api/auth/admin/webhooks?limit=1`, which is not recorded in the audit log) with the person's own sign-in token, and never trusts a claim, cookie or address from the browser.
+  If the API says no, the shell shows a plain "You don't have access to this page" (status 403) with no navigation, and the page behind it is never drawn, so no admin data is read;
+  until the API has answered, nothing of the page is drawn either (fail closed). An ended sign-in goes to sign-in, and an API that can't answer is a calm error, not "not allowed".
+  `/platform` leads to the first part that exists. **Audit log** (`/platform/audit`): every organisation, newest first, with the organisation and a readable event name; filters for
+  what happened, organisation id, a date range and "Only this person" / "Only this organisation"; Load more up to 200. Viewing it is itself recorded.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

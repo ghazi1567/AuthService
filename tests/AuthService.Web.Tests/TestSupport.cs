@@ -185,6 +185,21 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Query)> AuditCalls { get; } = [];
 
+    /// <summary>Whether the API treats the signed-in person as a platform admin. Every call under <c>/api/auth/admin</c> is refused with 403 when not.</summary>
+    public bool IsPlatformAdmin { get; set; }
+
+    /// <summary>Overrides the answer of every platform admin call (the sign-in token expiring, the API failing).</summary>
+    public Func<string, HttpResponseMessage?>? AdminResponse { get; set; }
+
+    /// <summary>Every call made under <c>/api/auth/admin</c>: the bearer token and the path with its query.</summary>
+    public List<(string? Authorization, string PathAndQuery)> AdminCalls { get; } = [];
+
+    /// <summary>The platform audit log, as the API's page object.</summary>
+    public string AdminAuditJson { get; set; } = """{"items":[],"next":null}""";
+
+    /// <summary>The webhook outbox, as the API's page object.</summary>
+    public string AdminWebhooksJson { get; set; } = """{"items":[],"next":null}""";
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -200,6 +215,32 @@ public sealed class FakeAuthApi : HttpMessageHandler
         if (Unreachable && path != "/api/auth/login")
         {
             throw new HttpRequestException("the API is down");
+        }
+
+        if (path.StartsWith("/api/auth/admin/", StringComparison.Ordinal))
+        {
+            lock (_gate)
+            {
+                AdminCalls.Add((request.Headers.Authorization?.ToString(), request.RequestUri.PathAndQuery));
+            }
+
+            if (AdminResponse?.Invoke(request.RequestUri.PathAndQuery) is { } overridden)
+            {
+                return overridden;
+            }
+
+            if (!IsPlatformAdmin)
+            {
+                return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            }
+
+            var adminJson = path switch
+            {
+                "/api/auth/admin/audit" => AdminAuditJson,
+                "/api/auth/admin/webhooks" => AdminWebhooksJson,
+                _ => "{}",
+            };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(adminJson, Encoding.UTF8, "application/json") };
         }
 
         if (path == "/api/auth/apikeys")
