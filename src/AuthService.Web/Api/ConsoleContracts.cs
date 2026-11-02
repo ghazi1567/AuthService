@@ -95,3 +95,6 @@ public sealed record RoleGrantInput(Guid ApplicationId, string Permission, strin
 
 /// <summary>Body of <c>POST /api/auth/roles</c> and <c>PATCH /api/auth/roles/{id}</c>. The permissions replace the whole set.</summary>
 public sealed record SaveRoleRequest(string Name, IReadOnlyList<RoleGrantInput> Permissions);
+
+/// <summary>Body of <c>PUT /api/auth/tenants/me/members/{id}/roles</c>: the whole set of roles the member should hold (1 to 10).</summary>
+public sealed record AssignRolesRequest(IReadOnlyList<Guid> RoleIds);

@@ -1,0 +1,260 @@
+@page "/console/{TenantId:guid}/members/{MembershipId:guid}/roles"
+@attribute [Authorize]
+@layout TenantLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Roles · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">Roles</h1>
+    <ErrorState Title="We couldn't load this page" RetryHref="@Navigation.Uri" Reference="@reference" />
+}
+else if (!console!.Can(PermissionKeys.RolesAssign, AccessLevel.Full) || !console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly) || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">Roles</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't change roles">
+        <p class="alert-body">You need the 'Roles · Full access' permission, and to be able to see members and roles. Ask an admin of @console.TenantName.</p>
+    </AlertBanner>
+    <a class="btn btn-secondary" href="@MembersPath">Back to members</a>
+}
+else if (member is null)
+{
+    <h1 class="page-title">That member isn't here</h1>
+    <p class="page-lead">They may have been removed. The list of members is up to date.</p>
+    <a class="btn btn-secondary" href="@MembersPath">Back to members</a>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Roles for @(member.DisplayName ?? member.Email)</h1>
+            <p class="page-lead">Choose between 1 and 10 roles. They replace the roles this person has now. A change reaches them the next time they open the console or a product, within about 15 minutes.</p>
+        </div>
+    </div>
+
+    @if (message is not null)
+    {
+        <AlertBanner Kind="@messageKind" Title="@messageTitle" Class="auth-alert">
+            <p class="alert-body">@message</p>
+        </AlertBanner>
+    }
+
+    <form method="post" @onsubmit="SaveAsync" @formname="assign" class="editor" data-unsaved-guard>
+        <AntiforgeryToken />
+        <fieldset class="choice-group">
+            <legend>Roles</legend>
+            @foreach (var role in roles)
+            {
+                var isOwner = role.Name == "Owner";
+                var locked = isOwner && !callerIsOwner;
+                <label class="check @(locked ? "is-disabled" : null)">
+                    <input type="checkbox" name="roleId" value="@role.Id" checked="@chosen.Contains(role.Id)" disabled="@locked" />
+                    <span>@role.Name</span>
+                    @if (locked)
+                    {
+                        <span class="muted">Only an Owner can give or remove the Owner role.</span>
+                    }
+                    else if (role.MemberCount > 0)
+                    {
+                        <span class="muted">@role.MemberCount @(role.MemberCount == 1 ? "person" : "people")</span>
+                    }
+                </label>
+                @if (locked && chosen.Contains(role.Id))
+                {
+                    @* A disabled box is not sent, so a role this person already holds and you can't change is sent along unchanged. *@
+                    <input type="hidden" name="roleId" value="@role.Id" />
+                }
+            }
+        </fieldset>
+
+        <div class="editor-actions">
+            <a class="btn btn-secondary" href="@MembersPath">Cancel</a>
+            <button type="submit" class="btn btn-primary" data-busy-label="Saving…">Save roles</button>
+        </div>
+    </form>
+}
+
+@code {
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool callerIsOwner;
+    private string? reference;
+    private MemberItem? member;
+    private List<RoleListItem> roles = [];
+    private readonly HashSet<Guid> chosen = [];
+    private string? message;
+    private string messageTitle = "";
+    private AlertKind messageKind = AlertKind.Error;
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [Parameter] public Guid MembershipId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private string MembersPath => $"/console/{TenantId}/members";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(HttpContext.Request.Path)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        if (!console!.Can(PermissionKeys.RolesAssign, AccessLevel.Full)
+            || !console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly)
+            || !console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var membersResult = await Api.GetAsync<List<MemberItem>>("/api/auth/tenants/me/members", console.Token, HttpContext.RequestAborted);
+        var rolesResult = await Api.GetAsync<List<RoleListItem>>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
+        if (!membersResult.IsSuccess || !rolesResult.IsSuccess)
+        {
+            if (membersResult.Problem?.Status == StatusCodes.Status401Unauthorized || rolesResult.Problem?.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(HttpContext.Request.Path);
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        member = membersResult.Value!.FirstOrDefault(candidate => candidate.MembershipId == MembershipId);
+        roles = [.. rolesResult.Value!.OrderByDescending(role => role.IsBuiltIn).ThenBy(role => role.Name, StringComparer.CurrentCultureIgnoreCase)];
+
+        // The Owner role is only for an Owner to give or remove; whether the person here is one is found among the members.
+        callerIsOwner = membersResult.Value!.Any(candidate => string.Equals(candidate.Email, console.Email, StringComparison.OrdinalIgnoreCase)
+            && candidate.Roles.Any(role => role.Name == "Owner"));
+
+        if (member is not null)
+        {
+            foreach (var role in member.Roles)
+            {
+                chosen.Add(role.Id);
+            }
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        chosen.Clear();
+        foreach (var value in HttpContext!.Request.Form["roleId"])
+        {
+            if (Guid.TryParse(value, out var id))
+            {
+                chosen.Add(id);
+            }
+        }
+
+        if (chosen.Count is < 1 or > 10)
+        {
+            Show(AlertKind.Error, "Choose between 1 and 10 roles", chosen.Count == 0
+                ? "A member keeps at least one role. To remove their access, disable them instead."
+                : "A member can hold at most 10 roles.");
+            return;
+        }
+
+        var result = await Api.PutNoContentAsync(
+            $"/api/auth/tenants/me/members/{MembershipId}/roles", new AssignRolesRequest([.. chosen]), console!.Token, HttpContext.RequestAborted);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{MembersPath}?notice=roles&m={MembershipId}");
+            return;
+        }
+
+        var problem = result.Problem!;
+        switch (problem.Code)
+        {
+            case "roles_required":
+                Show(AlertKind.Error, "A member needs a role", "A member keeps at least one role. To remove their access, disable them instead.");
+                return;
+            case "owner_role_restricted":
+                Show(AlertKind.Error, "Only an Owner can do that", "Only an Owner can give or remove the Owner role.");
+                return;
+            case "last_owner":
+                Show(AlertKind.Error, "You can't remove the last Owner", $"{console.TenantName} needs at least one Owner. Make someone else an Owner first.");
+                return;
+            case "not_found":
+                Show(AlertKind.Warning, "Something has changed", "This member or one of the roles isn't here any more. Go back to the members and try again.");
+                return;
+        }
+
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            Session.Refresh(HttpContext, TenantId);
+            leaving = true;
+            Navigation.NavigateTo(HttpContext.Request.Path);
+            return;
+        }
+
+        if (problem.Status == StatusCodes.Status403Forbidden)
+        {
+            Show(AlertKind.Error, "You don't have permission to do that", "You need the 'Roles · Full access' permission to change someone's roles.");
+            return;
+        }
+
+        Show(AlertKind.Error, "We couldn't save the roles", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+    }
+
+    private void Show(AlertKind kind, string title, string text)
+    {
+        messageKind = kind;
+        messageTitle = title;
+        message = text;
+    }
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+}

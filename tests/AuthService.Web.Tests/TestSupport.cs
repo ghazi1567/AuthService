@@ -118,6 +118,10 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public string RolesJson { get; set; } = "[]";
 
+    public Func<HttpResponseMessage>? AssignRolesResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> AssignRolesCalls { get; } = [];
+
     /// <summary>What a role can grant, as the API's JSON object.</summary>
     public string CatalogJson { get; set; } = "{\"levels\":[\"ReadOnly\",\"CreateRead\",\"Full\"],\"applications\":[]}";
 
@@ -182,6 +186,19 @@ public sealed class FakeAuthApi : HttpMessageHandler
             return ResendResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("{\"membershipId\":\"00000000-0000-0000-0000-000000000000\",\"email\":\"x\",\"status\":\"Invited\",\"roles\":[],\"applicationIds\":[],\"expiresAt\":\"2026-11-09T10:00:00Z\"}", Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (path.StartsWith("/api/auth/tenants/me/members/", StringComparison.Ordinal) && path.EndsWith("/roles", StringComparison.Ordinal) && request.Method == HttpMethod.Put)
+        {
+            lock (_gate)
+            {
+                AssignRolesCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+            }
+
+            return AssignRolesResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"membershipId\":\"00000000-0000-0000-0000-000000000000\",\"roles\":[]}", Encoding.UTF8, "application/json"),
             };
         }
 

@@ -153,6 +153,16 @@ else
                                 }
                             </td>
                             <td data-label="Actions" class="row-actions">
+                                @if (canAssign)
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="/console/@TenantId/members/@member.MembershipId/roles">Roles</a>
+                                }
+                                else
+                                {
+                                    <span class="has-tip" tabindex="0" data-tip="You need the 'Roles · Full access' permission to change someone's roles.">
+                                        <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Roles</button>
+                                    </span>
+                                }
                                 @if (member.Status == "Active")
                                 {
                                     @if (canManage)
@@ -219,6 +229,7 @@ else
     private bool ready;
     private bool loadFailed;
     private bool canManage;
+    private bool canAssign;
     private string? reference;
     private List<MemberItem> members = [];
     private List<MemberItem> shown = [];
@@ -281,6 +292,7 @@ else
 
         console = result.Console;
         canManage = console!.Can(PermissionKeys.MembersManage, AccessLevel.Full);
+        canAssign = console.Can(PermissionKeys.RolesAssign, AccessLevel.Full);
         if (!console.Can(PermissionKeys.MembersRead, AccessLevel.ReadOnly))
         {
             return;
@@ -348,6 +360,9 @@ else
                     }));
                     inner.CloseComponent();
                 }));
+                break;
+            case ("roles", _):
+                Banner(builder, AlertKind.Success, $"{name}'s roles are updated".Replace("''", "'"), "The change reaches them the next time they open the console or a product, within about 15 minutes.");
                 break;
             case ("enabled", _):
                 Banner(builder, AlertKind.Success, $"{name} is enabled", "They can sign in again.");
