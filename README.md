@@ -61,14 +61,22 @@ What is in place:
 - **`AuthApiClient`** is the one way pages call the API. It turns every API error into an `ApiProblem` (status, stable `code`,
   per-field messages, `Retry-After`) instead of throwing, reports an unreachable API or a timeout as `api_unreachable`, never follows
   redirects, and never lets exception text or a proxy's error page reach a person. It holds no token itself.
-- **Three page shells**, empty until their Figma frames exist: `AuthLayout` (signed-out pages), `TenantLayout` (tenant console) and
-  `PlatformLayout` (platform admin console, labelled so an operator knows where they are). Each has a skip link and a `main` landmark.
+- **Three page shells**: `AuthLayout` (signed-out pages: brand panel on desktop, a centred card on tablet, the form full width on
+  mobile), `TenantLayout` (tenant console) and `PlatformLayout` (platform admin console, labelled so an operator knows where they are).
+  The tenant and platform shells are still empty. Each has a skip link and a `main` landmark.
+- **The design system** (`wwwroot/app.css`): the Signal Indigo tokens in light and dark (system preference, or `data-theme` on `<html>`),
+  buttons, fields, alerts and the public shell. Shared components are in `Components/Shared` (`AlertBanner`, `TextField`,
+  `PasswordField`, `Icon`). `wwwroot/app.js` only adds a show/hide password button, a busy button on submit and the rate-limit
+  countdown; every page works without it. Inter is named first in the font stack but not loaded from a font host, so no page calls a third party.
+- **`/login`** (UI01_T3), a server-rendered form with one wording for each answer of `POST /api/auth/login`: wrong email or password,
+  email not verified, account disabled, rate limited (with a live countdown from `Retry-After`) and API unreachable. A successful
+  sign-in calls the API and goes to `/`, but **drops the tokens** until the session exists.
 - **Security headers** on every response: `Referrer-Policy: no-referrer`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, a
   `frame-ancestors`/`form-action` policy and `Permissions-Policy`; HTML pages are `Cache-Control: no-store`. A script-source policy is
   decided with the finished design, because Blazor's scripts need a tested nonce policy.
 - **`GET /healthz`** answers `ok` while the app runs, and says nothing about the API.
-- **Not yet:** sign-in and the session (UI01_T1; cookie authentication with tokens kept on the server, per the decision), the real
-  screens, the shared design components and a container image.
+- **Not yet:** the session (UI01_T1; cookie authentication with tokens kept on the server, per the decision, which also gives "Keep me
+  signed in" its meaning), the other auth screens, the consoles and the picker.
 
 `tests/AuthService.Web.Tests` tests it with no database and no Docker (`dotnet test tests/AuthService.Web.Tests`).
 
