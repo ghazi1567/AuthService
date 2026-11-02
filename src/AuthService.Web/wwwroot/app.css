@@ -1710,3 +1710,79 @@ a.org-row:hover {
     font-family: var(--font-mono);
     font-size: 13px;
 }
+
+/* Audit log: a filter bar above the list, a chip for "only this person", and small detail lines */
+.btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-link);
+}
+
+    .btn-ghost:hover {
+        background: var(--action-primary-soft);
+    }
+
+.filter-bar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-items: end;
+    margin-bottom: 16px;
+    padding: 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+    .filter-bar .field {
+        margin: 0;
+    }
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
+}
+
+@media (min-width: 1024px) {
+    .filter-bar {
+        grid-template-columns: minmax(200px, 1.4fr) 1fr 1fr auto;
+    }
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 16px;
+    padding: 4px 12px;
+    background: var(--action-primary-soft);
+    border-radius: var(--radius-full);
+    color: var(--text-brand);
+    font: 500 13px/18px var(--font-ui);
+}
+
+    .filter-chip a {
+        color: var(--text-link);
+    }
+
+.row-link {
+    display: block;
+    color: var(--text-link);
+    font: 400 13px/18px var(--font-ui);
+}
+
+.audit-detail {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.table-foot-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}

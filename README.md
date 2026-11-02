@@ -166,6 +166,10 @@ What is in place:
   means for people, and seats used against the limit as the API reports them (a meter with "Almost full" at 80% and "No seats left" at the limit, or "no seat limit"). Working
   products come first. Active products link to Product access (for someone who may manage it); a banner says how many products aren't active. Read-only: subscriptions are
   created and changed by the platform administrator, so there are no actions here.
+- **Audit log** (`/console/{tenantId}/audit`, UI03_T4). The organisation's own entries, newest first: when (UTC), who, what in plain words (action codes have readable names; a code with no
+  name reads as its last words) and the source address, with the entry's detail underneath. Filters: what happened, from, up to and including, and "Only this person" on any entry. **Load more**
+  asks the API for 50 more, up to 200 (the most it allows), then says to narrow the filters. The organisation always comes from the token, never the address; reading the log is itself recorded by
+  the API. The API returns only an id for who did something, so a person other than you reads as "A person (a1b2c3d4)"; you are "You" and a product is named when the organisation has it.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
