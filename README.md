@@ -138,6 +138,11 @@ What is in place:
   choice offered is one the API accepts. Saving sends only the permissions above no access (`POST` to create, `PATCH` to replace the set). A name already
   used, the API's own reasons and an unreachable API are explained and the choices are kept; permissions of a product that is no longer active are flagged
   (saving removes them); the built-in Owner role can't be edited. `app.js` warns before leaving a form marked `data-unsaved-guard` once it has been changed.
+- **Assigning roles** (`/console/{tenantId}/members/{id}/roles`, UI02_T6), reached from a Roles action on each member. The roles the person holds are ticked; 1 to 10 can be
+  chosen and the choice replaces what they have (`PUT`). The Owner role is only for an Owner to give or remove: for anyone else it is disabled, and if the member already
+  holds it, it is sent along unchanged so it is not removed by accident. Choosing none is refused with a pointer to disabling the member; the API's refusals (a member needs
+  a role, only an Owner can do that, the last Owner can't step down, something changed) are explained in plain words with the choices kept. The page says a change reaches
+  the person within about 15 minutes. Needs `roles.assign:Full` plus read access to members and roles.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
