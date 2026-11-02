@@ -215,6 +215,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> SigningKeyRotateCalls { get; } = [];
 
+    /// <summary>The products the signed-in person can open in an organisation (<c>GET /api/auth/users/me/applications</c>), as a JSON array.</summary>
+    public string MyApplicationsJson { get; set; } = "[]";
+
+    /// <summary>Overrides the answer of the my-products read (given its query string), for an error for instance.</summary>
+    public Func<string, HttpResponseMessage?>? MyApplicationsResponse { get; set; }
+
+    public List<(string? Authorization, string Query)> MyApplicationsCalls { get; } = [];
+
     /// <summary>A product's permission catalog as the API returns it (<c>GET /api/auth/admin/applications/{id}/permissions</c>), as a JSON array.</summary>
     public string AdminPermissionsJson { get; set; } = "[]";
 
@@ -645,6 +653,15 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             case "/.well-known/jwks.json":
                 return JwksResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JwksJson, Encoding.UTF8, "application/json") };
+
+            case "/api/auth/users/me/applications":
+                lock (_gate)
+                {
+                    MyApplicationsCalls.Add((request.Headers.Authorization?.ToString(), request.RequestUri.Query));
+                }
+
+                return MyApplicationsResponse?.Invoke(request.RequestUri.Query)
+                    ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(MyApplicationsJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/applications":
                 return ProductsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ProductsJson, Encoding.UTF8, "application/json") };

@@ -7,6 +7,15 @@ namespace AuthService.Web.Security;
 /// </summary>
 public static class SecurityHeaders
 {
+    private const string FormTargetKey = "SecurityHeaders.FormTarget";
+
+    /// <summary>
+    /// Lets one response post a form to one other origin (and no other): used only to hand a product its token (decision 0007). Every other
+    /// response keeps <c>form-action 'self'</c>.
+    /// </summary>
+    public static void AllowFormPostTo(HttpContext context, Uri address) =>
+        context.Items[FormTargetKey] = address.GetLeftPart(UriPartial.Authority);
+
     public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder app) => app.Use(async (context, next) =>
     {
         context.Response.OnStarting(() =>
@@ -15,7 +24,8 @@ public static class SecurityHeaders
             headers["Referrer-Policy"] = "no-referrer";
             headers["X-Content-Type-Options"] = "nosniff";
             headers["X-Frame-Options"] = "DENY";
-            headers["Content-Security-Policy"] = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+            var formTarget = context.Items.TryGetValue(FormTargetKey, out var target) && target is string origin ? $" {origin}" : "";
+            headers["Content-Security-Policy"] = $"frame-ancestors 'none'; base-uri 'self'; form-action 'self'{formTarget}; object-src 'none'";
             headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()";
 
             if (context.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) == true)
