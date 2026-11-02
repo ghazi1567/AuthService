@@ -1,0 +1,8 @@
+@inject NavigationManager Navigation
+
+@* Sends someone who is not signed in to the login page, remembering the page they wanted. *@
+
+@code {
+    protected override void OnInitialized() =>
+        Navigation.NavigateTo($"{SessionAuthentication.LoginPath}?returnUrl={Uri.EscapeDataString("/" + Navigation.ToBaseRelativePath(Navigation.Uri))}", forceLoad: true);
+}

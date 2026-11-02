@@ -1,0 +1,15 @@
+@page "/account"
+@attribute [Authorize]
+@layout AuthLayout
+
+<PageTitle>Your account · Auth Service</PageTitle>
+
+<h1 class="auth-title">Your account</h1>
+
+<AuthorizeView>
+    <p class="auth-lead">You're signed in as <strong>@context.User.Identity?.Name</strong>.</p>
+</AuthorizeView>
+
+<div class="auth-actions">
+    <SignOutButton Class="btn-lg btn-block" />
+</div>
