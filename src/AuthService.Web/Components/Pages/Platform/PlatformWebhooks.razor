@@ -1,0 +1,338 @@
+@page "/platform/webhooks"
+@attribute [Authorize]
+@layout PlatformLayout
+@using System.Globalization
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>Webhook events · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Webhook events</h1>
+    <ErrorState Title="We couldn't load the webhook events" RetryHref="@Link(Take)" Reference="@reference" />
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Webhook events</h1>
+            <p class="page-lead">What the platform has tried to tell products about, newest first. An event that couldn't be delivered in time shows as Failed and can be sent again. Times are UTC.</p>
+        </div>
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    <form method="get" action="/platform/webhooks" class="filter-bar filter-bar-short" aria-label="Filter the webhook events">
+        <div class="field">
+            <label for="f-status">Status</label>
+            <select id="f-status" name="status" class="input">
+                <option value="">Any status</option>
+                @foreach (var option in Statuses)
+                {
+                    <option value="@option" selected="@(option == status)">@option</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="f-app">Product</label>
+            <select id="f-app" name="app" class="input">
+                <option value="">Any product</option>
+                @foreach (var product in products)
+                {
+                    <option value="@product.Id" selected="@(product.Id == app)">@product.Name</option>
+                }
+            </select>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-secondary">Apply filters</button>
+            @if (Filtered)
+            {
+                <a class="btn btn-ghost" href="/platform/webhooks">Clear filters</a>
+            }
+        </div>
+    </form>
+
+    @if (items.Count == 0)
+    {
+        @if (Filtered)
+        {
+            <EmptyState Title="No matching events" IconName="mail">
+                <p class="empty-body">Nothing matches these filters. Try another status or product, or clear the filters.</p>
+                <a class="btn btn-secondary" href="/platform/webhooks">Clear filters</a>
+            </EmptyState>
+        }
+        else
+        {
+            <EmptyState Title="No events yet" IconName="mail">
+                <p class="empty-body">Events appear here when a product has something to be told, such as an organisation subscribing to it.</p>
+            </EmptyState>
+        }
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Created</th>
+                        <th scope="col">Product</th>
+                        <th scope="col">Event</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Attempts</th>
+                        <th scope="col">Details</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr>
+                            <td data-label="Created"><time datetime="@item.CreatedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)">@Time(item.CreatedAt)</time></td>
+                            <td data-label="Product"><code class="mono">@item.ApplicationKey</code></td>
+                            <td data-label="Event">@WebhookLabels.Event(item.EventType)</td>
+                            <td data-label="Status">
+                                @switch (item.Status)
+                                {
+                                    case "Delivered": <StatusBadge Kind="success" IconName="check" Label="Delivered" /> break;
+                                    case "Failed": <StatusBadge Kind="error" IconName="alert-circle" Label="Failed" /> break;
+                                    default: <StatusBadge Kind="warning" IconName="clock" Label="Pending" /> break;
+                                }
+                            </td>
+                            <td data-label="Attempts">@item.Attempts</td>
+                            <td data-label="Details">
+                                <span>@Detail(item)</span>
+                                @if (!string.IsNullOrWhiteSpace(item.LastError))
+                                {
+                                    <code class="mono audit-detail">@Shorten(item.LastError)</code>
+                                }
+                            </td>
+                            <td data-label="Actions" class="row-actions">
+                                @if (item.Status == "Failed")
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="@Link(Take, resend: item.Id)">Send again</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="table-foot-row">
+            <p class="table-foot">Showing @items.Count @(items.Count == 1 ? "event" : "events")@(more ? "" : ". That's everything that matches.")</p>
+            @if (more && Take < MaxTake)
+            {
+                <a class="btn btn-secondary" href="@Link(Take + Step)">Load more</a>
+            }
+            else if (more)
+            {
+                <p class="table-foot">This is the most that can be shown at once. Use the filters to narrow it down.</p>
+            }
+        </div>
+    }
+
+    @if (resending is { } toSend)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="resend-title">
+                <form method="post" action="/platform/webhooks/@toSend.Id/resend">
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="resend-title" class="modal-title">Send this event again?</h2>
+                        <p class="modal-text">"@WebhookLabels.Event(toSend.EventType)" for <strong>@toSend.ApplicationKey</strong>, created @Time(toSend.CreatedAt) UTC. It goes back in the queue and we'll try to deliver it again, as if it were new. Nothing else changes.</p>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@Link(Take)" autofocus>Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Sending…">Send again</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private const int Step = 50;
+    private const int MaxTake = 200;
+    private static readonly string[] Statuses = ["Pending", "Delivered", "Failed"];
+
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool more;
+    private string? reference;
+    private string? status;
+    private Guid? app;
+    private WebhookItem? resending;
+    private List<WebhookItem> items = [];
+    private List<ProductSummary> products = [];
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "status")] private string? StatusQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "app")] private Guid? AppQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "take")] private int? TakeQuery { get; set; }
+
+    [SupplyParameterFromQuery(Name = "resend")] private Guid? ResendId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    private int Take => TakeQuery is { } asked && asked is >= Step and <= MaxTake ? asked / Step * Step : Step;
+
+    private bool Filtered => status is not null || app is not null;
+
+    private static string Time(DateTimeOffset at) => at.UtcDateTime.ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture);
+
+    private static string Shorten(string text) => text.Length <= 160 ? text : text[..160] + "…";
+
+    private static string Detail(WebhookItem item) => item.Status switch
+    {
+        "Delivered" => item.DeliveredAt is { } at ? $"Delivered {Time(at)}" : "Delivered",
+        "Failed" => $"Gave up after {item.Attempts} {(item.Attempts == 1 ? "attempt" : "attempts")}, at {Time(item.DeadlineAt)}",
+        _ => $"Next try {Time(item.NextAttemptAt)}; gives up {Time(item.DeadlineAt)}",
+    };
+
+    /// <summary>The page's own address for the filters in force, asking for <paramref name="take"/> events and optionally opening the resend question for one.</summary>
+    private string Link(int take, Guid? resend = null)
+    {
+        var parts = new List<string>();
+        if (status is not null)
+        {
+            parts.Add($"status={status}");
+        }
+
+        if (app is { } product)
+        {
+            parts.Add($"app={product}");
+        }
+
+        if (take > Step)
+        {
+            parts.Add($"take={take}");
+        }
+
+        if (resend is { } id)
+        {
+            parts.Add($"resend={id}");
+        }
+
+        return parts.Count == 0 ? "/platform/webhooks" : $"/platform/webhooks?{string.Join('&', parts)}";
+    }
+
+    private RenderFragment? Notice() => builder =>
+    {
+        switch (NoticeCode, ErrorCode)
+        {
+            case ("resent", _):
+                Banner(builder, AlertKind.Success, "The event is queued to be sent again", "We'll try to deliver it shortly. Its status changes when we do.");
+                break;
+            case (_, "webhook_not_failed"):
+                Banner(builder, AlertKind.Warning, "That event isn't failed any more", "Only a failed event can be sent again. It may already have been queued by someone else. The list is up to date.");
+                break;
+            case (_, "webhook_not_found"):
+                Banner(builder, AlertKind.Warning, "That event isn't here any more", "It may have been removed. The list is up to date.");
+                break;
+            case (_, "forbidden"):
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "Only platform admins can send events again.");
+                break;
+            case (_, "unavailable"):
+                Banner(builder, AlertKind.Error, "We couldn't send it again", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+                break;
+        }
+    };
+
+    private static void Banner(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, AlertKind kind, string title, string body)
+    {
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), kind);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // The layout has already asked the API; this is the same answer.
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        status = Statuses.FirstOrDefault(option => string.Equals(option, StatusQuery, StringComparison.OrdinalIgnoreCase));
+        app = AppQuery;
+
+        var query = new List<string> { $"limit={Take}" };
+        if (status is not null)
+        {
+            query.Add($"status={status}");
+        }
+
+        if (app is { } product)
+        {
+            query.Add($"applicationId={product}");
+        }
+
+        var page = await Api.GetAsync<WebhookPage>($"/api/auth/admin/webhooks?{string.Join('&', query)}", access.Token!, HttpContext.RequestAborted);
+        if (!page.IsSuccess)
+        {
+            if (page.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                leaving = true;
+                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(Link(Take))}&reason=expired");
+                return;
+            }
+
+            loadFailed = true;
+            reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+            return;
+        }
+
+        items = [.. page.Value!.Items];
+        more = page.Value.Next is not null;
+
+        if (ResendId is { } resendId)
+        {
+            resending = items.FirstOrDefault(item => item.Id == resendId && item.Status == "Failed");
+        }
+
+        // The product filter is a list of the products that can be chosen. If it can't be read, the page works without it.
+        var list = await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", access.Token!, HttpContext.RequestAborted);
+        products = list.IsSuccess ? [.. list.Value!.OrderBy(product => product.Name, StringComparer.OrdinalIgnoreCase)] : [];
+        if (app is { } chosen && products.All(product => product.Id != chosen))
+        {
+            products.Add(new ProductSummary(chosen, chosen.ToString("N")[..8], items.FirstOrDefault(item => item.ApplicationId == chosen)?.ApplicationKey ?? "Selected product"));
+        }
+    }
+}
