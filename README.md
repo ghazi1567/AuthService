@@ -407,6 +407,7 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
 | `GET /api/auth/admin/audit` | The whole audit log, newest first, across all tenants. Filters: `action`, `tenantId`, `actorId`. Paging: `limit` (1 to 200, default 50), then pass the returned `next` values back as `before` and `beforeId`. Reading it is itself audited. |
 | `GET /api/auth/admin/applications` | List every product, active or not (APP-06): `id`, `key`, `name`, `isActive`, `permissionCount`, `createdAt`, by name. The built-in product is left out, and no secret, audience, client id or webhook address is returned. |
 | `POST /api/auth/admin/applications` | Register a product (see "Applications" below). |
+| `GET /api/auth/admin/applications/{id}/permissions` | Read a product's permission catalog (APP-07): `key`, `label`, `description`, `createdAt`, `updatedAt`, by key, whether or not the product is active. Unknown and built-in products are `404 application_not_found`. |
 | `POST /api/auth/admin/applications/{id}/permissions` | Register or update a product's permission catalog. |
 | `PUT /api/auth/admin/applications/{id}/active` | Make a product available to subscribe to (`{"isActive": true}`), or withdraw it. |
 | `POST /api/auth/admin/applications/{id}/secret/rotate` | Replace a product's client secret; the old one keeps working for a grace period (see "Product client credentials"). |
