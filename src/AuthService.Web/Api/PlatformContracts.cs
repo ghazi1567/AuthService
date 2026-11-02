@@ -55,3 +55,19 @@ public sealed record SigningKeySet(IReadOnlyList<SigningKeyItem> Keys);
 
 /// <summary>The key that signs tokens as of now, after an emergency rotation.</summary>
 public sealed record RotatedSigningKey(string KeyId);
+
+/// <summary>Body of <c>POST /api/auth/admin/applications/{id}/secret/rotate</c>: how long the secret being replaced keeps working (0 to 720 hours).</summary>
+public sealed record RotateSecretRequest(int GraceHours);
+
+/// <summary>
+/// A product's new client secret, which comes back once and nowhere else. <see cref="PreviousSecretsExpireAt"/> is when the secrets being
+/// replaced stop working. Printing it shows only the client id, so the secret can't reach a log by being printed.
+/// </summary>
+public sealed record RotatedSecret(Guid ApplicationId, string ClientId, string ClientSecret, DateTimeOffset PreviousSecretsExpireAt)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("ClientId = ").Append(ClientId);
+        return true;
+    }
+}

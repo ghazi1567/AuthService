@@ -188,6 +188,10 @@ What is in place:
   sign-in because they are public). **Rotate now** is an emergency action and cannot be set off by accident: it opens a question that says plainly what happens (a new key signs at once, every
   earlier key leaves the list so every token already issued stops working, people have to sign in again including you, it can't be undone and is audited under your name) and asks for the word
   ROTATE to be typed. Anything else rotates nothing and the API is not asked; the question stays open with a message. The JWKS has no schedule, so none is shown.
+- **Products** (`/platform/products`, UI04_T2). The products organisations can subscribe to (the public list, so only available products), each with a **Replace secret** action. It asks how long
+  the old secret keeps working (not at all, 1 hour, 24 hours suggested, 3, 7 or 30 days), explains that either secret works until then and that "Not at all" is for a leaked secret, and then shows the
+  new client secret **once** in the same server-held, session-bound, two-minute, take-once dialog as API keys (with the client id and when the old secret stops, in plain words). The address
+  carries only a reference; nothing is logged. Register, activate and deactivate (UI04_T1) and the permission catalog (UI04_T3) are not here yet: the admin API has no list of every product.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
