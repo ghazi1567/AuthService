@@ -76,6 +76,12 @@ What is in place:
   "Check your email" with a resend button that waits 60 seconds. An email that already has an account gets **the same screen**, so the
   page never says whether an address is registered; field reasons from the API, a rate limit (live countdown) and an unreachable API
   each have their own message.
+- **`/verify-email`** (UI01_T4), the page the verification email opens. The link's token is held only in a form field: `app.js` takes it
+  out of the address bar and the history entry, then sends the form (a POST, so an email scanner that only fetches the page cannot
+  use the link up; without scripts the person presses the button). The result is shown on a clean address: verified (continue to
+  sign in), or "this link can't be used" with an email box to get a new one (same neutral confirmation for any address, a resend
+  button that waits 60 seconds, a rate-limit message with the wait). An unreachable API keeps the link on the page for another try.
+  Pages send `Referrer-Policy: no-referrer` and are never cached, and the token is never logged.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

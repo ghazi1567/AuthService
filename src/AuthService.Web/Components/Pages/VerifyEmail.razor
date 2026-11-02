@@ -1,0 +1,271 @@
+@page "/verify-email"
+@layout AuthLayout
+@using System.ComponentModel.DataAnnotations
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>@Title · Auth Service</PageTitle>
+
+@switch (view)
+{
+    case View.Checking:
+        <div class="auth-sent" role="status">
+            <div class="icon-tile"><span class="spinner" aria-hidden="true"></span></div>
+            <h1 class="auth-title">Checking your link…</h1>
+            <p class="auth-lead">For your security, we remove the link from the address bar as soon as we've read it.</p>
+        </div>
+
+        @if (unavailable)
+        {
+            <AlertBanner Kind="AlertKind.Error" Title="We couldn't check your link" Class="auth-alert">
+                <p class="alert-body">Auth Service isn't responding right now. Your link is still good. Try again in a moment.</p>
+            </AlertBanner>
+        }
+
+        @* The link is checked with a form post, not by opening the address: an email scanner that only fetches the page cannot use up
+           the link. app.js removes the token from the address bar and the history, then sends the form. Without scripts the person
+           presses the button. *@
+        <form method="post" action="/verify-email" @onsubmit="VerifyAsync" @formname="verify" class="auth-actions" data-link-form="@(unavailable ? null : "auto")">
+            <AntiforgeryToken />
+            <input type="hidden" name="token" value="@token" />
+            <button type="submit" class="btn btn-primary btn-lg btn-block" data-busy-label="Checking…">@(unavailable ? "Try again" : "Verify my email")</button>
+        </form>
+        break;
+
+    case View.Verified:
+        <div class="auth-sent">
+            <div class="icon-tile is-success"><Icon Name="check-circle" /></div>
+            <h1 class="auth-title">Your email is verified</h1>
+            <p class="auth-lead">You're all set. Sign in to carry on.</p>
+            <div class="auth-actions">
+                <a class="btn btn-primary btn-lg btn-block" href="/login">Continue to sign in</a>
+            </div>
+        </div>
+        break;
+
+    case View.Sent:
+        <div class="auth-sent">
+            <div class="icon-tile"><Icon Name="mail" /></div>
+            <h1 class="auth-title">Check your email</h1>
+            <p class="auth-lead">If @sentTo belongs to an account that isn't verified yet, we've sent a new link. The link works for 24 hours.</p>
+
+            @switch (againState)
+            {
+                case ResendProblem.Again:
+                    <AlertBanner Kind="AlertKind.Success" Title="We've sent it again" Class="auth-alert">
+                        <p class="alert-body">Check your inbox and your spam folder.</p>
+                    </AlertBanner>
+                    break;
+                case ResendProblem.RateLimited:
+                    <AlertBanner Kind="AlertKind.Warning" Title="Too many requests" Class="auth-alert">
+                        <p class="alert-body">@(waitSeconds is { } again ? $"Wait {again} seconds, then try again." : "Wait a moment, then try again.")</p>
+                    </AlertBanner>
+                    break;
+                case ResendProblem.Unavailable:
+                    <AlertBanner Kind="AlertKind.Error" Title="We couldn't send it again" Class="auth-alert">
+                        <p class="alert-body">Auth Service isn't responding right now. Try again in a moment.</p>
+                    </AlertBanner>
+                    break;
+            }
+
+            <form method="post" @onsubmit="AgainAsync" @formname="again" class="auth-actions">
+                <AntiforgeryToken />
+                <input type="hidden" name="email" value="@sentTo" />
+                <button type="submit" class="btn btn-secondary btn-lg btn-block"
+                        data-busy-label="Sending…"
+                        data-countdown="@(againState == ResendProblem.RateLimited && waitSeconds is > 0 ? waitSeconds : 60)"
+                        data-countdown-label="Resend in {0}s"
+                        data-countdown-done="Resend email"
+                        data-countdown-announce="again-announce"
+                        data-countdown-message="You can send the email again now.">Resend email</button>
+                <div id="again-announce" class="visually-hidden" aria-live="polite"></div>
+            </form>
+            <p class="auth-alt"><a href="/login">Back to sign in</a></p>
+        </div>
+        break;
+
+    default:
+        <div class="auth-sent">
+            <div class="icon-tile is-warning"><Icon Name="alert-triangle" /></div>
+            <h1 class="auth-title">This link can't be used</h1>
+            <p class="auth-lead">It has expired or was already used. Enter your email and we'll send a new one.</p>
+        </div>
+
+        @if (resendProblem == ResendProblem.RateLimited)
+        {
+            <AlertBanner Kind="AlertKind.Warning" Title="Too many requests" Class="auth-alert">
+                <p class="alert-body">@(waitSeconds is { } seconds ? $"Wait {seconds} seconds, then try again." : "Wait a moment, then try again.")</p>
+            </AlertBanner>
+        }
+        else if (resendProblem == ResendProblem.Unavailable)
+        {
+            <AlertBanner Kind="AlertKind.Error" Title="We couldn't send a new link" Class="auth-alert">
+                <p class="alert-body">Auth Service isn't responding right now. Try again in a moment.</p>
+            </AlertBanner>
+        }
+
+        <EditForm Model="Model" FormName="resend" method="post" OnValidSubmit="ResendAsync" novalidate class="auth-form">
+            <DataAnnotationsValidator />
+            <TextField Id="verify-email"
+                       Label="Email"
+                       Type="email"
+                       Autocomplete="email"
+                       @bind-Value="Model.Email"
+                       Error="@context.GetValidationMessages(context.Field(nameof(ResendInput.Email))).FirstOrDefault()" />
+            <div class="auth-actions">
+                @if (resendProblem == ResendProblem.RateLimited && waitSeconds is > 0)
+                {
+                    <button type="submit" class="btn btn-primary btn-lg btn-block"
+                            data-busy-label="Sending…"
+                            data-countdown="@waitSeconds"
+                            data-countdown-label="Try again in {0}s"
+                            data-countdown-done="Send a new link"
+                            data-countdown-announce="verify-announce"
+                            data-countdown-message="You can ask for a new link again now.">Send a new link</button>
+                    <div id="verify-announce" class="visually-hidden" aria-live="polite"></div>
+                }
+                else
+                {
+                    <button type="submit" class="btn btn-primary btn-lg btn-block" data-busy-label="Sending…">Send a new link</button>
+                }
+            </div>
+        </EditForm>
+
+        <p class="auth-alt"><a href="/login">Back to sign in</a></p>
+        break;
+}
+
+@code {
+    private View view = View.Invalid;
+    private ResendProblem resendProblem = ResendProblem.None;
+    private ResendProblem againState = ResendProblem.None;
+    private bool unavailable;
+    private int? waitSeconds;
+    private string sentTo = "";
+    private string token = "";
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    /// <summary>The link from the email. It is only ever read here, then taken out of the address bar by app.js.</summary>
+    [SupplyParameterFromQuery(Name = "token")] private string? QueryToken { get; set; }
+
+    /// <summary>"verified" or "invalid" after the link was checked (these say nothing secret).</summary>
+    [SupplyParameterFromQuery(Name = "result")] private string? Result { get; set; }
+
+    [SupplyParameterFromForm(FormName = "verify", Name = "token")] private string? PostedToken { get; set; }
+
+    [SupplyParameterFromForm(FormName = "resend", Name = "Model")] private ResendInput? PostedResend { get; set; }
+
+    [SupplyParameterFromForm(FormName = "again", Name = "email")] private string? AgainEmail { get; set; }
+
+    private ResendInput Model => PostedResend ??= new();
+
+    private string Title => view switch
+    {
+        View.Checking => "Checking your link",
+        View.Verified => "Email verified",
+        View.Sent => "Check your email",
+        _ => "Link can't be used",
+    };
+
+    private CancellationToken Cancellation => HttpContext?.RequestAborted ?? CancellationToken.None;
+
+    protected override void OnInitialized()
+    {
+        // A posted form must already be on the page when the post arrives, so the view that holds it is chosen first.
+        if (!string.IsNullOrEmpty(PostedToken))
+        {
+            token = PostedToken;
+            view = View.Checking;
+        }
+        else if (!string.IsNullOrEmpty(QueryToken))
+        {
+            token = QueryToken;
+            view = View.Checking;
+        }
+        else if (!string.IsNullOrWhiteSpace(AgainEmail))
+        {
+            sentTo = AgainEmail.Trim();
+            view = View.Sent;
+        }
+        else if (Result == "verified")
+        {
+            view = View.Verified;
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        var result = await Api.PostNoContentAsync("/api/auth/email/verify", new VerifyEmailRequest(token), Cancellation);
+        if (result.IsSuccess)
+        {
+            Navigation.NavigateTo("/verify-email?result=verified");
+            return;
+        }
+
+        if (result.Problem!.Code == "verification_link_invalid")
+        {
+            Navigation.NavigateTo("/verify-email?result=invalid");
+            return;
+        }
+
+        // The API could not be reached: the link may still be good, so keep it on the page for another try.
+        unavailable = true;
+    }
+
+    private async Task ResendAsync()
+    {
+        var email = Model.Email!.Trim();
+        var result = await Api.PostNoContentAsync("/api/auth/email/verify/resend", new ResendVerificationRequest(email), Cancellation);
+        if (result.IsSuccess)
+        {
+            sentTo = email;
+            view = View.Sent;
+            return;
+        }
+
+        resendProblem = result.Problem!.Code == "rate_limited" ? ResendProblem.RateLimited : ResendProblem.Unavailable;
+        waitSeconds = resendProblem == ResendProblem.RateLimited && result.Problem.RetryAfter is { } retryAfter
+            ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
+            : null;
+    }
+
+    private async Task AgainAsync()
+    {
+        var result = await Api.PostNoContentAsync("/api/auth/email/verify/resend", new ResendVerificationRequest(sentTo), Cancellation);
+        if (result.IsSuccess)
+        {
+            againState = ResendProblem.Again;
+            return;
+        }
+
+        againState = result.Problem!.Code == "rate_limited" ? ResendProblem.RateLimited : ResendProblem.Unavailable;
+        waitSeconds = againState == ResendProblem.RateLimited && result.Problem.RetryAfter is { } retryAfter
+            ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
+            : null;
+    }
+
+    private enum View
+    {
+        Invalid,
+        Checking,
+        Verified,
+        Sent,
+    }
+
+    private enum ResendProblem
+    {
+        None,
+        Again,
+        RateLimited,
+        Unavailable,
+    }
+
+    public sealed class ResendInput
+    {
+        [Required(ErrorMessage = "Enter your email address.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address, like anna@acme.com.")]
+        public string? Email { get; set; }
+    }
+}

@@ -651,3 +651,31 @@ a {
         width: 24px;
         height: 24px;
     }
+
+/* Checking a link, and the icon tiles that go with the result */
+.spinner {
+    width: 22px;
+    height: 22px;
+    border: 3px solid currentColor;
+    border-right-color: transparent;
+    border-radius: var(--radius-full);
+    animation: spin .8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .spinner {
+        animation: none;
+        border-style: dotted;
+        border-right-color: currentColor;
+    }
+}
+
+.icon-tile.is-success {
+    background: var(--success-bg);
+    color: var(--success-text);
+}
+
+.icon-tile.is-warning {
+    background: var(--warning-bg);
+    color: var(--warning-text);
+}
