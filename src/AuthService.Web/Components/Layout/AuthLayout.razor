@@ -1,12 +1,32 @@
 @inherits LayoutComponentBase
 
 @* Shell for the pages a person sees before or while signing in: signup, login, verify email, password reset, accept invitation (UI-01).
-   Empty on purpose until the Figma frames UI-00 / shell / auth are available (UI00_T4). *@
+   Desktop has a brand panel and a 400px form column; tablet has the logo above a centred card; mobile is the form full width.
+   The brand headline is a paragraph, not a heading: each page owns the one h1. *@
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="shell shell-auth">
-    <main id="main" tabindex="-1">
-        @Body
-    </main>
+    <aside class="auth-brand" aria-label="About Auth Service">
+        <a class="logo" href="/" aria-label="Auth Service home"><LogoMark />Auth Service</a>
+        <div>
+            <p class="auth-brand-title">One sign-in for every product your team uses.</p>
+            <ul class="auth-points">
+                <li><Icon Name="check-circle" />Your password is never shared with the apps you open.</li>
+                <li><Icon Name="check-circle" />Pick your organisation and product after you sign in.</li>
+                <li><Icon Name="check-circle" />Admins decide who can open what.</li>
+            </ul>
+        </div>
+        <div class="auth-brand-footer">&nbsp;</div>
+    </aside>
+    <div class="auth-column">
+        <div class="auth-topbar">
+            <a class="logo" href="/" aria-label="Auth Service home"><LogoMark />Auth Service</a>
+        </div>
+        <main id="main" tabindex="-1" class="auth-main">
+            <div class="auth-card">
+                @Body
+            </div>
+        </main>
+    </div>
 </div>
 
 <UnhandledErrorBar />

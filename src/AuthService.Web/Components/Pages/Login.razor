@@ -1,0 +1,172 @@
+@page "/login"
+@layout AuthLayout
+@using System.ComponentModel.DataAnnotations
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Sign in · Auth Service</PageTitle>
+
+<h1 class="auth-title">Sign in</h1>
+<p class="auth-lead">Use your work email to continue.</p>
+
+@switch (state)
+{
+    case SignInState.InvalidCredentials:
+        <AlertBanner Kind="AlertKind.Error" Title="The email or password is incorrect" Class="auth-alert">
+            <p class="alert-body">Check them and try again. If you've forgotten your password, you can <a href="/forgot-password">reset it</a>.</p>
+        </AlertBanner>
+        break;
+    case SignInState.RateLimited:
+        <AlertBanner Kind="AlertKind.Warning" Title="Too many attempts" Class="auth-alert">
+            <p class="alert-body">@(waitSeconds is { } seconds ? $"Wait {seconds} seconds, then try again." : "Wait a moment, then try again.")</p>
+        </AlertBanner>
+        break;
+    case SignInState.EmailNotVerified:
+        <AlertBanner Kind="AlertKind.Warning" Title="Verify your email first" Class="auth-alert">
+            <p class="alert-body">We sent a link to @Model.Email when you signed up. Open it to finish setting up your account, then sign in.</p>
+        </AlertBanner>
+        break;
+    case SignInState.AccountDisabled:
+        <AlertBanner Kind="AlertKind.Error" Title="This account is turned off" Class="auth-alert">
+            <p class="alert-body">If you think this is a mistake, contact Auth Service support.</p>
+        </AlertBanner>
+        break;
+    case SignInState.Unavailable:
+        <AlertBanner Kind="AlertKind.Error" Title="We couldn't sign you in" Class="auth-alert">
+            <p class="alert-body">Auth Service isn't responding right now. Your details are safe. Try again in a moment.</p>
+        </AlertBanner>
+        break;
+}
+
+<EditForm Model="Model" FormName="login" method="post" OnValidSubmit="SignInAsync" novalidate class="auth-form">
+    <DataAnnotationsValidator />
+
+    @{
+        var messages = context.GetValidationMessages().ToList();
+    }
+    @if (messages.Count > 0)
+    {
+        <AlertBanner Kind="AlertKind.Error" Title="@(messages.Count == 1 ? "Fix 1 problem to sign in" : $"Fix {messages.Count} problems to sign in")">
+            <ul>
+                @if (context.GetValidationMessages(context.Field(nameof(LoginInput.Email))).FirstOrDefault() is { } emailMessage)
+                {
+                    <li><a href="#login-email">@emailMessage</a></li>
+                }
+                @if (context.GetValidationMessages(context.Field(nameof(LoginInput.Password))).FirstOrDefault() is { } passwordMessage)
+                {
+                    <li><a href="#login-password">@passwordMessage</a></li>
+                }
+            </ul>
+        </AlertBanner>
+    }
+
+    <TextField Id="login-email"
+               Label="Email"
+               Type="email"
+               Autocomplete="username"
+               @bind-Value="Model.Email"
+               Error="@context.GetValidationMessages(context.Field(nameof(LoginInput.Email))).FirstOrDefault()" />
+
+    <PasswordField Id="login-password"
+                   Label="Password"
+                   Autocomplete="current-password"
+                   @bind-Value="Model.Password"
+                   Error="@context.GetValidationMessages(context.Field(nameof(LoginInput.Password))).FirstOrDefault()">
+        <LabelAside><a href="/forgot-password">Forgot password?</a></LabelAside>
+    </PasswordField>
+
+    <label class="check">
+        <InputCheckbox @bind-Value="Model.RememberMe" />
+        Keep me signed in
+    </label>
+
+    <div class="auth-actions">
+        @if (state == SignInState.RateLimited && waitSeconds is > 0)
+        {
+            <button type="submit" class="btn btn-primary btn-lg btn-block"
+                    data-busy-label="Signing in…"
+                    data-countdown="@waitSeconds"
+                    data-countdown-label="Try again in {0}s"
+                    data-countdown-done="Sign in"
+                    data-countdown-announce="login-announce"
+                    data-countdown-message="You can try signing in again now.">Sign in</button>
+            <div id="login-announce" class="visually-hidden" aria-live="polite"></div>
+        }
+        else
+        {
+            <button type="submit" class="btn btn-primary btn-lg btn-block" data-busy-label="Signing in…">Sign in</button>
+        }
+    </div>
+</EditForm>
+
+<p class="auth-alt">New to Auth Service? <a href="/signup">Create an account</a></p>
+
+@code {
+    private SignInState state = SignInState.Default;
+    private int? waitSeconds;
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    // Named "Model" so it binds the fields as the form renders them (Model.Email), which come from the Model property below.
+    [SupplyParameterFromForm(Name = "Model")] private LoginInput? Posted { get; set; }
+
+    private LoginInput Model => Posted ??= new();
+
+    private async Task SignInAsync()
+    {
+        var model = Model;
+        var result = await Api.PostAsync<LoginRequest, LoginResponse>(
+            "/api/auth/login",
+            new LoginRequest(model.Email!.Trim(), model.Password!),
+            HttpContext?.RequestAborted ?? CancellationToken.None);
+
+        if (result.IsSuccess)
+        {
+            // The tokens in the answer are dropped here on purpose: the signed-in session (a cookie that keeps them on the server)
+            // is its own piece of work, and nothing may keep a token in the page or the address in the meantime.
+            Navigation.NavigateTo("/");
+            return;
+        }
+
+        // Never carry a password back into the page.
+        model.Password = null;
+
+        var problem = result.Problem!;
+        state = problem.Code switch
+        {
+            "invalid_credentials" => SignInState.InvalidCredentials,
+            "email_not_verified" => SignInState.EmailNotVerified,
+            "account_disabled" => SignInState.AccountDisabled,
+            "rate_limited" => SignInState.RateLimited,
+            _ => SignInState.Unavailable,
+        };
+
+        if (state == SignInState.RateLimited && problem.RetryAfter is { } retryAfter)
+        {
+            waitSeconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
+        }
+    }
+
+    private enum SignInState
+    {
+        Default,
+        InvalidCredentials,
+        RateLimited,
+        EmailNotVerified,
+        AccountDisabled,
+        Unavailable,
+    }
+
+    public sealed class LoginInput
+    {
+        [Required(ErrorMessage = "Enter your email address.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address, like anna@acme.com.")]
+        public string? Email { get; set; }
+
+        [Required(ErrorMessage = "Enter your password.")]
+        public string? Password { get; set; }
+
+        public bool RememberMe { get; set; }
+    }
+}

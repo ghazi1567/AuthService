@@ -1,0 +1,31 @@
+@* An inline banner: icon, title and body. Errors use role="alert" so they are read out at once; everything else is a polite status. *@
+<div class="alert alert-@KindClass @Class" role="@(Kind == AlertKind.Error ? "alert" : "status")" id="@Id">
+    <Icon Name="@IconName" />
+    <div>
+        <p class="alert-title">@Title</p>
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public AlertKind Kind { get; set; }
+
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+
+    [Parameter] public string? Id { get; set; }
+
+    [Parameter] public string? Class { get; set; }
+
+    /// <summary>The body: paragraphs with class <c>alert-body</c>, or a list.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string KindClass => Kind.ToString().ToLowerInvariant();
+
+    private string IconName => Kind switch
+    {
+        AlertKind.Error => "alert-circle",
+        AlertKind.Warning => "alert-triangle",
+        AlertKind.Success => "check-circle",
+        _ => "info",
+    };
+}

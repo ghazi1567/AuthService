@@ -1,17 +1,105 @@
+/* Signal Indigo design tokens. Light is the default; dark follows the system, and data-theme on <html> forces either one. */
+:root {
+    --bg-canvas: #F8FAFC; --bg-surface: #FFFFFF; --bg-raised: #FFFFFF; --bg-sunken: #F1F5F9; --bg-inverse: #0F172A;
+    --border-subtle: #E2E8F0; --border-control: #7C8BA1;
+    --text-primary: #0F172A; --text-secondary: #475569; --text-tertiary: #64748B; --text-disabled: #94A3B8;
+    --text-on-primary: #FFFFFF; --text-brand: #3730A3; --text-link: #4338CA;
+    --action-primary: #4F46E5; --action-primary-hover: #4338CA; --action-primary-soft: #EEF0FF; --action-primary-soft-strong: #E0E7FF;
+    --focus-ring: #4F46E5;
+    --secondary-solid: #047857; --accent-solid: #EA580C;
+    --success: #15803D; --success-bg: #F0FDF4; --success-text: #15803D;
+    --warning: #B45309; --warning-bg: #FFFBEB; --warning-text: #92400E;
+    --error: #DC2626; --error-bg: #FEF2F2; --error-text: #B91C1C;
+    --info: #0369A1; --info-bg: #F0F9FF; --info-text: #075985;
+    --platform-header: #1E1B4B; --platform-header-text: #FFFFFF; --platform-header-muted: #A5B4FC;
+    --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    --radius-xs: 4px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px; --radius-full: 9999px;
+    --e1: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .10);
+    --e2: 0 4px 8px -2px rgba(15, 23, 42, .10), 0 2px 4px -2px rgba(15, 23, 42, .06);
+    --e3: 0 20px 24px -4px rgba(15, 23, 42, .10), 0 8px 8px -4px rgba(15, 23, 42, .04);
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg-canvas: #0B1120; --bg-surface: #131B2E; --bg-raised: #1A2338; --bg-sunken: #0F1626; --bg-inverse: #E2E8F0;
+        --border-subtle: #1E293B; --border-control: #64748B;
+        --text-primary: #E2E8F0; --text-secondary: #94A3B8; --text-tertiary: #94A3B8; --text-disabled: #475569;
+        --text-on-primary: #0B1120; --text-brand: #A5B4FC; --text-link: #A5B4FC;
+        --action-primary: #818CF8; --action-primary-hover: #A5B4FC;
+        --action-primary-soft: rgba(129, 140, 248, .12); --action-primary-soft-strong: rgba(129, 140, 248, .20);
+        --focus-ring: #818CF8;
+        --secondary-solid: #34D399; --accent-solid: #FB923C;
+        --success: #4ADE80; --success-bg: rgba(74, 222, 128, .12); --success-text: #4ADE80;
+        --warning: #FBBF24; --warning-bg: rgba(251, 191, 36, .12); --warning-text: #FBBF24;
+        --error: #F87171; --error-bg: rgba(248, 113, 113, .12); --error-text: #F87171;
+        --info: #38BDF8; --info-bg: rgba(56, 189, 248, .12); --info-text: #38BDF8;
+        --platform-header: #0F172A; --platform-header-text: #E2E8F0; --platform-header-muted: #94A3B8;
+        --e1: none; --e2: none; --e3: none;
+        color-scheme: dark;
+    }
+}
+
+:root[data-theme="dark"] {
+    --bg-canvas: #0B1120; --bg-surface: #131B2E; --bg-raised: #1A2338; --bg-sunken: #0F1626; --bg-inverse: #E2E8F0;
+    --border-subtle: #1E293B; --border-control: #64748B;
+    --text-primary: #E2E8F0; --text-secondary: #94A3B8; --text-tertiary: #94A3B8; --text-disabled: #475569;
+    --text-on-primary: #0B1120; --text-brand: #A5B4FC; --text-link: #A5B4FC;
+    --action-primary: #818CF8; --action-primary-hover: #A5B4FC;
+    --action-primary-soft: rgba(129, 140, 248, .12); --action-primary-soft-strong: rgba(129, 140, 248, .20);
+    --focus-ring: #818CF8;
+    --secondary-solid: #34D399; --accent-solid: #FB923C;
+    --success: #4ADE80; --success-bg: rgba(74, 222, 128, .12); --success-text: #4ADE80;
+    --warning: #FBBF24; --warning-bg: rgba(251, 191, 36, .12); --warning-text: #FBBF24;
+    --error: #F87171; --error-bg: rgba(248, 113, 113, .12); --error-text: #F87171;
+    --info: #38BDF8; --info-bg: rgba(56, 189, 248, .12); --info-text: #38BDF8;
+    --platform-header: #0F172A; --platform-header-text: #E2E8F0; --platform-header-muted: #94A3B8;
+    --e1: none; --e2: none; --e3: none;
+    color-scheme: dark;
+}
+
+/* Base */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg-canvas);
+    color: var(--text-primary);
+    font: 400 14px/20px var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+}
+
 h1:focus {
     outline: none;
 }
 
-.valid.modified:not([type=checkbox]) {
-    outline: 1px solid #26b050;
+:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
 }
 
-.invalid {
-    outline: 1px solid #e50000;
+a {
+    color: var(--text-link);
+    text-underline-offset: 2px;
 }
 
-.validation-message {
-    color: #e50000;
+    a:hover {
+        color: var(--action-primary-hover);
+    }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .blazor-error-boundary {
@@ -24,18 +112,6 @@ h1:focus {
         content: "An error has occurred."
     }
 
-.darker-border-checkbox.form-check-input {
-    border-color: #929292;
-}
-
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-    color: var(--bs-secondary-color);
-    text-align: end;
-}
-
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-    text-align: start;
-}
 /* Accessibility: a link that appears on keyboard focus and jumps past the navigation to the page content. */
 .skip-link {
     position: absolute;
@@ -47,6 +123,484 @@ h1:focus {
         top: 1rem;
         z-index: 1000;
         padding: 0.5rem 1rem;
-        background: #fff;
-        color: #000;
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        border-radius: var(--radius-sm);
     }
+
+.icon {
+    flex: none;
+    width: 16px;
+    height: 16px;
+}
+
+/* Buttons: primary, secondary and ghost. One primary button per view. */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font: 500 14px/20px var(--font-ui);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.btn-lg {
+    height: 44px;
+}
+
+.btn-block {
+    width: 100%;
+}
+
+.btn-primary {
+    background: var(--action-primary);
+    color: var(--text-on-primary);
+}
+
+    .btn-primary:hover {
+        background: var(--action-primary-hover);
+        color: var(--text-on-primary);
+    }
+
+.btn-secondary {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border-color: var(--border-control);
+}
+
+    .btn-secondary:hover {
+        background: var(--bg-sunken);
+        color: var(--text-primary);
+    }
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+    background: var(--bg-sunken);
+    border-color: var(--border-subtle);
+    color: var(--text-disabled);
+    cursor: not-allowed;
+}
+
+/* Loading: keeps its width, shows a spinner, and cannot be clicked again. */
+.btn[aria-busy="true"] {
+    pointer-events: none;
+}
+
+    .btn[aria-busy="true"]::before {
+        content: "";
+        width: 14px;
+        height: 14px;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: var(--radius-full);
+        animation: spin .8s linear infinite;
+    }
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btn[aria-busy="true"]::before {
+        animation: none;
+        border-right-color: currentColor;
+        border-style: dotted;
+    }
+}
+
+/* Form fields: the label is always visible, an error replaces the helper text and is linked to the input. */
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.field-label-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.field label {
+    font: 500 14px/20px var(--font-ui);
+    color: var(--text-primary);
+}
+
+.input-wrap {
+    position: relative;
+    display: flex;
+}
+
+.input {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font: 400 14px/20px var(--font-ui);
+}
+
+    .input::placeholder {
+        color: var(--text-tertiary);
+    }
+
+    .input:focus {
+        outline: none;
+        border-color: var(--action-primary);
+        box-shadow: 0 0 0 1px var(--action-primary), 0 0 0 4px var(--action-primary-soft-strong);
+    }
+
+    .input:disabled {
+        background: var(--bg-sunken);
+        color: var(--text-disabled);
+    }
+
+.input-with-suffix {
+    padding-right: 44px;
+}
+
+.input-suffix {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    padding-right: 4px;
+}
+
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+    .icon-btn:hover {
+        background: var(--bg-sunken);
+        color: var(--text-primary);
+    }
+
+.field-error .input {
+    border-color: var(--error);
+}
+
+.field-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0;
+    font: 400 13px/18px var(--font-ui);
+    color: var(--text-tertiary);
+}
+
+    .field-message.is-error {
+        color: var(--error-text);
+    }
+
+        .field-message.is-error .icon {
+            margin-top: 1px;
+        }
+
+.check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    font: 400 14px/20px var(--font-ui);
+}
+
+    .check input {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: var(--action-primary);
+    }
+
+/* Alerts: icon, title and body in a tinted box. Colour is never the only signal. */
+.alert {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    border: 1px solid;
+    border-radius: var(--radius-md);
+}
+
+    .alert .icon {
+        margin-top: 2px;
+    }
+
+.alert-title {
+    margin: 0;
+    font: 600 14px/20px var(--font-ui);
+}
+
+.alert-body {
+    margin: 0;
+    font: 400 14px/20px var(--font-ui);
+}
+
+    .alert-body + .alert-body {
+        margin-top: 4px;
+    }
+
+.alert ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}
+
+.alert-error {
+    background: var(--error-bg);
+    border-color: color-mix(in srgb, var(--error) 35%, transparent);
+    color: var(--error-text);
+}
+
+.alert-warning {
+    background: var(--warning-bg);
+    border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+    color: var(--warning-text);
+}
+
+.alert-info {
+    background: var(--info-bg);
+    border-color: color-mix(in srgb, var(--info) 35%, transparent);
+    color: var(--info-text);
+}
+
+.alert-success {
+    background: var(--success-bg);
+    border-color: color-mix(in srgb, var(--success) 35%, transparent);
+    color: var(--success-text);
+}
+
+/* Public shell: the pages a person sees before or while signing in. */
+.shell-auth {
+    display: grid;
+    min-height: 100vh;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.auth-brand {
+    display: none;
+}
+
+.auth-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-width: 0;
+}
+
+.auth-topbar {
+    padding: 16px 24px;
+}
+
+.auth-main {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 8px 24px 40px;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 400px;
+}
+
+.logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-primary);
+    font: 600 16px/24px var(--font-ui);
+    text-decoration: none;
+}
+
+    .logo svg {
+        width: 28px;
+        height: 28px;
+    }
+
+.logo-mark-bg {
+    fill: var(--action-primary);
+}
+
+.logo-mark-fg {
+    fill: none;
+    stroke: var(--text-on-primary);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.auth-title {
+    margin: 0 0 8px;
+    font: 600 24px/32px var(--font-ui);
+}
+
+.auth-lead {
+    margin: 0 0 24px;
+    color: var(--text-secondary);
+    font: 400 16px/24px var(--font-ui);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.auth-alert {
+    margin-bottom: 20px;
+}
+
+.auth-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.auth-alt {
+    margin: 24px 0 0;
+    color: var(--text-secondary);
+    font: 400 14px/20px var(--font-ui);
+    text-align: center;
+}
+
+/* Auth pages use Body L text and 44px controls on touch widths. */
+.shell-auth .input,
+.shell-auth .field label,
+.shell-auth .check {
+    font-size: 16px;
+    line-height: 24px;
+}
+
+.shell-auth .input {
+    height: 44px;
+}
+
+.shell-auth .check input {
+    width: 20px;
+    height: 20px;
+}
+
+.shell-auth .icon-btn {
+    width: 40px;
+    height: 40px;
+}
+
+/* Tablet: no brand panel; the logo sits above a centred card. */
+@media (min-width: 640px) {
+    .auth-topbar {
+        display: flex;
+        justify-content: center;
+        padding-top: 48px;
+    }
+
+    .auth-main {
+        align-items: flex-start;
+        padding-top: 16px;
+    }
+
+    .auth-card {
+        max-width: 480px;
+        padding: 40px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--e1);
+    }
+}
+
+/* Desktop: brand panel on the left, the form centred in the right column. */
+@media (min-width: 1024px) {
+    .shell-auth {
+        grid-template-columns: 560px minmax(0, 1fr);
+    }
+
+    .auth-brand {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 48px;
+        background: var(--platform-header);
+        color: var(--platform-header-text);
+    }
+
+        .auth-brand .logo {
+            color: var(--platform-header-text);
+        }
+
+    .auth-brand-title {
+        margin: 0 0 32px;
+        font: 700 36px/44px var(--font-ui);
+        letter-spacing: -0.02em;
+    }
+
+    .auth-points {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        color: var(--platform-header-muted);
+        font: 400 16px/24px var(--font-ui);
+    }
+
+        .auth-points li {
+            display: flex;
+            gap: 12px;
+        }
+
+        .auth-points .icon {
+            width: 20px;
+            height: 20px;
+            margin-top: 2px;
+            color: var(--platform-header-muted);
+        }
+
+    .auth-brand-footer {
+        color: var(--platform-header-muted);
+        font: 400 13px/18px var(--font-ui);
+    }
+
+    .auth-column {
+        background: var(--bg-surface);
+    }
+
+    .auth-topbar {
+        display: none;
+    }
+
+    .auth-main {
+        align-items: center;
+        padding: 48px 24px;
+    }
+
+    .auth-card {
+        max-width: 400px;
+        padding: 0;
+        background: none;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+    }
+}

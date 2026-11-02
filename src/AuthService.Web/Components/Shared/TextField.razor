@@ -1,0 +1,60 @@
+@using System.Linq.Expressions
+@* A labelled text input. The label is always visible; a validation message replaces the helper text and is linked to the input. *@
+<div class="field @(Error is null ? null : "field-error")">
+    <div class="field-label-row">
+        <label for="@Id">@Label</label>
+        @LabelAside
+    </div>
+    <div class="input-wrap">
+        <InputText id="@Id"
+                   class="@("input" + (Suffix is null ? "" : " input-with-suffix"))"
+                   type="@Type"
+                   autocomplete="@Autocomplete"
+                   aria-invalid="@(Error is null ? null : "true")"
+                   aria-describedby="@DescribedBy"
+                   Value="@Value"
+                   ValueChanged="@ValueChanged"
+                   ValueExpression="@ValueExpression" />
+        @if (Suffix is not null)
+        {
+            <div class="input-suffix">@Suffix</div>
+        }
+    </div>
+    @if (Error is not null)
+    {
+        <p class="field-message is-error" id="@(Id)-message"><Icon Name="alert-circle" /><span>@Error</span></p>
+    }
+    else if (Helper is not null)
+    {
+        <p class="field-message" id="@(Id)-message">@Helper</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    [Parameter] public string Type { get; set; } = "text";
+
+    [Parameter] public string? Autocomplete { get; set; }
+
+    [Parameter] public string? Helper { get; set; }
+
+    /// <summary>The message to show instead of the helper text; null when the value is fine.</summary>
+    [Parameter] public string? Error { get; set; }
+
+    [Parameter] public string? Value { get; set; }
+
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    [Parameter] public Expression<Func<string?>>? ValueExpression { get; set; }
+
+    /// <summary>Sits at the right of the label row, for example a "Forgot password?" link.</summary>
+    [Parameter] public RenderFragment? LabelAside { get; set; }
+
+    /// <summary>Sits inside the right edge of the input, for example the show/hide password button.</summary>
+    [Parameter] public RenderFragment? Suffix { get; set; }
+
+    private string? DescribedBy => Error is not null || Helper is not null ? $"{Id}-message" : null;
+}
