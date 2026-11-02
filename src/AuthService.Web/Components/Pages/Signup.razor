@@ -165,6 +165,16 @@ else
 
     private CancellationToken Cancellation => HttpContext?.RequestAborted ?? CancellationToken.None;
 
+    protected override void OnInitialized()
+    {
+        // The resend form only exists on the "check your email" screen, and a posted form must be on the page when it arrives.
+        if (!string.IsNullOrWhiteSpace(ResendEmail))
+        {
+            sentTo = ResendEmail.Trim();
+            stage = Stage.Sent;
+        }
+    }
+
     private async Task SignUpAsync(EditContext context)
     {
         var model = Model;
@@ -208,14 +218,6 @@ else
 
     private async Task ResendAsync()
     {
-        stage = Stage.Sent;
-        sentTo = ResendEmail?.Trim() ?? "";
-        if (sentTo.Length == 0)
-        {
-            stage = Stage.Form;
-            return;
-        }
-
         var result = await Api.PostNoContentAsync("/api/auth/email/verify/resend", new ResendVerificationRequest(sentTo), Cancellation);
         if (result.IsSuccess)
         {
