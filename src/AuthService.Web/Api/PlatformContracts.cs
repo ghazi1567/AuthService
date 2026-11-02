@@ -96,3 +96,15 @@ public sealed record SetProductActiveRequest(bool IsActive);
 
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/launch-url</c>: the address, or null to clear it.</summary>
 public sealed record SetLaunchUrlRequest(string? Url);
+
+/// <summary>One permission of a product's catalog, as the platform admin reads it.</summary>
+public sealed record AdminPermissionItem(string Key, string Label, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+
+/// <summary>One permission to add to a product's catalog, or to update if its key is already there.</summary>
+public sealed record PermissionToAdd(string Key, string Label, string? Description);
+
+/// <summary>Body of <c>POST /api/auth/admin/applications/{id}/permissions</c>.</summary>
+public sealed record AddPermissionsRequest(IReadOnlyList<PermissionToAdd> Permissions);
+
+/// <summary>What adding permissions did: how many were new, how many had their words changed, how many were already as given.</summary>
+public sealed record AddPermissionsResult(Guid ApplicationId, int Created, int Updated, int Unchanged);

@@ -1,0 +1,329 @@
+@page "/platform/products/{ProductId:guid}/permissions"
+@attribute [Authorize]
+@layout PlatformLayout
+@using System.Globalization
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>@(product is null ? "Permissions" : $"{product.Name} permissions") · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Permissions</h1>
+    <ErrorState Title="We couldn't load the permissions" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (product is null)
+{
+    <h1 class="page-title">That product isn't here</h1>
+    <p class="page-lead">It may have been removed. Go back to the list to see what is there now.</p>
+    <a class="btn btn-secondary" href="/platform/products">Back to products</a>
+}
+else
+{
+    <p class="back-link"><a href="/platform/products"><Icon Name="chevron-right" />Products</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@product.Name permissions</h1>
+            <p class="page-lead">What an organisation's admins can choose when they build a role for this product. Each has a key the product checks for and a label people read.</p>
+        </div>
+        <a class="btn btn-primary" href="@PagePath?add=1"><Icon Name="plus" />Add permissions</a>
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    <AlertBanner Kind="AlertKind.Info" Title="The list only grows" Class="auth-alert">
+        <p class="alert-body">A permission is never removed. A role may already grant it, so a key stays here even if the product stops using it. Adding a key that is already here changes its label and description.</p>
+    </AlertBanner>
+
+    @if (!product.IsActive && permissions.Count > 0)
+    {
+        <AlertBanner Kind="AlertKind.Success" Title="@($"{product.Name} can be made available")" Class="auth-alert">
+            <form method="post" action="/platform/products/@product.Id/active" class="alert-actions">
+                <AntiforgeryToken />
+                <input type="hidden" name="isActive" value="true" />
+                <p class="alert-body">It has permissions now. Organisations can only subscribe once it is available.</p>
+                <button type="submit" class="btn btn-primary btn-sm" data-busy-label="Making available…">Make available</button>
+            </form>
+        </AlertBanner>
+    }
+
+    @if (permissions.Count == 0)
+    {
+        <EmptyState Title="No permissions yet" IconName="key">
+            <p class="empty-body">A product needs at least one permission before it can be made available.</p>
+            <a class="btn btn-primary" href="@PagePath?add=1">Add permissions</a>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Key</th>
+                        <th scope="col">Label</th>
+                        <th scope="col">Description</th>
+                        <th scope="col">Added</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var permission in permissions)
+                    {
+                        <tr>
+                            <td data-label="Key"><code class="mono">@permission.Key</code></td>
+                            <td data-label="Label"><span class="person-name">@permission.Label</span></td>
+                            <td data-label="Description">@(string.IsNullOrWhiteSpace(permission.Description) ? "None" : permission.Description)</td>
+                            <td data-label="Added"><time datetime="@permission.CreatedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)">@permission.CreatedAt.UtcDateTime.ToString("d MMM yyyy", CultureInfo.InvariantCulture)</time></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @permissions.Count @(permissions.Count == 1 ? "permission" : "permissions")</p>
+    }
+
+    @if (adding)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="add-title">
+                <form method="post" @onsubmit="AddAsync" @formname="add" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="add-title" class="modal-title">Add permissions to @product.Name</h2>
+                        <p class="modal-text">Write one permission per line, with its key, its label and, if you like, a description, separated by a | sign.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="permissions-text">Permissions</label>
+                            <textarea id="permissions-text" name="lines" class="input mono permissions-text" rows="7" spellcheck="false" autocomplete="off" placeholder="ticket.reply | Answer tickets | Reply to a customer&#10;ticket.close | Close tickets">@enteredLines</textarea>
+                            <p class="field-message">A key is lowercase letters, digits and . _ - characters, like "ticket.reply". Up to @MaxPerPost at a time.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Adding…">Add permissions</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private const int MaxPerPost = 200;
+
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool adding;
+    private string? reference;
+    private string enteredLines = "";
+    private AdminProductItem? product;
+    private readonly List<string> errors = [];
+    private List<AdminPermissionItem> permissions = [];
+
+    [Parameter] public Guid ProductId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "add")] private string? Add { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "created")] private int? Created { get; set; }
+
+    [SupplyParameterFromQuery(Name = "updated")] private int? Updated { get; set; }
+
+    [SupplyParameterFromQuery(Name = "unchanged")] private int? Unchanged { get; set; }
+
+    private string PagePath => $"/platform/products/{ProductId}/permissions";
+
+    private RenderFragment? Notice() => builder =>
+    {
+        if (NoticeCode != "added")
+        {
+            return;
+        }
+
+        var parts = new List<string>();
+        if (Created is > 0)
+        {
+            parts.Add($"{Created} added");
+        }
+
+        if (Updated is > 0)
+        {
+            parts.Add($"{Updated} changed");
+        }
+
+        if (Unchanged is > 0)
+        {
+            parts.Add($"{Unchanged} already there");
+        }
+
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), AlertKind.Success);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), "The permissions are saved");
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner =>
+            inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(parts.Count == 0 ? "Nothing needed changing." : string.Join(", ", parts) + ".")}</p>")));
+        builder.CloseComponent();
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // The layout has already asked the API; this is the same answer.
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var products = await Api.GetAsync<List<AdminProductItem>>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
+        if (!products.IsSuccess)
+        {
+            Fail(products.Problem!);
+            return;
+        }
+
+        product = products.Value!.FirstOrDefault(candidate => candidate.Id == ProductId);
+        if (product is null)
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<List<AdminPermissionItem>>($"/api/auth/admin/applications/{ProductId}/permissions", access.Token!, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            Fail(list.Problem!);
+            return;
+        }
+
+        permissions = [.. list.Value!.OrderBy(permission => permission.Key, StringComparer.Ordinal)];
+
+        // A posted form must already be on the page when the post arrives.
+        adding = Add == "1" || (HttpContext.Request.HasFormContentType && HttpContext.Request.Form["_handler"] == "add");
+    }
+
+    private void Fail(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+
+    private async Task AddAsync()
+    {
+        enteredLines = HttpContext!.Request.Form["lines"].ToString();
+        errors.Clear();
+
+        var toAdd = new List<PermissionToAdd>();
+        var lineNumber = 0;
+        foreach (var line in enteredLines.Split('\n'))
+        {
+            lineNumber++;
+            var text = line.Trim();
+            if (text.Length == 0)
+            {
+                continue;
+            }
+
+            var parts = text.Split('|', 3, StringSplitOptions.TrimEntries);
+            if (parts.Length < 2 || parts[0].Length == 0 || parts[1].Length == 0)
+            {
+                errors.Add($"Line {lineNumber}: write a key and a label separated by a | sign.");
+                continue;
+            }
+
+            toAdd.Add(new PermissionToAdd(parts[0], parts[1], parts.Length == 3 && parts[2].Length > 0 ? parts[2] : null));
+        }
+
+        if (errors.Count == 0 && toAdd.Count == 0)
+        {
+            errors.Add("Write at least one permission.");
+        }
+
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PostAsync<AddPermissionsRequest, AddPermissionsResult>(
+            $"/api/auth/admin/applications/{ProductId}/permissions", new AddPermissionsRequest(toAdd), HttpContext.RequestAborted, access.Token);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?notice=added&created={result.Value!.Created}&updated={result.Value.Updated}&unchanged={result.Value.Unchanged}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(5))
+            {
+                errors.Add(reason);
+            }
+        }
+        else if (problem?.Code == "application_not_found")
+        {
+            errors.Add("That product isn't here any more.");
+        }
+        else
+        {
+            errors.Add(problem?.Status == StatusCodes.Status403Forbidden
+                ? "You don't have permission to change products."
+                : "Auth Service isn't responding right now. Nothing was saved. Try again in a moment.");
+        }
+    }
+}
