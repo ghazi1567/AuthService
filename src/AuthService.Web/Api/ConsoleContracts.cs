@@ -31,7 +31,22 @@ public sealed record MemberItem(
 public sealed record SetMemberStatusRequest(string Status);
 
 /// <summary>A role of the organisation, as the role list shows it.</summary>
-public sealed record RoleListItem(Guid Id, string Name, bool IsBuiltIn, int MemberCount);
+public sealed record RoleListItem(
+    Guid Id,
+    string Name,
+    bool IsBuiltIn,
+    int MemberCount,
+    IReadOnlyList<RoleGrant>? Permissions = null,
+    DateTimeOffset? CreatedAt = null)
+{
+    /// <summary>How many permissions the role grants (a level of None grants nothing).</summary>
+    public int PermissionCount => Permissions?.Count(grant => grant.Level != "None") ?? 0;
+
+    public int ProductCount => Permissions?.Where(grant => grant.Level != "None").Select(grant => grant.ApplicationId).Distinct().Count() ?? 0;
+}
+
+/// <summary>One permission a role grants in one product, at a level (None, ReadOnly, CreateRead or Full).</summary>
+public sealed record RoleGrant(Guid ApplicationId, string ApplicationKey, string Permission, string Level);
 
 /// <summary>A role as it is shown on a member or an invitation.</summary>
 public sealed record AssignedRole(Guid Id, string Name, bool IsBuiltIn);

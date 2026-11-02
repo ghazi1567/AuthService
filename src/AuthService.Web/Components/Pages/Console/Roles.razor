@@ -1,0 +1,295 @@
+@page "/console/{TenantId:guid}/roles"
+@attribute [Authorize]
+@layout TenantLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject ConsoleSession Session
+@inject NavigationManager Navigation
+
+<PageTitle>Roles · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (outcome == ConsoleOutcome.Denied)
+{
+    <h1 class="page-title">You don't have access</h1>
+    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
+    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+}
+else if (outcome != ConsoleOutcome.Ready || loadFailed)
+{
+    <h1 class="page-title">Roles</h1>
+    <ErrorState Title="We couldn't load the roles" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (!console!.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly))
+{
+    <h1 class="page-title">Roles</h1>
+    <AlertBanner Kind="AlertKind.Info" Title="You can't see roles">
+        <p class="alert-body">You need the 'Roles · Read only' permission. Ask an admin of @console.TenantName.</p>
+    </AlertBanner>
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Roles</h1>
+            <p class="page-lead">What people in @console.TenantName are allowed to do. Give someone a role to give them its permissions.</p>
+        </div>
+        @if (canManage)
+        {
+            <a class="btn btn-primary" href="/console/@TenantId/roles/new"><Icon Name="plus" />Create role</a>
+        }
+        else
+        {
+            <span class="has-tip" tabindex="0" data-tip="You need the 'Roles · Full access' permission to create roles.">
+                <button type="button" class="btn btn-primary" disabled aria-disabled="true"><Icon Name="plus" />Create role</button>
+            </span>
+        }
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    @if (roles.Count == 0)
+    {
+        <EmptyState Title="No roles yet" IconName="shield">
+            <p class="empty-body">Create a role to decide what people can do.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Role</th>
+                        <th scope="col">Members</th>
+                        <th scope="col">Permissions</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var role in roles)
+                    {
+                        <tr>
+                            <td data-label="Role">
+                                <span class="person-name">@role.Name</span>
+                                @if (role.IsBuiltIn)
+                                {
+                                    <span class="chip chip-owner"><Icon Name="lock" />Built in</span>
+                                }
+                            </td>
+                            <td data-label="Members">@role.MemberCount</td>
+                            <td data-label="Permissions">@PermissionSummary(role)</td>
+                            <td data-label="Actions" class="row-actions">
+                                @if (role.IsBuiltIn)
+                                {
+                                    <span class="has-tip" tabindex="0" data-tip="The built-in Owner role can't be edited or deleted.">
+                                        <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true"><Icon Name="lock" />Locked</button>
+                                    </span>
+                                }
+                                else if (!canManage)
+                                {
+                                    <span class="has-tip" tabindex="0" data-tip="You need the 'Roles · Full access' permission to change roles.">
+                                        <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Edit</button>
+                                    </span>
+                                    <span class="has-tip" tabindex="0" data-tip="You need the 'Roles · Full access' permission to change roles.">
+                                        <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Delete</button>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="/console/@TenantId/roles/@role.Id">Edit</a>
+                                    <a class="btn btn-secondary btn-sm" href="@PagePath?delete=@role.Id">Delete</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @roles.Count @(roles.Count == 1 ? "role" : "roles")</p>
+    }
+
+    @if (confirming is { } target)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+                <div class="modal-body">
+                    <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                    @if (target.MemberCount > 0)
+                    {
+                        <h2 id="delete-title" class="modal-title">@target.Name can't be deleted yet</h2>
+                        <p class="modal-text">@HeldBy(target) still hold this role. Give them a different role first, then come back and delete it.</p>
+                    }
+                    else
+                    {
+                        <h2 id="delete-title" class="modal-title">Delete the role '@target.Name'?</h2>
+                        <p class="modal-text">Nobody holds this role, so no one will lose access. The role and the permissions it grants are removed for good. This can't be undone.</p>
+                    }
+                </div>
+                @if (target.MemberCount > 0)
+                {
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath" autofocus>Close</a>
+                        <a class="btn btn-primary" href="/console/@TenantId/members">Go to members</a>
+                    </div>
+                }
+                else
+                {
+                    <form method="post" action="/console/@TenantId/roles/@target.Id/delete" class="modal-foot">
+                        <AntiforgeryToken />
+                        <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                        <button type="submit" class="btn btn-danger" data-busy-label="Deleting…">Delete role</button>
+                    </form>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private ConsoleOutcome outcome = ConsoleOutcome.Ready;
+    private ConsoleContext? console;
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool canManage;
+    private string? reference;
+    private List<RoleListItem> roles = [];
+    private RoleListItem? confirming;
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "delete")] private Guid? DeleteId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "m")] private Guid? RoleId { get; set; }
+
+    private string PagePath => $"/console/{TenantId}/roles";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var result = await Session.LoadAsync(HttpContext, TenantId);
+        outcome = result.Outcome;
+        if (outcome == ConsoleOutcome.SessionEnded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (outcome != ConsoleOutcome.Ready)
+        {
+            reference = Reference();
+            return;
+        }
+
+        console = result.Console;
+        canManage = console!.Can(PermissionKeys.RolesManage, AccessLevel.Full);
+        if (!console.Can(PermissionKeys.RolesRead, AccessLevel.ReadOnly))
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<List<RoleListItem>>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                Session.Refresh(HttpContext, TenantId);
+                leaving = true;
+                Navigation.NavigateTo(PagePath);
+                return;
+            }
+
+            loadFailed = true;
+            reference = Reference();
+            return;
+        }
+
+        // The built-in Owner role first, then the rest by name.
+        roles = [.. list.Value!.OrderByDescending(role => role.IsBuiltIn).ThenBy(role => role.Name, StringComparer.CurrentCultureIgnoreCase)];
+        if (DeleteId is { } id)
+        {
+            confirming = roles.FirstOrDefault(role => role.Id == id && !role.IsBuiltIn);
+        }
+    }
+
+    private static string PermissionSummary(RoleListItem role) =>
+        role.Permissions is null
+            ? ""
+            : role.PermissionCount == 0
+                ? "No permissions"
+                : $"{role.PermissionCount} {(role.PermissionCount == 1 ? "permission" : "permissions")} in {role.ProductCount} {(role.ProductCount == 1 ? "product" : "products")}";
+
+    private static string HeldBy(RoleListItem role) =>
+        role.MemberCount == 1 ? "1 person still holds" : $"{role.MemberCount} people";
+
+    private string NameOf(Guid? id) =>
+        roles.FirstOrDefault(role => role.Id == id)?.Name ?? "This role";
+
+    private string? Reference() =>
+        HttpContext?.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+
+    private RenderFragment? Notice() => builder =>
+    {
+        switch (NoticeCode, ErrorCode)
+        {
+            case ("deleted", _):
+                Banner(builder, AlertKind.Success, "Role deleted", "Nobody held it, so nobody lost access.");
+                break;
+            case (_, "role_in_use"):
+                Banner(builder, AlertKind.Warning, $"{NameOf(RoleId)} is still in use", "Someone holds this role. Give them a different role first, then delete it.");
+                break;
+            case (_, "owner_role_immutable"):
+                Banner(builder, AlertKind.Error, "The Owner role can't be changed", "The built-in Owner role can never be edited, downgraded or deleted.");
+                break;
+            case (_, "not_found"):
+                Banner(builder, AlertKind.Warning, "That role isn't here any more", "Someone may have deleted it. The list is up to date.");
+                break;
+            case (_, "forbidden"):
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "You need the 'Roles · Full access' permission to change roles.");
+                break;
+            case (_, "unavailable"):
+                Banner(builder, AlertKind.Error, "We couldn't make that change", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+                break;
+        }
+    };
+
+    private static void Banner(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder builder, AlertKind kind, string title, string body)
+    {
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), kind);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner => inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    }
+}

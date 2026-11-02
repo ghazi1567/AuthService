@@ -118,6 +118,10 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public string RolesJson { get; set; } = "[]";
 
+    public Func<HttpResponseMessage>? RoleDeleteResponse { get; set; }
+
+    public List<(string? Authorization, string Path)> RoleDeleteCalls { get; } = [];
+
     public string SubscriptionsJson { get; set; } = "[]";
 
     public List<string> AccessTokensIssued { get; } = [];
@@ -135,6 +139,16 @@ public sealed class FakeAuthApi : HttpMessageHandler
         if (Unreachable && path != "/api/auth/login")
         {
             throw new HttpRequestException("the API is down");
+        }
+
+        if (path.StartsWith("/api/auth/roles/", StringComparison.Ordinal) && request.Method == HttpMethod.Delete)
+        {
+            lock (_gate)
+            {
+                RoleDeleteCalls.Add((request.Headers.Authorization?.ToString(), path));
+            }
+
+            return RoleDeleteResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.NoContent);
         }
 
         if (path.StartsWith("/api/auth/tenants/me/invitations/", StringComparison.Ordinal) && path.EndsWith("/resend", StringComparison.Ordinal))

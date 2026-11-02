@@ -129,6 +129,10 @@ What is in place:
   with seats shown (full or unsubscribed products can't be chosen). Each address is invited in turn; a refusal (already a member, Owner
   role restricted, product not subscribed, no free seat in named products, role gone, API down) is explained and only the addresses that still
   need sending stay in the box. Inviting needs `members.invite:Full` and `roles.read`.
+- **Roles** (`/console/{tenantId}/roles`, UI02_T4). Lists the organisation's roles (the built-in Owner first and locked), with how many people hold each and a
+  one-line permission summary. **Delete** asks first; a role nobody holds says what deleting does, and a role someone still holds says how many people hold it
+  and what to do next (give them a different role, with a link to Members) instead of offering the button. A refusal from the API is explained in the
+  same terms. Create and Edit link to the role editor (the next ticket); without `roles.manage:Full` those buttons are disabled with the permission named.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
