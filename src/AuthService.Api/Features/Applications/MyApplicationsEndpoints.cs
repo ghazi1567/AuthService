@@ -60,20 +60,28 @@ public static class MyApplicationsEndpoints
             return Results.ValidationProblem(new Dictionary<string, string[]> { [nameof(tenantId)] = ["tenantId is required."] });
         }
 
-        // The same rule as the token exchange: an active membership in an organisation that is not suspended.
-        var membershipId = await (
+        // The same rules as the token exchange: an active membership, in an organisation that is not suspended. An active member is told
+        // when it is suspended (they already know it is theirs); anyone else is just refused.
+        var standing = await (
             from membership in db.TenantMemberships
             join organisation in db.Tenants on membership.TenantId equals organisation.Id
             where membership.TenantId == tenant && membership.UserId == userId
                 && membership.Status == MembershipStatus.Active
-                && organisation.Status != TenantStatus.Suspended
-            select (Guid?)membership.Id)
+            select new { MembershipId = membership.Id, Suspended = organisation.Status == TenantStatus.Suspended })
             .SingleOrDefaultAsync(cancellationToken);
-        if (membershipId is null)
+        if (standing is null)
         {
             return ApiProblem.Create(StatusCodes.Status403Forbidden, "tenant_access_denied", "No access to this organisation",
                 "You are not an active member of this organisation.");
         }
+
+        if (standing.Suspended)
+        {
+            return ApiProblem.Create(StatusCodes.Status403Forbidden, "tenant_suspended", "Organisation suspended",
+                "This organisation is suspended, so nothing can be opened in it right now.");
+        }
+
+        Guid? membershipId = standing.MembershipId;
 
         var rows = await (
             from application in db.Applications.AsNoTracking()
