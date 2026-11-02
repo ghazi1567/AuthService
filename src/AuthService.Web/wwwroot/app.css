@@ -604,3 +604,50 @@ a {
         box-shadow: none;
     }
 }
+
+/* Password rules and the "check your email" screen */
+.rules {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.rule {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+    font: 400 13px/18px var(--font-ui);
+}
+
+    .rule.is-met {
+        color: var(--success-text);
+    }
+
+.rule-icon[hidden] {
+    display: none;
+}
+
+.auth-sent .auth-lead {
+    margin-bottom: 24px;
+}
+
+.icon-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    margin-bottom: 16px;
+    border-radius: var(--radius-lg);
+    background: var(--action-primary-soft-strong);
+    color: var(--text-brand);
+}
+
+    .icon-tile .icon {
+        width: 24px;
+        height: 24px;
+    }

@@ -1,0 +1,275 @@
+@page "/signup"
+@layout AuthLayout
+@using System.ComponentModel.DataAnnotations
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+
+<PageTitle>@(stage == Stage.Sent ? "Check your email" : "Create your account") · Auth Service</PageTitle>
+
+@if (stage == Stage.Sent)
+{
+    <div class="auth-sent">
+        <div class="icon-tile"><Icon Name="mail" /></div>
+        <h1 class="auth-title">Check your email</h1>
+        <p class="auth-lead">If @sentTo can be used to create an account, we've sent a link to finish signing up. The link works for 24 hours.</p>
+
+        @switch (resend)
+        {
+            case ResendState.Sent:
+                <AlertBanner Kind="AlertKind.Success" Title="We've sent it again" Class="auth-alert">
+                    <p class="alert-body">Check your inbox and your spam folder.</p>
+                </AlertBanner>
+                break;
+            case ResendState.RateLimited:
+                <AlertBanner Kind="AlertKind.Warning" Title="Too many requests" Class="auth-alert">
+                    <p class="alert-body">@(waitSeconds is { } seconds ? $"Wait {seconds} seconds, then try again." : "Wait a moment, then try again.")</p>
+                </AlertBanner>
+                break;
+            case ResendState.Unavailable:
+                <AlertBanner Kind="AlertKind.Error" Title="We couldn't send it again" Class="auth-alert">
+                    <p class="alert-body">Auth Service isn't responding right now. Try again in a moment.</p>
+                </AlertBanner>
+                break;
+        }
+
+        <form method="post" @onsubmit="ResendAsync" @formname="resend" class="auth-actions">
+            <AntiforgeryToken />
+            <input type="hidden" name="email" value="@sentTo" />
+            <button type="submit" class="btn btn-secondary btn-lg btn-block"
+                    data-busy-label="Sending…"
+                    data-countdown="@(resend == ResendState.RateLimited && waitSeconds is > 0 ? waitSeconds : 60)"
+                    data-countdown-label="Resend in {0}s"
+                    data-countdown-done="Resend email"
+                    data-countdown-announce="signup-announce"
+                    data-countdown-message="You can send the email again now.">Resend email</button>
+            <div id="signup-announce" class="visually-hidden" aria-live="polite"></div>
+        </form>
+
+        <p class="auth-alt">Wrong address? <a href="/signup">Start again</a> or <a href="/login">sign in</a>.</p>
+    </div>
+}
+else
+{
+    <h1 class="auth-title">Create your account</h1>
+    <p class="auth-lead">Set up your organisation in a minute.</p>
+
+    @switch (problem)
+    {
+        case FormProblem.RateLimited:
+            <AlertBanner Kind="AlertKind.Warning" Title="Too many attempts" Class="auth-alert">
+                <p class="alert-body">@(waitSeconds is { } seconds ? $"Wait {seconds} seconds, then try again." : "Wait a moment, then try again.")</p>
+            </AlertBanner>
+            break;
+        case FormProblem.Unavailable:
+            <AlertBanner Kind="AlertKind.Error" Title="We couldn't create your account" Class="auth-alert">
+                <p class="alert-body">Auth Service isn't responding right now. Your details are safe. Try again in a moment.</p>
+            </AlertBanner>
+            break;
+    }
+
+    <EditForm Model="Model" FormName="signup" method="post" OnValidSubmit="SignUpAsync" novalidate class="auth-form">
+        <DataAnnotationsValidator />
+
+        @{
+            var messages = context.GetValidationMessages().ToList();
+        }
+        @if (messages.Count > 0)
+        {
+            <AlertBanner Kind="AlertKind.Error" Title="@(messages.Count == 1 ? "Fix 1 problem to create your account" : $"Fix {messages.Count} problems to create your account")">
+                <ul>
+                    @foreach (var (field, id) in Fields)
+                    {
+                        @if (context.GetValidationMessages(context.Field(field)).FirstOrDefault() is { } message)
+                        {
+                            <li><a href="#@id">@message</a></li>
+                        }
+                    }
+                </ul>
+            </AlertBanner>
+        }
+
+        <TextField Id="signup-name"
+                   Label="Full name"
+                   Autocomplete="name"
+                   @bind-Value="Model.DisplayName"
+                   Error="@context.GetValidationMessages(context.Field(nameof(SignupInput.DisplayName))).FirstOrDefault()" />
+
+        <TextField Id="signup-organisation"
+                   Label="Organisation name"
+                   Autocomplete="organization"
+                   Helper="This is how your team will see you. You can't change it later."
+                   @bind-Value="Model.TenantName"
+                   Error="@context.GetValidationMessages(context.Field(nameof(SignupInput.TenantName))).FirstOrDefault()" />
+
+        <TextField Id="signup-email"
+                   Label="Work email"
+                   Type="email"
+                   Autocomplete="email"
+                   @bind-Value="Model.Email"
+                   Error="@context.GetValidationMessages(context.Field(nameof(SignupInput.Email))).FirstOrDefault()" />
+
+        <PasswordField Id="signup-password"
+                       Label="Password"
+                       Autocomplete="new-password"
+                       @bind-Value="Model.Password"
+                       Error="@context.GetValidationMessages(context.Field(nameof(SignupInput.Password))).FirstOrDefault()"
+                       BelowId="signup-rules">
+            <Below><PasswordRules Id="signup-rules" ForField="signup-password" /></Below>
+        </PasswordField>
+
+        <div class="auth-actions">
+            @if (problem == FormProblem.RateLimited && waitSeconds is > 0)
+            {
+                <button type="submit" class="btn btn-primary btn-lg btn-block"
+                        data-busy-label="Creating account…"
+                        data-countdown="@waitSeconds"
+                        data-countdown-label="Try again in {0}s"
+                        data-countdown-done="Create account"
+                        data-countdown-announce="signup-announce"
+                        data-countdown-message="You can try creating your account again now.">Create account</button>
+                <div id="signup-announce" class="visually-hidden" aria-live="polite"></div>
+            }
+            else
+            {
+                <button type="submit" class="btn btn-primary btn-lg btn-block" data-busy-label="Creating account…">Create account</button>
+            }
+        </div>
+    </EditForm>
+
+    <p class="auth-alt">Already have an account? <a href="/login">Sign in</a></p>
+}
+
+@code {
+    private static readonly (string Field, string Id)[] Fields =
+    [
+        (nameof(SignupInput.DisplayName), "signup-name"),
+        (nameof(SignupInput.TenantName), "signup-organisation"),
+        (nameof(SignupInput.Email), "signup-email"),
+        (nameof(SignupInput.Password), "signup-password"),
+    ];
+
+    private Stage stage = Stage.Form;
+    private FormProblem problem = FormProblem.None;
+    private ResendState resend = ResendState.None;
+    private int? waitSeconds;
+    private string sentTo = "";
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    // Named "Model" so it binds the fields as the form renders them (Model.Email).
+    [SupplyParameterFromForm(Name = "Model")] private SignupInput? Posted { get; set; }
+
+    [SupplyParameterFromForm(FormName = "resend", Name = "email")] private string? ResendEmail { get; set; }
+
+    private SignupInput Model => Posted ??= new();
+
+    private CancellationToken Cancellation => HttpContext?.RequestAborted ?? CancellationToken.None;
+
+    private async Task SignUpAsync(EditContext context)
+    {
+        var model = Model;
+        var email = model.Email!.Trim();
+        var result = await Api.PostNoContentAsync(
+            "/api/auth/signup",
+            new SignupRequest(model.TenantName!.Trim(), email, model.Password!, model.DisplayName!.Trim()),
+            Cancellation);
+
+        // Never carry a password back into the page.
+        model.Password = null;
+
+        // "Email already registered" gets the same screen as success: the page must not tell anyone whether an address has an account.
+        if (result.IsSuccess || result.Problem!.Code == "email_already_registered")
+        {
+            sentTo = email;
+            stage = Stage.Sent;
+            return;
+        }
+
+        var apiProblem = result.Problem!;
+        if (apiProblem.Status == StatusCodes.Status400BadRequest && apiProblem.Errors is { Count: > 0 } errors)
+        {
+            // The API checks more than this page does (and may differ from it): show its reasons beside the fields.
+            var store = new ValidationMessageStore(context);
+            foreach (var (field, reasons) in errors)
+            {
+                if (Fields.Any(known => known.Field == field) && reasons.Length > 0)
+                {
+                    store.Add(context.Field(field), reasons[0]);
+                }
+            }
+
+            context.NotifyValidationStateChanged();
+            return;
+        }
+
+        problem = apiProblem.Code == "rate_limited" ? FormProblem.RateLimited : FormProblem.Unavailable;
+        waitSeconds = WaitFor(apiProblem);
+    }
+
+    private async Task ResendAsync()
+    {
+        stage = Stage.Sent;
+        sentTo = ResendEmail?.Trim() ?? "";
+        if (sentTo.Length == 0)
+        {
+            stage = Stage.Form;
+            return;
+        }
+
+        var result = await Api.PostNoContentAsync("/api/auth/email/verify/resend", new ResendVerificationRequest(sentTo), Cancellation);
+        if (result.IsSuccess)
+        {
+            resend = ResendState.Sent;
+            return;
+        }
+
+        resend = result.Problem!.Code == "rate_limited" ? ResendState.RateLimited : ResendState.Unavailable;
+        waitSeconds = WaitFor(result.Problem);
+    }
+
+    private static int? WaitFor(ApiProblem apiProblem) =>
+        apiProblem.Code == "rate_limited" && apiProblem.RetryAfter is { } retryAfter
+            ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
+            : null;
+
+    private enum Stage
+    {
+        Form,
+        Sent,
+    }
+
+    private enum FormProblem
+    {
+        None,
+        RateLimited,
+        Unavailable,
+    }
+
+    private enum ResendState
+    {
+        None,
+        Sent,
+        RateLimited,
+        Unavailable,
+    }
+
+    public sealed class SignupInput
+    {
+        [Required(ErrorMessage = "Enter your full name.")]
+        [StringLength(200, ErrorMessage = "Use 200 characters or fewer.")]
+        public string? DisplayName { get; set; }
+
+        [Required(ErrorMessage = "Enter your organisation's name.")]
+        [StringLength(200, ErrorMessage = "Use 200 characters or fewer.")]
+        public string? TenantName { get; set; }
+
+        [Required(ErrorMessage = "Enter your work email.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address, like anna@acme.com.")]
+        public string? Email { get; set; }
+
+        [Required(ErrorMessage = "Choose a password.")]
+        [StringLength(PasswordPolicy.MaxLength, MinimumLength = PasswordPolicy.MinLength,
+            ErrorMessage = "Use between 8 and 128 characters.")]
+        public string? Password { get; set; }
+    }
+}
