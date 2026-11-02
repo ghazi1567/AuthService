@@ -25,8 +25,9 @@ else
     <div class="page-head">
         <div>
             <h1 class="page-title">Products</h1>
-            <p class="page-lead">The products organisations can subscribe to. Each has a client secret it uses to prove who it is to Auth Service. Only products that are available are listed.</p>
+            <p class="page-lead">Every product on the platform, available or not. A product becomes available once it has permissions; organisations can only subscribe to, and people only open, an available product.</p>
         </div>
+        <a class="btn btn-primary" href="/platform/products?register=1"><Icon Name="plus" />Register a product</a>
     </div>
 
     @if (Notice() is { } notice)
@@ -37,7 +38,8 @@ else
     @if (products.Count == 0)
     {
         <EmptyState Title="No products yet" IconName="building">
-            <p class="empty-body">No product is available to subscribe to right now.</p>
+            <p class="empty-body">Register a product to give it a client secret, a permission list and a place to be opened from.</p>
+            <a class="btn btn-primary" href="/platform/products?register=1">Register a product</a>
         </EmptyState>
     }
     else
@@ -47,8 +49,9 @@ else
                 <thead>
                     <tr>
                         <th scope="col">Product</th>
-                        <th scope="col">Key</th>
-                        <th scope="col">Id</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Permissions</th>
+                        <th scope="col">Opens at</th>
                         <th scope="col"><span class="visually-hidden">Actions</span></th>
                     </tr>
                 </thead>
@@ -56,10 +59,48 @@ else
                     @foreach (var product in products)
                     {
                         <tr>
-                            <td data-label="Product"><span class="person-name">@product.Name</span></td>
-                            <td data-label="Key"><code class="mono">@product.Key</code></td>
-                            <td data-label="Id"><code class="mono">@product.Id.ToString("N")[..8]</code></td>
+                            <td data-label="Product">
+                                <span class="person-name">@product.Name</span>
+                                <code class="mono audit-detail">@product.Key</code>
+                            </td>
+                            <td data-label="Status" class="status-cell">
+                                @if (product.IsActive)
+                                {
+                                    <StatusBadge Kind="success" IconName="check" Label="Available" />
+                                    <span class="status-note">Organisations can subscribe and people can open it.</span>
+                                }
+                                else
+                                {
+                                    <StatusBadge Kind="neutral" IconName="slash" Label="Not available" />
+                                    <span class="status-note">@(product.PermissionCount == 0 ? "Add at least one permission, then make it available." : "Nobody can open it and organisations can't subscribe. Make it available when it is ready.")</span>
+                                }
+                            </td>
+                            <td data-label="Permissions">@product.PermissionCount @(product.PermissionCount == 1 ? "permission" : "permissions")</td>
+                            <td data-label="Opens at">
+                                @if (product.LaunchUrl is { } address)
+                                {
+                                    <code class="mono audit-detail">@address</code>
+                                }
+                                else
+                                {
+                                    <span class="muted">Not set. People can't open it from the picker.</span>
+                                }
+                            </td>
                             <td data-label="Actions" class="row-actions">
+                                @if (product.IsActive)
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="/platform/products?withdraw=@product.Id">Withdraw</a>
+                                }
+                                else if (product.PermissionCount > 0)
+                                {
+                                    <form method="post" action="/platform/products/@product.Id/active" class="inline-form-row">
+                                        <AntiforgeryToken />
+                                        <input type="hidden" name="isActive" value="true" />
+                                        <button type="submit" class="btn btn-primary btn-sm" data-busy-label="Making available…">Make available</button>
+                                    </form>
+                                }
+
+                                <a class="btn btn-secondary btn-sm" href="/platform/products?launch=@product.Id">Opens at</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?rotate=@product.Id">Replace secret</a>
                             </td>
                         </tr>
@@ -75,12 +116,22 @@ else
         <div class="modal-backdrop">
             <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="secret-title">
                 <div class="modal-body">
-                    <h2 id="secret-title" class="modal-title">New client secret</h2>
-                    <AlertBanner Kind="AlertKind.Info" Title="@OldSecretTitle" Class="dialog-alert">
-                        <p class="alert-body">@OldSecretBody</p>
-                    </AlertBanner>
+                    <h2 id="secret-title" class="modal-title">@(Registered == "1" ? "Product registered" : "New client secret")</h2>
+                    @if (Registered == "1")
+                    {
+                        <AlertBanner Kind="AlertKind.Success" Title="@($"{RegisteredName} is registered")" Class="dialog-alert">
+                            <p class="alert-body">It isn't available yet. Next, give it its permissions, then make it available. Give its team the client id and the secret below.</p>
+                        </AlertBanner>
+                    }
+                    else
+                    {
+                        <AlertBanner Kind="AlertKind.Info" Title="@OldSecretTitle" Class="dialog-alert">
+                            <p class="alert-body">@OldSecretBody</p>
+                        </AlertBanner>
+                    }
+
                     <AlertBanner Kind="AlertKind.Warning" Title="You won't see this again" Class="dialog-alert">
-                        <p class="alert-body">Copy the secret now and give it to the product's team. It is never shown again. If it is lost, replace the secret again.</p>
+                        <p class="alert-body">Copy the secret now and give it to the product's team. It is never shown again. If it is lost, replace the secret.</p>
                     </AlertBanner>
                     @if (!string.IsNullOrWhiteSpace(ClientId))
                     {
@@ -95,6 +146,105 @@ else
                 <div class="modal-foot">
                     <a class="btn btn-primary" href="/platform/products">I've saved it</a>
                 </div>
+            </div>
+        </div>
+    }
+    else if (registering)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="register-title">
+                <form method="post" @onsubmit="RegisterAsync" @formname="register" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="register-title" class="modal-title">Register a product</h2>
+                        <p class="modal-text">A product gets a client id and a client secret to prove who it is to Auth Service. The secret is shown once.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="product-name">Name</label>
+                            <input id="product-name" name="name" class="input" value="@enteredName" maxlength="200" autocomplete="off" />
+                            <p class="field-message">What people see, like "Helpdesk".</p>
+                        </div>
+                        <div class="field">
+                            <label for="product-key">Key</label>
+                            <input id="product-key" name="key" class="input mono" value="@enteredKey" maxlength="63" autocomplete="off" spellcheck="false" />
+                            <p class="field-message">Short and permanent: lowercase letters, digits and hyphens, like "helpdesk". It can't be changed later.</p>
+                        </div>
+                        <div class="field">
+                            <label for="product-audience">Token audience</label>
+                            <input id="product-audience" name="audience" class="input mono" value="@enteredAudience" maxlength="200" autocomplete="off" spellcheck="false" />
+                            <p class="field-message">The value the product's tokens carry and check for, like "helpdesk-api". No two products can share one.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="/platform/products">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Registering…">Register product</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+    else if (launching is { } toLaunch)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="launch-title">
+                <form method="post" @onsubmit="SaveLaunchAsync" @formname="launch" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <input type="hidden" name="id" value="@toLaunch.Id" />
+                    <div class="modal-body">
+                        <h2 id="launch-title" class="modal-title">Where '@toLaunch.Name' opens</h2>
+                        <p class="modal-text">When someone chooses this product in the picker, they are sent to this address. Leave it empty to stop people opening it from there.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="launch-url">Address</label>
+                            <input id="launch-url" name="url" class="input mono" value="@enteredUrl" maxlength="2000" autocomplete="off" spellcheck="false" placeholder="https://helpdesk.example.com/signed-in" />
+                            <p class="field-message">A full https address. It can't contain a user name, a password or a # fragment.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="/platform/products">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Saving…">Save address</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+    else if (withdrawing is { } toWithdraw)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="withdraw-title">
+                <div class="modal-body">
+                    <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                    <h2 id="withdraw-title" class="modal-title">Withdraw '@toWithdraw.Name'?</h2>
+                    <p class="modal-text">Nobody will be able to open it, and organisations can't subscribe to it, until you make it available again. Existing subscriptions and seats aren't changed.</p>
+                </div>
+                <form method="post" action="/platform/products/@toWithdraw.Id/active" class="modal-foot">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="isActive" value="false" />
+                    <a class="btn btn-secondary" href="/platform/products" autofocus>Cancel</a>
+                    <button type="submit" class="btn btn-danger" data-busy-label="Withdrawing…">Withdraw product</button>
+                </form>
             </div>
         </div>
     }
@@ -142,22 +292,42 @@ else
     private bool leaving;
     private bool ready;
     private bool loadFailed;
+    private bool registering;
     private string? reference;
     private string? revealed;
-    private ProductSummary? rotating;
-    private List<ProductSummary> products = [];
+    private string enteredName = "";
+    private string enteredKey = "";
+    private string enteredAudience = "";
+    private string enteredUrl = "";
+    private AdminProductItem? rotating;
+    private AdminProductItem? withdrawing;
+    private AdminProductItem? launching;
+    private readonly List<string> errors = [];
+    private List<AdminProductItem> products = [];
 
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
 
+    [SupplyParameterFromQuery(Name = "register")] private string? Register { get; set; }
+
     [SupplyParameterFromQuery(Name = "rotate")] private Guid? RotateId { get; set; }
 
+    [SupplyParameterFromQuery(Name = "withdraw")] private Guid? WithdrawId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "launch")] private Guid? LaunchId { get; set; }
+
     [SupplyParameterFromQuery(Name = "reveal")] private string? Reveal { get; set; }
+
+    [SupplyParameterFromQuery(Name = "registered")] private string? Registered { get; set; }
+
+    [SupplyParameterFromQuery(Name = "name")] private string? RegisteredName { get; set; }
 
     [SupplyParameterFromQuery(Name = "client")] private string? ClientId { get; set; }
 
     [SupplyParameterFromQuery(Name = "oldEnds")] private string? OldEnds { get; set; }
 
     [SupplyParameterFromQuery(Name = "app")] private Guid? AppId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
 
     [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
 
@@ -178,19 +348,34 @@ else
     private RenderFragment? Notice() => builder =>
     {
         var name = products.FirstOrDefault(product => product.Id == AppId)?.Name ?? "This product";
-        switch (ErrorCode)
+        switch (NoticeCode, ErrorCode)
         {
-            case "application_not_found":
-                Banner(builder, AlertKind.Warning, "That product isn't here any more", "It may have been withdrawn. The list is up to date.");
+            case ("available", _):
+                Banner(builder, AlertKind.Success, $"{name} is available", "Organisations can subscribe to it and people with a seat can open it.");
                 break;
-            case "bad_grace":
+            case ("withdrawn", _):
+                Banner(builder, AlertKind.Success, $"{name} is withdrawn", "Nobody can open it and organisations can't subscribe until it is made available again.");
+                break;
+            case ("launch_saved", _):
+                Banner(builder, AlertKind.Success, $"{name}'s address is saved", "People who choose it in the picker are sent there.");
+                break;
+            case ("launch_cleared", _):
+                Banner(builder, AlertKind.Success, $"{name}'s address is cleared", "People can't open it from the picker until an address is set.");
+                break;
+            case (_, "no_permissions_registered"):
+                Banner(builder, AlertKind.Warning, $"{name} has no permissions yet", "A product needs at least one permission before it can be made available.");
+                break;
+            case (_, "application_not_found"):
+                Banner(builder, AlertKind.Warning, "That product isn't here any more", "The list is up to date.");
+                break;
+            case (_, "bad_grace"):
                 Banner(builder, AlertKind.Warning, "Choose how long the old secret keeps working", "Pick one of the options, from not at all up to 30 days.");
                 break;
-            case "forbidden":
-                Banner(builder, AlertKind.Error, "You don't have permission to do that", "Only platform admins can replace a product's secret.");
+            case (_, "forbidden"):
+                Banner(builder, AlertKind.Error, "You don't have permission to do that", "Only platform admins can change products.");
                 break;
-            case "unavailable":
-                Banner(builder, AlertKind.Error, $"We couldn't replace {name}'s secret", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+            case (_, "unavailable"):
+                Banner(builder, AlertKind.Error, $"We couldn't change {name}", "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
                 break;
         }
     };
@@ -217,6 +402,9 @@ else
         }
     }
 
+    private bool Posted(string handler) =>
+        HttpContext is { } context && context.Request.HasFormContentType && context.Request.Form["_handler"] == handler;
+
     private async Task LoadAsync()
     {
         if (HttpContext is null)
@@ -231,7 +419,7 @@ else
             return;
         }
 
-        var list = await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", access.Token!, HttpContext.RequestAborted);
+        var list = await Api.GetAsync<List<AdminProductItem>>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
         if (!list.IsSuccess)
         {
             if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
@@ -254,9 +442,145 @@ else
             revealed = Secrets.Take(sid.Value, token);
         }
 
-        if (revealed is null && RotateId is { } id)
+        if (revealed is not null)
         {
-            rotating = products.FirstOrDefault(product => product.Id == id);
+            return;
+        }
+
+        // A posted form must already be on the page when the post arrives.
+        registering = Register == "1" || Posted("register");
+        if (Register != "1" && Posted("launch") && Guid.TryParse(HttpContext.Request.Form["id"].ToString(), out var posted))
+        {
+            launching = products.FirstOrDefault(product => product.Id == posted);
+        }
+        else if (LaunchId is { } launchId)
+        {
+            launching = products.FirstOrDefault(product => product.Id == launchId);
+            enteredUrl = launching?.LaunchUrl ?? "";
+        }
+
+        if (!registering && launching is null)
+        {
+            withdrawing = WithdrawId is { } withdrawId ? products.FirstOrDefault(product => product.Id == withdrawId && product.IsActive) : null;
+            rotating = withdrawing is null && RotateId is { } id ? products.FirstOrDefault(product => product.Id == id) : null;
+        }
+    }
+
+    private async Task RegisterAsync()
+    {
+        var form = HttpContext!.Request.Form;
+        enteredName = form["name"].ToString().Trim();
+        enteredKey = form["key"].ToString().Trim();
+        enteredAudience = form["audience"].ToString().Trim();
+
+        errors.Clear();
+        if (enteredName.Length == 0)
+        {
+            errors.Add("Enter a name for the product.");
+        }
+
+        if (enteredKey.Length == 0)
+        {
+            errors.Add("Enter a key for the product.");
+        }
+
+        if (enteredAudience.Length == 0)
+        {
+            errors.Add("Enter the token audience for the product.");
+        }
+
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PostAsync<RegisterProductRequest, RegisteredProduct>(
+            "/api/auth/admin/applications", new RegisterProductRequest(enteredKey, enteredName, enteredAudience), HttpContext.RequestAborted, access.Token);
+        if (result.IsSuccess && HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
+        {
+            // The secret waits on the server; the address carries only a reference, the product's name and its (public) client id.
+            var reference_ = Secrets.Put(sid.Value, result.Value!.ClientSecret);
+            leaving = true;
+            Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&name={Uri.EscapeDataString(result.Value.Name)}&client={Uri.EscapeDataString(result.Value.ClientId)}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo("/login?returnUrl=%2Fplatform%2Fproducts&reason=expired");
+            return;
+        }
+
+        if (problem?.Code == "application_key_taken")
+        {
+            errors.Add("A product with this key already exists. Choose another key.");
+        }
+        else if (problem?.Code == "audience_taken")
+        {
+            errors.Add("Another product already uses this token audience. Choose another.");
+        }
+        else if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(5))
+            {
+                errors.Add(reason);
+            }
+        }
+        else
+        {
+            errors.Add(problem?.Status == StatusCodes.Status403Forbidden
+                ? "You don't have permission to register products."
+                : "Auth Service isn't responding right now. Nothing was registered. Try again in a moment.");
+        }
+    }
+
+    private async Task SaveLaunchAsync()
+    {
+        enteredUrl = HttpContext!.Request.Form["url"].ToString().Trim();
+        errors.Clear();
+        if (launching is null)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PutNoContentAsync(
+            $"/api/auth/admin/applications/{launching.Id}/launch-url",
+            new SetLaunchUrlRequest(enteredUrl.Length == 0 ? null : enteredUrl),
+            access.Token!,
+            HttpContext.RequestAborted);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/platform/products?notice={(enteredUrl.Length == 0 ? "launch_cleared" : "launch_saved")}&app={launching.Id}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo("/login?returnUrl=%2Fplatform%2Fproducts&reason=expired");
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(3))
+            {
+                errors.Add(reason);
+            }
+        }
+        else
+        {
+            errors.Add(problem?.Status == StatusCodes.Status403Forbidden
+                ? "You don't have permission to change products."
+                : problem?.Code == "application_not_found"
+                    ? "That product isn't here any more."
+                    : "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
         }
     }
 }

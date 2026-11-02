@@ -1921,3 +1921,16 @@ a.org-row:hover {
         border-radius: var(--radius-md);
         font: 500 14px/20px var(--font-ui);
     }
+
+.inline-form-row {
+    display: inline-block;
+    margin: 0;
+}
+
+.row-actions {
+    white-space: nowrap;
+}
+
+    .row-actions > * + * {
+        margin-left: 6px;
+    }
