@@ -142,3 +142,9 @@ public sealed record RotatedApiKey(ApiKeySummary Key, string RawKey, DateTimeOff
         return true;
     }
 }
+
+/// <summary>The organisation the console token is for: its name and whether it is working (Trial, Active) or Suspended.</summary>
+public sealed record TenantProfile(Guid Id, string Name, string Status, DateTimeOffset CreatedAt)
+{
+    public bool IsSuspended => Status == "Suspended";
+}
