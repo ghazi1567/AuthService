@@ -48,3 +48,4 @@ What becomes easier, what becomes harder, and what must be revisited if circumst
 | [0003](0003-migrations-applied-explicitly.md) | Apply EF Core migrations explicitly, never on startup | Accepted |
 | [0004](0004-global-identity-with-tenant-memberships.md) | One global identity with tenant memberships | Accepted |
 | [0005](0005-auth-service-as-its-own-product.md) | The Auth Service is a product of its own | Accepted |
+| [0006](0006-signed-in-session-kept-on-the-server.md) | The signed-in session is kept on the server | Accepted |

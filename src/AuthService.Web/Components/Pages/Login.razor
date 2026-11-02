@@ -3,12 +3,20 @@
 @using System.ComponentModel.DataAnnotations
 @using AuthService.Web.Api
 @inject AuthApiClient Api
+@inject SessionService Sessions
 @inject NavigationManager Navigation
 
 <PageTitle>Sign in · Auth Service</PageTitle>
 
 <h1 class="auth-title">Sign in</h1>
 <p class="auth-lead">Use your work email to continue.</p>
+
+@if (Reason == "expired" && state == SignInState.Default)
+{
+    <AlertBanner Kind="AlertKind.Info" Title="Your session ended" Class="auth-alert">
+        <p class="alert-body">For your security, sign in again to carry on where you left off.</p>
+    </AlertBanner>
+}
 
 @switch (state)
 {
@@ -113,24 +121,49 @@
 
     private LoginInput Model => Posted ??= new();
 
+    /// <summary>The page the person wanted before they were sent here; only a path on this site is followed.</summary>
+    [SupplyParameterFromQuery(Name = "returnUrl")] private string? ReturnUrl { get; set; }
+
+    /// <summary>"expired" when a session that was open has ended.</summary>
+    [SupplyParameterFromQuery(Name = "reason")] private string? Reason { get; set; }
+
+    protected override void OnInitialized()
+    {
+        // Someone who is already signed in has no use for the form.
+        if (HttpContext?.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo(LocalRedirect.Safe(ReturnUrl));
+        }
+    }
+
     private async Task SignInAsync()
     {
         var model = Model;
+        var email = model.Email!.Trim();
+        var cancellationToken = HttpContext?.RequestAborted ?? CancellationToken.None;
         var result = await Api.PostAsync<LoginRequest, LoginResponse>(
             "/api/auth/login",
-            new LoginRequest(model.Email!.Trim(), model.Password!),
-            HttpContext?.RequestAborted ?? CancellationToken.None);
-
-        if (result.IsSuccess)
-        {
-            // The tokens in the answer are dropped here on purpose: the signed-in session (a cookie that keeps them on the server)
-            // is its own piece of work, and nothing may keep a token in the page or the address in the meantime.
-            Navigation.NavigateTo("/");
-            return;
-        }
+            new LoginRequest(email, model.Password!),
+            cancellationToken);
 
         // Never carry a password back into the page.
         model.Password = null;
+
+        if (result.IsSuccess)
+        {
+            // The tokens go into the session on the server; the browser only gets a cookie with the session id.
+            var session = HttpContext is null ? null : await Sessions.StartAsync(result.Value!, email, model.RememberMe, cancellationToken);
+            if (session is not null)
+            {
+                await HttpContext!.SignInAsync(session, model.RememberMe);
+                Navigation.NavigateTo(LocalRedirect.Safe(ReturnUrl));
+                return;
+            }
+
+            // The API said yes but sent something that is not a sign-in. Treat it like the API being down.
+            state = SignInState.Unavailable;
+            return;
+        }
 
         var problem = result.Problem!;
         state = problem.Code switch

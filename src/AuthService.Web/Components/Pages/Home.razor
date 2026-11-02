@@ -4,4 +4,14 @@
 
 <h1>Auth Service</h1>
 
-<p>The web console is being built. Sign-in, the tenant console and the platform console arrive with the design (see the Web UI epic).</p>
+<p>The web console is being built. The tenant console and the platform console arrive with the design (see the Web UI epic).</p>
+
+<AuthorizeView>
+    <Authorized>
+        <p>Signed in as @context.User.Identity?.Name. <a href="/account">Your account</a></p>
+        <SignOutButton />
+    </Authorized>
+    <NotAuthorized>
+        <p><a href="/login">Sign in</a></p>
+    </NotAuthorized>
+</AuthorizeView>

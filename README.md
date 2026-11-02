@@ -70,13 +70,21 @@ What is in place:
   countdown; every page works without it. Inter is named first in the font stack but not loaded from a font host, so no page calls a third party.
 - **`/login`** (UI01_T3), a server-rendered form with one wording for each answer of `POST /api/auth/login`: wrong email or password,
   email not verified, account disabled, rate limited (with a live countdown from `Retry-After`) and API unreachable. A successful
-  sign-in calls the API and goes to `/`, but **drops the tokens** until the session exists.
+  sign-in starts the session below and goes back to the page the person wanted (`?returnUrl=`, a path on this site only).
+- **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
+  `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
+  The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
+  A session the API will not renew sends the person to `/login?reason=expired`; an unreachable API does not sign anyone out.
+  `POST /logout` (form with an anti-forgery token) ends it here and at the API. `/account` is the first page that needs sign-in
+  (`[Authorize]`). **One copy of the web app only** until a shared store and shared data-protection keys exist. Settings:
+  `AuthService:Session:CookieName`, `RememberedDays` (30), `DefaultHours` (12), `RefreshBeforeSeconds` (60). Nothing logs a password,
+  token or session id.
 - **Security headers** on every response: `Referrer-Policy: no-referrer`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, a
   `frame-ancestors`/`form-action` policy and `Permissions-Policy`; HTML pages are `Cache-Control: no-store`. A script-source policy is
   decided with the finished design, because Blazor's scripts need a tested nonce policy.
 - **`GET /healthz`** answers `ok` while the app runs, and says nothing about the API.
-- **Not yet:** the session (UI01_T1; cookie authentication with tokens kept on the server, per the decision, which also gives "Keep me
-  signed in" its meaning), the other auth screens, the consoles and the picker.
+- **Not yet:** the other auth screens (signup, verify email, password reset, accept invitation), the consoles and the picker, a shared
+  session store for more than one copy, and a container image.
 
 `tests/AuthService.Web.Tests` tests it with no database and no Docker (`dotnet test tests/AuthService.Web.Tests`).
 

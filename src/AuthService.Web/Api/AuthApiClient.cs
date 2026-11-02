@@ -42,6 +42,13 @@ public sealed class AuthApiClient(HttpClient httpClient)
                 ?? throw new InvalidOperationException("The API returned an empty body."),
             cancellationToken);
 
+    /// <summary>Sends <paramref name="body"/> as JSON to a call that answers with no body (sign-out).</summary>
+    public Task<ApiResult<bool>> PostNoContentAsync<TRequest>(string path, TRequest body, CancellationToken cancellationToken) =>
+        SendAsync(
+            new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) },
+            (_, _) => Task.FromResult(true),
+            cancellationToken);
+
     private async Task<ApiResult<T>> SendAsync<T>(
         HttpRequestMessage request,
         Func<HttpResponseMessage, CancellationToken, Task<T>> read,
