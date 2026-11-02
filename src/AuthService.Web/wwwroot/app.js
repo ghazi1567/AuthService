@@ -109,16 +109,20 @@
     }
 
     // A page opened from an email link holds its token only in a form. The token is taken out of the address bar and the history entry
-    // first, then the form is sent: until then nothing else sees it, and the link cannot be bookmarked or shared by accident.
+    // first, then (for a form with nothing to fill in) the form is sent: until then nothing else sees it, and the link cannot be bookmarked or shared by accident.
     function startLinkForms() {
-        document.querySelectorAll("form[data-link-form=auto]").forEach(function (form) {
+        document.querySelectorAll("form[data-link-form]").forEach(function (form) {
             if (form.getAttribute("data-link-started")) {
                 return;
             }
 
             form.setAttribute("data-link-started", "true");
             window.history.replaceState(null, "", window.location.pathname);
-            form.requestSubmit();
+
+            // "auto" forms hold nothing for the person to fill in, so they are sent at once; "clean" ones wait for the person.
+            if (form.getAttribute("data-link-form") === "auto") {
+                form.requestSubmit();
+            }
         });
     }
 

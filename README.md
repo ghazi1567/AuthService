@@ -82,6 +82,13 @@ What is in place:
   sign in), or "this link can't be used" with an email box to get a new one (same neutral confirmation for any address, a resend
   button that waits 60 seconds, a rate-limit message with the wait). An unreachable API keeps the link on the page for another try.
   Pages send `Referrer-Policy: no-referrer` and are never cached, and the token is never logged.
+- **`/forgot-password` and `/reset-password`** (UI01_T5). Forgot: one email box, and the same "check your email" screen whatever the
+  API answers (so it never says whether an account exists), a 60-second resend button, a rate-limit wait, a calm message when the API is
+  down. Reset: the emailed link's token is held only in the form and taken out of the address bar and history as the page loads (the
+  form posts to a clean `/reset-password`); new password with its rule and a confirm box, the API's reasons beside the field (the link
+  stays usable, because the API checks the password before it touches the link), then "Your password is changed" and on to sign in,
+  or "This link can't be used" with a way to ask for a new one. There is no separate "checking your link" screen here: the API has
+  no way to check a reset link without using it, so the form shows at once and the link is only used when the password is sent.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.
