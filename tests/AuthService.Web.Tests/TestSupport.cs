@@ -215,6 +215,24 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> SigningKeyRotateCalls { get; } = [];
 
+    /// <summary>Every product as the platform admin's list returns it (<c>GET /api/auth/admin/applications</c>), as a JSON array.</summary>
+    public string AdminProductsJson { get; set; } = "[]";
+
+    /// <summary>Answers a product being registered (given the request body); null (the default) registers it, inactive, with <see cref="ProductSecret"/>.</summary>
+    public Func<string, HttpResponseMessage?>? RegisterProductResponse { get; set; }
+
+    public List<(string? Authorization, string Body)> RegisterProductCalls { get; } = [];
+
+    /// <summary>Answers a product being made available or withdrawn; null (the default) does it.</summary>
+    public Func<string, HttpResponseMessage?>? SetActiveResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> SetActiveCalls { get; } = [];
+
+    /// <summary>Answers a launch address being set or cleared (given the request body); null (the default) does it.</summary>
+    public Func<string, HttpResponseMessage?>? LaunchUrlResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> LaunchUrlCalls { get; } = [];
+
     /// <summary>A product's new client secret, as the API returns it once.</summary>
     public string ProductSecret { get; set; } = "cs_live_5b1c9e2f7a4d83606f1e2d3c4b5a6978";
 
@@ -314,6 +332,56 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"keyId":"key-new-0001"}""", Encoding.UTF8, "application/json") };
             }
 
+            if (path == "/api/auth/admin/applications" && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    RegisterProductCalls.Add((request.Headers.Authorization?.ToString(), body));
+                }
+
+                if (RegisterProductResponse?.Invoke(body) is { } rejected)
+                {
+                    return rejected;
+                }
+
+                var key = json.RootElement.TryGetProperty("key", out var keyElement) ? keyElement.GetString() : "new-product";
+                var productName = json.RootElement.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : "New product";
+                var audience = json.RootElement.TryGetProperty("jwtAudience", out var audienceElement) ? audienceElement.GetString() : "new-api";
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":false,"clientId":"new-client","clientSecret":"{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z"}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            if (path.EndsWith("/active", StringComparison.Ordinal) && request.Method == HttpMethod.Put)
+            {
+                lock (_gate)
+                {
+                    SetActiveCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                return SetActiveResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"20000000-0000-4000-8000-000000000001","key":"helpdesk","isActive":true}""", Encoding.UTF8, "application/json"),
+                };
+            }
+
+            if (path.EndsWith("/launch-url", StringComparison.Ordinal) && request.Method == HttpMethod.Put)
+            {
+                lock (_gate)
+                {
+                    LaunchUrlCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                return LaunchUrlResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"launchUrl":null}""", Encoding.UTF8, "application/json"),
+                };
+            }
+
             if (path.EndsWith("/secret/rotate", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
             {
                 lock (_gate)
@@ -356,6 +424,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
             {
                 "/api/auth/admin/audit" => AdminAuditJson,
                 "/api/auth/admin/webhooks" => AdminWebhooksJson,
+                "/api/auth/admin/applications" => AdminProductsJson,
                 _ => "{}",
             };
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(adminJson, Encoding.UTF8, "application/json") };

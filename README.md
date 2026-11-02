@@ -188,20 +188,13 @@ What is in place:
   sign-in because they are public). **Rotate now** is an emergency action and cannot be set off by accident: it opens a question that says plainly what happens (a new key signs at once, every
   earlier key leaves the list so every token already issued stops working, people have to sign in again including you, it can't be undone and is audited under your name) and asks for the word
   ROTATE to be typed. Anything else rotates nothing and the API is not asked; the question stays open with a message. The JWKS has no schedule, so none is shown.
-- **Products** (`/platform/products`, UI04_T2). The products organisations can subscribe to (the public list, so only available products), each with a **Replace secret** action. It asks how long
-  the old secret keeps working (not at all, 1 hour, 24 hours suggested, 3, 7 or 30 days), explains that either secret works until then and that "Not at all" is for a leaked secret, and then shows the
-  new client secret **once** in the same server-held, session-bound, two-minute, take-once dialog as API keys (with the client id and when the old secret stops, in plain words). The address
-  carries only a reference; nothing is logged. Register, activate and deactivate (UI04_T1) and the permission catalog (UI04_T3) are not here yet: the admin API has no list of every product.
-- **After choosing an organisation** (`/choose-product?tenantId=…`, UI05_T6). The organisation picker's links now lead to a real page: the organisation with a "Change" link, then, for anyone who may
-  read any part of the admin console, an **Admin console** entry that opens the first part they may read, and **Connect a product**: the names of the products that can be connected (no ids or client
-  details), explaining that a product connects an organisation itself, so the admin asks the product's team. Other members see "Nothing to open from here yet" and that their admin decides which
-  products they can use. An organisation the person can't open (not an active member, or suspended) is explained. The list of **products a person can open** (UI05_T2) and the hand-off into a product
-  (UI05_T4) still need the API to say which products a person has access to and where to send them.
-- **When the token exchange says no or slow down** (UI05_T3). A refusal reads "You don't have access" / "You can't open this organisation" with a way to choose another, and says no more than the API
-  does. A 429 shows "You're going a little fast" with the API's Retry-After as a live countdown on the retry button (a form, so it works without scripts; the countdown is rounded up, a missing wait is
-  a minute, and it is kept between 1 second and an hour), on every console page and on the page after choosing an organisation. The console token is kept and reused until close to its end, so
-  browsing makes one exchange. **Switching organisation** (UI05_T5): going to choose an organisation drops every console token of the session, so the one for the organisation being left is never used
-  again; each organisation's pages use only their own token and the header shows the organisation the token is for.
+- **Products** (`/platform/products`, UI04_T1 and UI04_T2). Every product on the platform from the admin list, available or not: name and key, a status badge (Available, or Not available with
+  what to do next), how many permissions it has, and where it opens. **Register a product** (name, key, token audience) shows the new client id and secret **once** in the same server-held,
+  session-bound, two-minute, take-once dialog as API keys, and says it isn't available yet. **Make available** is offered only for a product with permissions; **Withdraw** asks first and says
+  nobody can open it and nobody can subscribe until it is available again, and that subscriptions and seats are not changed. **Opens at** sets or clears the launch address (an https address with no
+  sign-in details or fragment; the API's reasons are shown in the dialog). **Replace secret** asks how long the old secret keeps working (not at all, 1 hour, 24 hours suggested, 3, 7 or 30 days),
+  then shows the new secret once with when the old one stops, in plain words. Every change is a plain post, anti-forgery checked, that asks the API whether the person may be there first; the API's
+  reasons (key or audience taken, no permissions yet, gone, no permission, down) are each explained. The permission list of a product (UI04_T3) is next.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

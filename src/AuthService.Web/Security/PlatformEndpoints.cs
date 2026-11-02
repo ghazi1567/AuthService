@@ -15,11 +15,58 @@ public static class PlatformEndpoints
         app.MapPost("/platform/webhooks/{webhookId:guid}/resend", ResendWebhookAsync).AllowAnonymous();
         app.MapPost("/platform/signing-keys/rotate", RotateSigningKeyAsync).AllowAnonymous();
         app.MapPost("/platform/products/{applicationId:guid}/rotate-secret", RotateProductSecretAsync).AllowAnonymous();
+        app.MapPost("/platform/products/{applicationId:guid}/active", SetProductActiveAsync).AllowAnonymous();
         return app;
     }
 
     /// <summary>The word the admin must type before an emergency rotation goes ahead.</summary>
     public const string RotationWord = "ROTATE";
+
+    private static async Task<IResult> SetProductActiveAsync(
+        Guid applicationId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        PlatformSession platform,
+        AuthApiClient api)
+    {
+        try
+        {
+            await antiforgery.ValidateRequestAsync(context);
+        }
+        catch (AntiforgeryValidationException)
+        {
+            return Results.BadRequest();
+        }
+
+        const string page = "/platform/products";
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return Results.Redirect($"{SessionAuthentication.LoginPath}?returnUrl={Uri.EscapeDataString(page)}");
+        }
+
+        var opened = await platform.LoadAsync(context);
+        if (opened.Outcome != PlatformOutcome.Allowed)
+        {
+            return Results.Redirect(page);
+        }
+
+        var form = await context.Request.ReadFormAsync();
+        if (!bool.TryParse(form["isActive"].ToString(), out var isActive))
+        {
+            return Results.BadRequest();
+        }
+
+        var result = await api.PutNoContentAsync($"/api/auth/admin/applications/{applicationId}/active", new SetProductActiveRequest(isActive), opened.Token!, context.RequestAborted);
+        if (result.IsSuccess)
+        {
+            return Results.Redirect($"{page}?notice={(isActive ? "available" : "withdrawn")}&app={applicationId}");
+        }
+
+        var code = result.Problem!.Code is "no_permissions_registered" or "application_not_found"
+            ? result.Problem.Code
+            : result.Problem.Status == StatusCodes.Status403Forbidden ? "forbidden" : "unavailable";
+        return Results.Redirect($"{page}?error={code}&app={applicationId}");
+    }
 
     private static async Task<IResult> RotateProductSecretAsync(
         Guid applicationId,

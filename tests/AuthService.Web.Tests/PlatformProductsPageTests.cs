@@ -5,42 +5,281 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace AuthService.Web.Tests;
 
-/// <summary>The platform console's products (UI04_T2): the list, and replacing a product's client secret with the new one shown once. No real API is involved.</summary>
+/// <summary>The platform console's products (UI04_T1, UI04_T2): every product, register, make available or withdraw, where it opens, and replacing its client secret. No real API is involved.</summary>
 public sealed class PlatformProductsPageTests
 {
     private static readonly Guid Helpdesk = Guid.Parse("20000000-0000-4000-8000-000000000001");
     private static readonly Guid Billing = Guid.Parse("20000000-0000-4000-8000-000000000002");
+    private static readonly Guid Draft = Guid.Parse("20000000-0000-4000-8000-000000000003");
     private static readonly DateTimeOffset Now = new(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
     private const string PagePath = "/platform/products";
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
     [Fact]
-    public async Task ProductsAreListedWithTheirKeyAndAReplaceSecretAction()
+    public async Task EveryProductIsListedWithItsStatusPermissionsAndWhereItOpens()
+    {
+        await using var factory = new WebAppFactory(Api());
+        using var client = await SignedInAsync(factory);
+
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync(PagePath, Token));
+
+        html.ShouldContain("<title>Products · Auth Service</title>");
+        html.ShouldContain("Billing");
+        html.ShouldContain("Draft");
+        html.ShouldContain("Helpdesk");
+        html.ShouldContain("Available");
+        html.ShouldContain("Not available");
+        html.ShouldContain("Organisations can subscribe and people can open it.");
+        html.ShouldContain("Add at least one permission, then make it available.");
+        html.ShouldContain("Nobody can open it and organisations can't subscribe. Make it available when it is ready.");
+        html.ShouldContain("3 permissions");
+        html.ShouldContain("0 permissions");
+        html.ShouldContain("https://helpdesk.example.com/in");
+        html.ShouldContain("Not set. People can't open it from the picker.");
+        html.ShouldContain("Showing 3 products");
+        html.ShouldNotContain("role=\"dialog\"");
+    }
+
+    [Fact]
+    public async Task OnlyTheRightActionsAreOfferedForEachProduct()
     {
         await using var factory = new WebAppFactory(Api());
         using var client = await SignedInAsync(factory);
 
         var html = await client.GetStringAsync(PagePath, Token);
 
-        html.ShouldContain("<title>Products · Auth Service</title>");
-        html.ShouldContain("Billing");
-        html.ShouldContain("Helpdesk");
-        html.ShouldContain("20000000");
-        html.ShouldContain($"href=\"{PagePath}?rotate={Helpdesk}\"");
-        html.ShouldContain($"href=\"{PagePath}?rotate={Billing}\"");
-        html.ShouldContain("Showing 2 products");
-        html.ShouldNotContain("role=\"dialog\"");
+        html.ShouldContain($"?withdraw={Helpdesk}");
+        html.ShouldNotContain($"?withdraw={Billing}");
+        html.ShouldNotContain($"?withdraw={Draft}");
+        html.ShouldContain($"/platform/products/{Draft}/active");
+        html.ShouldNotContain($"/platform/products/{Billing}/active", customMessage: "a product with no permissions can't be made available");
+        html.ShouldNotContain($"/platform/products/{Helpdesk}/active", customMessage: "withdrawing asks first, so it is a link to a question");
+        foreach (var id in new[] { Helpdesk, Billing, Draft })
+        {
+            html.ShouldContain($"?rotate={id}");
+            html.ShouldContain($"?launch={id}");
+        }
     }
 
     [Fact]
-    public async Task NoProductsShowsAnEmptyState()
+    public async Task NoProductsShowsAnEmptyStateWithARegisterAction()
     {
         var api = Api();
-        api.ProductsJson = "[]";
+        api.AdminProductsJson = "[]";
         await using var factory = new WebAppFactory(api);
         using var client = await SignedInAsync(factory);
 
-        (await client.GetStringAsync(PagePath, Token)).ShouldContain("No products yet");
+        var html = await client.GetStringAsync(PagePath, Token);
+
+        html.ShouldContain("No products yet");
+        html.ShouldContain("Register a product");
+    }
+
+    [Fact]
+    public async Task TheListIsReadWithThePersonsOwnSignInToken()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        await client.GetStringAsync(PagePath, Token);
+
+        var call = api.AdminCalls.Last(call => call.PathAndQuery == "/api/auth/admin/applications");
+        call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
+    }
+
+    [Fact]
+    public async Task RegisteringAProductSendsItsKeyNameAndAudienceAndShowsTheSecretOnce()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var dialog = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?register=1", Token));
+        dialog.ShouldContain("Register a product");
+        dialog.ShouldContain("It can't be changed later.");
+
+        var posted = await PostPageFormAsync(client, "?register=1", "register", new() { ["name"] = "  Inventory  ", ["key"] = "inventory", ["audience"] = "inventory-api" });
+
+        var call = api.RegisterProductCalls.ShouldHaveSingleItem();
+        call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
+        call.Body.ShouldContain("\"key\":\"inventory\"");
+        call.Body.ShouldContain("\"name\":\"Inventory\"");
+        call.Body.ShouldContain("\"jwtAudience\":\"inventory-api\"");
+        var revealUrl = Where(posted);
+        revealUrl.ShouldMatch($@"^{Regex.Escape(PagePath)}\?reveal=[0-9a-f]{{32}}&registered=1&name=Inventory&client=new-client$");
+        revealUrl.ShouldNotContain(api.ProductSecret, customMessage: "the secret is never in an address");
+
+        var first = WebUtility.HtmlDecode(await client.GetStringAsync(revealUrl, Token));
+        first.ShouldContain("Product registered");
+        first.ShouldContain("Inventory is registered");
+        first.ShouldContain("It isn't available yet. Next, give it its permissions, then make it available.");
+        first.ShouldContain($"value=\"{api.ProductSecret}\"");
+        first.ShouldContain("You won't see this again");
+        first.ShouldContain("Client id: <code class=\"mono\">new-client</code>");
+
+        var reloaded = await client.GetStringAsync(revealUrl, Token);
+        reloaded.ShouldNotContain(api.ProductSecret);
+        reloaded.ShouldNotContain("Product registered");
+    }
+
+    [Fact]
+    public async Task ARegistrationWithMissingFieldsNeverReachesTheApiAndKeepsWhatWasTyped()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var response = await PostPageFormAsync(client, "?register=1", "register", new() { ["name"] = "Inventory", ["key"] = "", ["audience"] = " " });
+        var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+        html.ShouldContain("Fix 2 problems");
+        html.ShouldContain("Enter a key for the product.");
+        html.ShouldContain("Enter the token audience for the product.");
+        html.ShouldContain("value=\"Inventory\"");
+        api.RegisterProductCalls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task TheApisReasonsForRefusingARegistrationAreExplainedAndWhatWasTypedIsKept()
+    {
+        var cases = new (Func<string, HttpResponseMessage?> Respond, string Expect)[]
+        {
+            (_ => Problem(HttpStatusCode.Conflict, "application_key_taken"), "A product with this key already exists."),
+            (_ => Problem(HttpStatusCode.Conflict, "audience_taken"), "Another product already uses this token audience."),
+            (_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"status":400,"title":"x","errors":{"Key":["Key must be 1 to 63 lowercase letters, digits or hyphens."]}}""", Encoding.UTF8, "application/problem+json"),
+            }, "Key must be 1 to 63 lowercase letters, digits or hyphens."),
+            (_ => new HttpResponseMessage(HttpStatusCode.Forbidden), "You don't have permission to register products."),
+            (_ => throw new HttpRequestException("connection refused"), "Nothing was registered."),
+        };
+
+        foreach (var (respond, expect) in cases)
+        {
+            var api = Api();
+            api.RegisterProductResponse = respond;
+            await using var factory = new WebAppFactory(api);
+            using var client = await SignedInAsync(factory);
+
+            var response = await PostPageFormAsync(client, "?register=1", "register", new() { ["name"] = "Inventory", ["key"] = "inventory", ["audience"] = "inventory-api" });
+            var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+            html.ShouldContain(expect);
+            html.ShouldContain("value=\"inventory-api\"");
+            html.ShouldNotContain("connection refused");
+            html.ShouldNotContain(api.ProductSecret);
+        }
+    }
+
+    [Fact]
+    public async Task MakingAProductAvailableAsksTheApiAsTheAdminThenSaysSo()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostActionAsync(client, $"/platform/products/{Draft}/active", new() { ["isActive"] = "true" });
+
+        var call = api.SetActiveCalls.ShouldHaveSingleItem();
+        call.Path.ShouldBe($"/api/auth/admin/applications/{Draft}/active");
+        call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
+        call.Body.ShouldContain("\"isActive\":true");
+        Where(posted).ShouldBe($"{PagePath}?notice=available&app={Draft}");
+        WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token)).ShouldContain("Draft is available");
+    }
+
+    [Fact]
+    public async Task WithdrawingAsksFirstNamingWhatHappensThenWithdraws()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var dialog = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?withdraw={Helpdesk}", Token));
+        dialog.ShouldContain("Withdraw 'Helpdesk'?");
+        dialog.ShouldContain("Nobody will be able to open it, and organisations can't subscribe to it");
+        dialog.ShouldContain("Existing subscriptions and seats aren't changed.");
+        api.SetActiveCalls.ShouldBeEmpty();
+
+        var posted = await PostFormInDialogAsync(client, $"?withdraw={Helpdesk}", $"/{Helpdesk}/active\"", []);
+
+        api.SetActiveCalls.ShouldHaveSingleItem().Body.ShouldContain("\"isActive\":false");
+        Where(posted).ShouldBe($"{PagePath}?notice=withdrawn&app={Helpdesk}");
+        WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token)).ShouldContain("Helpdesk is withdrawn");
+        foreach (var id in new[] { Billing, Draft, Guid.NewGuid() })
+        {
+            (await client.GetStringAsync($"{PagePath}?withdraw={id}", Token)).ShouldNotContain("role=\"dialog\"", customMessage: "only an available product can be withdrawn");
+        }
+    }
+
+    [Fact]
+    public async Task TheApisReasonsForRefusingAnAvailabilityChangeAreExplained()
+    {
+        var cases = new (Func<string, HttpResponseMessage?> Respond, string Expect)[]
+        {
+            (_ => Problem(HttpStatusCode.Conflict, "no_permissions_registered"), "Draft has no permissions yet"),
+            (_ => Problem(HttpStatusCode.NotFound, "application_not_found"), "That product isn't here any more"),
+            (_ => new HttpResponseMessage(HttpStatusCode.Forbidden), "You don't have permission to do that"),
+            (_ => throw new HttpRequestException("connection refused"), "Nothing was changed."),
+        };
+
+        foreach (var (respond, expect) in cases)
+        {
+            var api = Api();
+            api.SetActiveResponse = respond;
+            await using var factory = new WebAppFactory(api);
+            using var client = await SignedInAsync(factory);
+
+            var posted = await PostActionAsync(client, $"/platform/products/{Draft}/active", new() { ["isActive"] = "true" });
+            var html = WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token));
+
+            html.ShouldContain(expect);
+            html.ShouldNotContain("connection refused");
+        }
+    }
+
+    [Fact]
+    public async Task TheLaunchAddressIsShownSavedAndCleared()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var dialog = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?launch={Helpdesk}", Token));
+        dialog.ShouldContain("Where 'Helpdesk' opens");
+        dialog.ShouldContain("value=\"https://helpdesk.example.com/in\"");
+
+        var saved = await PostPageFormAsync(client, $"?launch={Helpdesk}", "launch", new() { ["id"] = Helpdesk.ToString(), ["url"] = " https://helpdesk.example.com/signed-in " });
+        var cleared = await PostPageFormAsync(client, $"?launch={Billing}", "launch", new() { ["id"] = Billing.ToString(), ["url"] = "" });
+
+        api.LaunchUrlCalls.Count.ShouldBe(2);
+        api.LaunchUrlCalls[0].Path.ShouldBe($"/api/auth/admin/applications/{Helpdesk}/launch-url");
+        api.LaunchUrlCalls[0].Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
+        api.LaunchUrlCalls[0].Body.ShouldContain("\"url\":\"https://helpdesk.example.com/signed-in\"");
+        api.LaunchUrlCalls[1].Body.ShouldContain("\"url\":null");
+        Where(saved).ShouldBe($"{PagePath}?notice=launch_saved&app={Helpdesk}");
+        Where(cleared).ShouldBe($"{PagePath}?notice=launch_cleared&app={Billing}");
+        WebUtility.HtmlDecode(await client.GetStringAsync(Where(saved), Token)).ShouldContain("Helpdesk's address is saved");
+    }
+
+    [Fact]
+    public async Task ARefusedLaunchAddressIsExplainedInTheDialogAndKept()
+    {
+        var api = Api();
+        api.LaunchUrlResponse = _ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = new StringContent("""{"status":400,"title":"x","errors":{"Url":["Url must use https. Plain http is only accepted for localhost."]}}""", Encoding.UTF8, "application/problem+json"),
+        };
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var response = await PostPageFormAsync(client, $"?launch={Helpdesk}", "launch", new() { ["id"] = Helpdesk.ToString(), ["url"] = "http://helpdesk.example.com/in" });
+        var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+        html.ShouldContain("Url must use https. Plain http is only accepted for localhost.");
+        html.ShouldContain("value=\"http://helpdesk.example.com/in\"");
+        html.ShouldContain("role=\"dialog\"");
     }
 
     [Fact]
@@ -125,15 +364,17 @@ public sealed class PlatformProductsPageTests
     }
 
     [Fact]
-    public async Task NeitherTheSecretNorTheTokenIsEverLogged()
+    public async Task NeitherSecretNorTokenIsEverLogged()
     {
         var logs = new CapturingLogs();
         var api = Api();
         await using var factory = new WebAppFactory(api, time: new FakeClock(Now), logs: logs);
         using var client = await SignedInAsync(factory);
 
-        var posted = await PostRotateAsync(client, Helpdesk, "24");
-        await client.GetStringAsync(Where(posted), Token);
+        var rotated = await PostRotateAsync(client, Helpdesk, "24");
+        await client.GetStringAsync(Where(rotated), Token);
+        var registered = await PostPageFormAsync(client, "?register=1", "register", new() { ["name"] = "Inventory", ["key"] = "inventory", ["audience"] = "inventory-api" });
+        await client.GetStringAsync(Where(registered), Token);
 
         var everything = string.Join('\n', logs.Lines);
         everything.ShouldNotContain(api.ProductSecret);
@@ -159,7 +400,7 @@ public sealed class PlatformProductsPageTests
     }
 
     [Fact]
-    public async Task TheApisOwnReasonsAreExplainedInPlainWordsAndNothingLeaks()
+    public async Task TheApisOwnReasonsForRefusingASecretReplacementAreExplainedAndNothingLeaks()
     {
         var gone = Api();
         gone.SecretRotateResponse = _ => Problem(HttpStatusCode.NotFound, "application_not_found");
@@ -188,7 +429,7 @@ public sealed class PlatformProductsPageTests
     }
 
     [Fact]
-    public async Task SomeoneWhoIsNotAPlatformAdminSeesNoProductsAndCannotReplaceAnythingEvenByPostingDirectly()
+    public async Task SomeoneWhoIsNotAPlatformAdminSeesNoProductsAndCannotChangeAnythingEvenByPostingDirectly()
     {
         var api = Api();
         api.IsPlatformAdmin = false;
@@ -198,32 +439,38 @@ public sealed class PlatformProductsPageTests
         var token = Regex.Match(page, "name=\"__RequestVerificationToken\"[^>]*value=\"([^\"]+)\"").Groups[1].Value;
 
         var response = await client.GetAsync(PagePath, Token);
-        var posted = await client.PostAsync($"{PagePath}/{Helpdesk}/rotate-secret", new FormUrlEncodedContent([new("__RequestVerificationToken", token), new("graceHours", "24")]), Token);
+        var rotate = await client.PostAsync($"{PagePath}/{Helpdesk}/rotate-secret", new FormUrlEncodedContent([new("__RequestVerificationToken", token), new("graceHours", "24")]), Token);
+        var active = await client.PostAsync($"{PagePath}/{Draft}/active", new FormUrlEncodedContent([new("__RequestVerificationToken", token), new("isActive", "true")]), Token);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await response.Content.ReadAsStringAsync(Token)).ShouldNotContain("Helpdesk");
-        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        rotate.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        active.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         api.SecretRotateCalls.ShouldBeEmpty();
+        api.SetActiveCalls.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task APostWithoutTheAntiForgeryTokenIsRefusedAndNothingIsReplaced()
+    public async Task APostWithoutTheAntiForgeryTokenIsRefusedAndNothingIsChanged()
     {
         var api = Api();
         await using var factory = new WebAppFactory(api);
         using var client = await SignedInAsync(factory);
 
-        var posted = await client.PostAsync($"{PagePath}/{Helpdesk}/rotate-secret", new FormUrlEncodedContent([new("graceHours", "24")]), Token);
+        var rotate = await client.PostAsync($"{PagePath}/{Helpdesk}/rotate-secret", new FormUrlEncodedContent([new("graceHours", "24")]), Token);
+        var active = await client.PostAsync($"{PagePath}/{Draft}/active", new FormUrlEncodedContent([new("isActive", "true")]), Token);
 
-        posted.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        rotate.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        active.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         api.SecretRotateCalls.ShouldBeEmpty();
+        api.SetActiveCalls.ShouldBeEmpty();
     }
 
     [Fact]
     public async Task AListTheApiCannotReadIsACalmError()
     {
         var api = Api();
-        api.ProductsResponse = () => new HttpResponseMessage(HttpStatusCode.InternalServerError);
+        api.AdminResponse = path => path == "/api/auth/admin/applications" ? new HttpResponseMessage(HttpStatusCode.InternalServerError) : null;
         await using var factory = new WebAppFactory(api);
         using var client = await SignedInAsync(factory);
 
@@ -235,10 +482,41 @@ public sealed class PlatformProductsPageTests
         Content = new StringContent($$"""{"status":{{(int)status}},"title":"x","detail":"x","code":"{{code}}"}""", Encoding.UTF8, "application/problem+json"),
     };
 
-    private static async Task<HttpResponseMessage> PostRotateAsync(HttpClient client, Guid product, string grace)
+    /// <summary>Opens a dialog that posts to the page itself (a Blazor form), fills it in, and posts it as a browser would.</summary>
+    private static async Task<HttpResponseMessage> PostPageFormAsync(HttpClient client, string query, string handler, Dictionary<string, string> fields)
     {
-        var page = await client.GetStringAsync($"{PagePath}?rotate={product}", Token);
-        var form = Regex.Matches(page, "<form[^>]*>.*?</form>", RegexOptions.Singleline).Select(match => match.Value).First(candidate => candidate.Contains("/rotate-secret\""));
+        var page = await client.GetStringAsync(PagePath + query, Token);
+        var form = Regex.Matches(page, "<form[^>]*>.*?</form>", RegexOptions.Singleline).Select(match => match.Value).First(candidate => candidate.Contains("name=\"_handler\"") && candidate.Contains($"value=\"{handler}\""));
+        var body = HiddenFields(form);
+        body.RemoveAll(field => fields.ContainsKey(field.Key));
+        body.AddRange(fields.Select(field => new KeyValuePair<string, string>(field.Key, field.Value)));
+        return await client.PostAsync(PagePath + query, new FormUrlEncodedContent(body), Token);
+    }
+
+    /// <summary>Opens a dialog whose form posts to its own address, and posts it.</summary>
+    private static async Task<HttpResponseMessage> PostFormInDialogAsync(HttpClient client, string query, string formContains, Dictionary<string, string> fields)
+    {
+        var page = await client.GetStringAsync(PagePath + query, Token);
+        var form = Regex.Matches(page, "<form[^>]*>.*?</form>", RegexOptions.Singleline).Select(match => match.Value).First(candidate => candidate.Contains(formContains));
+        var target = WebUtility.HtmlDecode(Regex.Match(form, "action=\"([^\"]+)\"").Groups[1].Value);
+        var body = HiddenFields(form);
+        body.AddRange(fields.Select(field => new KeyValuePair<string, string>(field.Key, field.Value)));
+        return await client.PostAsync(target, new FormUrlEncodedContent(body), Token);
+    }
+
+    /// <summary>Posts a row's own small form (for example Make available) from the list page.</summary>
+    private static async Task<HttpResponseMessage> PostActionAsync(HttpClient client, string action, Dictionary<string, string> fields)
+    {
+        var page = await client.GetStringAsync(PagePath, Token);
+        var form = Regex.Matches(page, "<form[^>]*>.*?</form>", RegexOptions.Singleline).Select(match => match.Value).First(candidate => candidate.Contains($"action=\"{action}\""));
+        var body = HiddenFields(form);
+        body.RemoveAll(field => fields.ContainsKey(field.Key));
+        body.AddRange(fields.Select(field => new KeyValuePair<string, string>(field.Key, field.Value)));
+        return await client.PostAsync(action, new FormUrlEncodedContent(body), Token);
+    }
+
+    private static List<KeyValuePair<string, string>> HiddenFields(string form)
+    {
         var body = new List<KeyValuePair<string, string>>();
         foreach (Match input in Regex.Matches(form, "<input[^>]*type=\"hidden\"[^>]*>"))
         {
@@ -247,9 +525,11 @@ public sealed class PlatformProductsPageTests
                 WebUtility.HtmlDecode(Regex.Match(input.Value, "value=\"([^\"]*)\"").Groups[1].Value)));
         }
 
-        body.Add(new("graceHours", grace));
-        return await client.PostAsync($"{PagePath}/{product}/rotate-secret", new FormUrlEncodedContent(body), Token);
+        return body;
     }
+
+    private static async Task<HttpResponseMessage> PostRotateAsync(HttpClient client, Guid product, string grace) =>
+        await PostFormInDialogAsync(client, $"?rotate={product}", "/rotate-secret\"", new() { ["graceHours"] = grace });
 
     private static string Where(HttpResponseMessage response) =>
         new Uri(new Uri("http://localhost"), response.Headers.Location!).PathAndQuery;
@@ -259,7 +539,13 @@ public sealed class PlatformProductsPageTests
         IsPlatformAdmin = true,
         MembershipsJson = """[{"tenantId":"7d8e6b92-2d0b-4f43-9e0a-0d6a0f0f4d11","tenantName":"Acme Ltd","status":"Active"}]""",
         MembersJson = "[]",
-        ProductsJson = $$"""[{"id":"{{Helpdesk}}","key":"helpdesk","name":"Helpdesk"},{"id":"{{Billing}}","key":"billing","name":"Billing"}]""",
+        AdminProductsJson = $$"""
+            [
+              {"id":"{{Billing}}","key":"billing","name":"Billing","isActive":false,"permissionCount":0,"launchUrl":null,"createdAt":"2026-10-01T10:00:00Z"},
+              {"id":"{{Draft}}","key":"draft","name":"Draft","isActive":false,"permissionCount":2,"launchUrl":null,"createdAt":"2026-10-02T10:00:00Z"},
+              {"id":"{{Helpdesk}}","key":"helpdesk","name":"Helpdesk","isActive":true,"permissionCount":3,"launchUrl":"https://helpdesk.example.com/in","createdAt":"2026-10-03T10:00:00Z"}
+            ]
+            """,
     };
 
     private static async Task<HttpClient> SignedInAsync(WebAppFactory factory)

@@ -71,3 +71,28 @@ public sealed record RotatedSecret(Guid ApplicationId, string ClientId, string C
         return true;
     }
 }
+
+/// <summary>A product as the platform admin's list shows it: where it stands, and nothing it keeps private.</summary>
+public sealed record AdminProductItem(Guid Id, string Key, string Name, bool IsActive, int PermissionCount, string? LaunchUrl, DateTimeOffset CreatedAt);
+
+/// <summary>Body of <c>POST /api/auth/admin/applications</c>.</summary>
+public sealed record RegisterProductRequest(string Key, string Name, string JwtAudience);
+
+/// <summary>
+/// A newly registered product with its client credentials. The secret is in this response and nowhere else; printing it shows only the
+/// client id, so it can't reach a log by being printed.
+/// </summary>
+public sealed record RegisteredProduct(Guid Id, string Key, string Name, string JwtAudience, bool IsActive, string ClientId, string ClientSecret, DateTimeOffset CreatedAt)
+{
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append("Key = ").Append(Key).Append(", ClientId = ").Append(ClientId);
+        return true;
+    }
+}
+
+/// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/active</c>.</summary>
+public sealed record SetProductActiveRequest(bool IsActive);
+
+/// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/launch-url</c>: the address, or null to clear it.</summary>
+public sealed record SetLaunchUrlRequest(string? Url);
