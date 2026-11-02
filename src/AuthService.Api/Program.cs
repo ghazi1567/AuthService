@@ -281,6 +281,7 @@ app.MapServiceToken();
 app.MapCurrentApplication();
 app.MapWebhookConfig();
 app.MapListApplications();
+app.MapMyApplications();
 app.MapSubscriptions();
 app.MapTokenExchange();
 app.MapTenantProfile();
