@@ -71,6 +71,11 @@ What is in place:
 - **`/login`** (UI01_T3), a server-rendered form with one wording for each answer of `POST /api/auth/login`: wrong email or password,
   email not verified, account disabled, rate limited (with a live countdown from `Retry-After`) and API unreachable. A successful
   sign-in starts the session below and goes back to the page the person wanted (`?returnUrl=`, a path on this site only).
+- **`/signup`** (UI01_T2): full name, organisation name (the API creates the organisation at signup and it cannot be renamed), work
+  email and password, with the password rule (8 to 128 characters, the API's own) ticking over as the person types. Success shows
+  "Check your email" with a resend button that waits 60 seconds. An email that already has an account gets **the same screen**, so the
+  page never says whether an address is registered; field reasons from the API, a rate limit (live countdown) and an unreachable API
+  each have their own message.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

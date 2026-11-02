@@ -28,6 +28,7 @@
     {
         <p class="field-message" id="@(Id)-message">@Helper</p>
     }
+    @Below
 </div>
 
 @code {
@@ -56,5 +57,28 @@
     /// <summary>Sits inside the right edge of the input, for example the show/hide password button.</summary>
     [Parameter] public RenderFragment? Suffix { get; set; }
 
-    private string? DescribedBy => Error is not null || Helper is not null ? $"{Id}-message" : null;
+    /// <summary>Extra content under the field, such as the password rules. Give it an element whose id is <see cref="BelowId"/>.</summary>
+    [Parameter] public RenderFragment? Below { get; set; }
+
+    /// <summary>The id of the element in <see cref="Below"/>, so the input is described by it too.</summary>
+    [Parameter] public string? BelowId { get; set; }
+
+    private string? DescribedBy
+    {
+        get
+        {
+            var ids = new List<string>(2);
+            if (Error is not null || Helper is not null)
+            {
+                ids.Add($"{Id}-message");
+            }
+
+            if (Below is not null && BelowId is not null)
+            {
+                ids.Add(BelowId);
+            }
+
+            return ids.Count == 0 ? null : string.Join(' ', ids);
+        }
+    }
 }

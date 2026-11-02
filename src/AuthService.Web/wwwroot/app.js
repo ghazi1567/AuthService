@@ -82,9 +82,36 @@
         });
     }
 
+    // Password rules: each row ticks over as the password field changes. The text says met or not, so colour is never the only signal.
+    function updateRules(input) {
+        document.querySelectorAll('[data-rules-for="' + input.id + '"] [data-min-length]').forEach(function (rule) {
+            var met = input.value.length >= parseInt(rule.getAttribute("data-min-length"), 10);
+            rule.classList.toggle("is-met", met);
+            rule.querySelector('[data-state="unmet"]').hidden = met;
+            rule.querySelector('[data-state="met"]').hidden = !met;
+            rule.querySelector("[data-status]").textContent = met ? "(met)" : "(not met yet)";
+        });
+    }
+
+    document.addEventListener("input", function (event) {
+        if (event.target.id) {
+            updateRules(event.target);
+        }
+    });
+
+    function startRules() {
+        document.querySelectorAll("[data-rules-for]").forEach(function (list) {
+            var input = document.getElementById(list.getAttribute("data-rules-for"));
+            if (input) {
+                updateRules(input);
+            }
+        });
+    }
+
     function init() {
         revealToggles();
         startCountdowns();
+        startRules();
     }
 
     if (document.readyState === "loading") {
