@@ -45,5 +45,11 @@ public sealed class Application
     /// </summary>
     public string? WebhookSecretProtected { get; set; }
 
+    /// <summary>
+    /// Where the web console sends a person who chooses this product (APP-08): the product's own page for people arriving from the
+    /// Auth Service. Set by a platform admin, never by the product. Null until set, and the product then cannot be opened from the picker.
+    /// </summary>
+    public string? LaunchUrl { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }

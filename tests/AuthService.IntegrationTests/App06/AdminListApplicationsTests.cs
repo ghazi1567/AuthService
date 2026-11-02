@@ -72,7 +72,7 @@ public sealed class AdminListApplicationsTests(PostgresContainerFixture postgres
         var body = await (await GetAsync(ApplicationAdminEndpoints.Route, adminToken, ct)).Content.ReadAsStringAsync(ct);
 
         var item = JsonNode.Parse(body)!.AsArray().Single()!.AsObject();
-        item.Select(property => property.Key).Order().ShouldBe(["createdAt", "id", "isActive", "key", "name", "permissionCount"]);
+        item.Select(property => property.Key).Order().ShouldBe(["createdAt", "id", "isActive", "key", "launchUrl", "name", "permissionCount"]);
         body.ShouldNotContain("billing-api", customMessage: "the audience stays with the product");
     }
 

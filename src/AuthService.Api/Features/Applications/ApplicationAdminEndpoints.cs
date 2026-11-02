@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AuthService.Api.Common;
+using AuthService.Api.Features.Audit;
 using AuthService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,13 @@ namespace AuthService.Api.Features.Applications;
 /// A product as the platform admin's list shows it (APP-06): enough to see where it stands (not yet active, withdrawn, working) and
 /// nothing a product keeps private. No client secret, audience, client id or webhook address.
 /// </summary>
-public sealed record AdminApplicationItem(Guid Id, string Key, string Name, bool IsActive, int PermissionCount, DateTimeOffset CreatedAt);
+public sealed record AdminApplicationItem(Guid Id, string Key, string Name, bool IsActive, int PermissionCount, string? LaunchUrl, DateTimeOffset CreatedAt);
+
+/// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/launch-url</c>: the address, or null to clear it.</summary>
+public sealed record SetLaunchUrlRequest(string? Url);
+
+/// <summary>The launch address a product now has (null when cleared).</summary>
+public sealed record LaunchUrlResponse(string? LaunchUrl);
 
 /// <summary>One permission of a product's catalog as the platform admin reads it (APP-07).</summary>
 public sealed record AdminPermissionItem(string Key, string Label, string? Description, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
@@ -23,6 +30,7 @@ public static class ApplicationAdminEndpoints
         admin.MapGet("/applications", ListAsync);
         admin.MapPost("/applications", RegisterAsync);
         admin.MapGet("/applications/{applicationId:guid}/permissions", ListPermissionsAsync);
+        admin.MapPut("/applications/{applicationId:guid}/launch-url", SetLaunchUrlAsync);
         admin.MapPost("/applications/{applicationId:guid}/permissions", RegisterPermissionsAsync);
         admin.MapPut("/applications/{applicationId:guid}/active", SetActiveAsync);
         admin.MapPost("/applications/{applicationId:guid}/secret/rotate", RotateSecretAsync);
@@ -45,10 +53,43 @@ public static class ApplicationAdminEndpoints
                 application.Name,
                 application.IsActive,
                 db.Permissions.Count(permission => permission.ApplicationId == application.Id),
+                application.LaunchUrl,
                 application.CreatedAt))
             .ToListAsync(cancellationToken);
 
         return Results.Ok(applications);
+    }
+
+    /// <summary>
+    /// A platform admin sets, or clears with a null address, where a product is opened from the console (APP-08). The address must be
+    /// an absolute https address (plain http only for this machine, for development) with no sign-in details or fragment in it.
+    /// </summary>
+    private static async Task<IResult> SetLaunchUrlAsync(
+        Guid applicationId,
+        SetLaunchUrlRequest request,
+        ClaimsPrincipal caller,
+        AuthDbContext db,
+        AuditLog audit,
+        CancellationToken cancellationToken)
+    {
+        string? address = null;
+        if (!string.IsNullOrWhiteSpace(request.Url) && !LaunchUrlValidator.TryValidate(request.Url, out address, out var error))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { [nameof(SetLaunchUrlRequest.Url)] = [error] });
+        }
+
+        var application = await db.Applications.SingleOrDefaultAsync(candidate => candidate.Id == applicationId && !candidate.IsBuiltIn, cancellationToken);
+        if (application is null)
+        {
+            return ApplicationNotFound();
+        }
+
+        var adminId = caller.GetUserId() ?? throw new InvalidOperationException("The platform-admin policy guarantees a user id.");
+        application.LaunchUrl = address;
+        audit.Record(AuditActions.ApplicationLaunchUrlSet, AuditActor.User(adminId), detail: application.Key);
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new LaunchUrlResponse(application.LaunchUrl));
     }
 
     /// <summary>
