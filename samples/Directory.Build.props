@@ -1,0 +1,11 @@
+<Project>
+  <!-- The samples use the repository's language and warning settings, but nothing else of its build: they install the packaged
+       Auth Service libraries, as a product outside this repository would. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- Which AuthService.Authorization package the samples install. A release workflow passes the published version; otherwise the
+         locally packed one (dotnet pack src/AuthService.Authorization -o artifacts/packages). -->
+    <AuthorizationPackageVersion Condition="'$(AuthorizationPackageVersion)' == ''">0.0.0-local</AuthorizationPackageVersion>
+  </PropertyGroup>
+</Project>

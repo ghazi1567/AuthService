@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <!-- The published package, not a project reference: this is what a product outside this repository does. -->
+    <PackageReference Include="AuthService.Authorization" />
+  </ItemGroup>
+
+</Project>

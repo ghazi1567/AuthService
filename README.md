@@ -15,7 +15,8 @@ This service is deployed on its own and owns its own PostgreSQL database.
 ```
 src/AuthService.Api/               ASP.NET Core host
 src/AuthService.Infrastructure/    AuthDbContext, shared DB registration, EF Core migrations
-src/AuthService.Authorization/     The package a product installs to enforce Auth Service tokens
+src/AuthService.Authorization/     The package a product installs to enforce Auth Service tokens (published from a version tag)
+samples/SampleProduct(.Tests)/     A product API that installs the packed package, as a product outside this repository does
 src/AuthService.Web/               The Blazor web console (setup only so far)
 Dockerfile, deploy/                API and migration images, and an example docker-compose
 tests/AuthService.IntegrationTests/ Real-database integration tests (Testcontainers)
@@ -255,6 +256,10 @@ artifact for 14 days.
 `Build and test` status check on `main` (Settings → Branches → branch protection, or a ruleset) and require pull
 requests. GitHub offers this on private repositories only with a paid plan (GitHub Pro, Team or Enterprise); on the Free
 plan the repository must be public. Until that is enabled, a red check is advisory only.
+
+**The sample product.** The `sample-product` job packs `AuthService.Authorization` and runs `samples/SampleProduct.Tests` against it, so the
+package is exercised the way a product uses it, with no project reference. Locally: `dotnet pack src/AuthService.Authorization -o artifacts/packages`
+then `dotnet test samples/SampleProduct.Tests`. Releasing the package is a separate workflow, triggered by a tag; see the package's README.
 
 ## Configuration
 
@@ -571,8 +576,9 @@ logout take effect at the next exchange). That is by design; the 15-minute life 
 #### The authorization package (what a product installs)
 
 A product does not write its own token checks. It installs the **`AuthService.Authorization`** package
-(`src/AuthService.Authorization`, packed as a NuGet package; its own [README](src/AuthService.Authorization/README.md) has the
-details), which checks a product token **locally**, against the keys in the JWKS, with no call to the Auth Service per request:
+(`src/AuthService.Authorization`, published as a NuGet package to this repository's GitHub Packages feed from a version tag, see
+[decision 0009](docs/decisions/0009-publish-the-authorization-package-to-github-packages.md); its own
+[README](src/AuthService.Authorization/README.md) has how to install it, how releases are made and the details), which checks a product token **locally**, against the keys in the JWKS, with no call to the Auth Service per request:
 
 ```csharp
 builder.Services.AddAuthServiceAuthorization(options =>

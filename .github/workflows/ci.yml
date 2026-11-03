@@ -76,3 +76,33 @@ jobs:
 
       - name: Build the migration image
         run: docker build --target migrate --tag authservice-migrate .
+
+  # PLT-07 (AUTH-204): a product installs AuthService.Authorization as a package, so the sample product does too. Nothing is
+  # published: the package is packed here and the sample restores it from that folder, with no project reference. A release
+  # (publish-authorization-package.yml) repeats this against the package it has published.
+  sample-product:
+    name: Sample product on the packed package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Pack the package
+        run: >
+          dotnet pack src/AuthService.Authorization
+          --configuration Release
+          --output artifacts/packages
+          -p:Version=0.0.0-ci.${{ github.run_number }}
+
+      - name: Test the sample product against it
+        run: >
+          dotnet test samples/SampleProduct.Tests
+          --configuration Release
+          -p:AuthorizationPackageVersion=0.0.0-ci.${{ github.run_number }}
