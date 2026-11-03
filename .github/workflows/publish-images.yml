@@ -230,6 +230,11 @@ jobs:
           \`docker compose pull && docker compose up -d\`. The guide is \`docs/deployment.md\` ("Deploy on an Ubuntu server with Docker").
           Take a backup first (\`./backup.sh\`).
           EOF
+          # GitHub renames an attachment whose name starts with a dot (.env.example becomes default.env.example), so it is attached without one.
+          mkdir release-files
+          cp deploy/docker-compose.yml deploy/Caddyfile deploy/backup.sh deploy/check.sh release-files/
+          cp deploy/.env.example release-files/env.example
+
           flags=()
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" \
@@ -238,4 +243,4 @@ jobs:
             --generate-notes \
             --verify-tag \
             "${flags[@]}" \
-            deploy/docker-compose.yml deploy/Caddyfile deploy/.env.example deploy/backup.sh deploy/check.sh
+            release-files/*

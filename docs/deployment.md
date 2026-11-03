@@ -61,12 +61,13 @@ Log out and back in so the `docker` group applies, then check `docker compose ve
 are not reachable from outside at all.
 
 **3. Get the five small files and log in to the registry.** No source code and no `git` are needed on the server. Open the repository's
-**Releases** page, pick the version, and download the attached files: `docker-compose.yml`, `Caddyfile`, `.env.example`, `backup.sh` and
-`check.sh`. Put them in one folder on the server, for example by copying them from your own computer:
+**Releases** page, pick the version, and download the attached files: `docker-compose.yml`, `Caddyfile`, `env.example`, `backup.sh` and
+`check.sh`. (`env.example` is the repository's `.env.example`; GitHub does not keep a leading dot on an attachment's name.) Put them in one folder on
+the server, for example by copying them from your own computer:
 
 ```bash
 # on your computer, in the folder you downloaded them to
-scp docker-compose.yml Caddyfile .env.example backup.sh check.sh ubuntu@your-server:~/authservice/
+scp docker-compose.yml Caddyfile env.example backup.sh check.sh ubuntu@your-server:~/authservice/
 ```
 
 (Or on the server, if you have the GitHub command-line tool signed in: `gh release download v1.0.0 --repo ghazi1567/AuthService --dir ~/authservice`.)
@@ -85,7 +86,7 @@ echo "<the token>" | docker login ghcr.io -u <your GitHub user name> --password-
 **4. Fill in the settings.** Everything is in one file that never leaves the server:
 
 ```bash
-cp .env.example .env
+cp env.example .env
 chmod 600 .env
 nano .env
 ```
