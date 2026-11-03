@@ -1,0 +1,37 @@
+# The reverse proxy (Caddy). It asks Let's Encrypt for a certificate for each name below and renews it, then passes requests to the apps
+# inside the stack. The names and the email come from deploy/.env. Both names must already point at this server (an A record, DNS only
+# if you use Cloudflare) and ports 80 and 443 must be open, or the certificates cannot be issued.
+#
+# Caddy replaces any X-Forwarded-For a visitor sends with the address it saw, so the apps can believe it (they trust this network only).
+
+{
+	email {$ACME_EMAIL}
+}
+
+# Headers for every name: browsers are told to use https only for six months (no includeSubDomains, so the rest of your domain is
+# unaffected), and the server software is not announced.
+(security) {
+	header {
+		Strict-Transport-Security "max-age=15552000"
+		-Server
+	}
+}
+
+# The Auth Service API: sign-in for products, token exchange, the public keys at /.well-known/jwks.json.
+{$AUTH_HOST} {
+	encode zstd gzip
+	import security
+
+	# Metrics are for the operator. Nothing on the internet needs them, so the proxy does not pass them on.
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+
+	reverse_proxy api:8080
+}
+
+# The web console people use. Blazor keeps a WebSocket open, which reverse_proxy passes through.
+{$APP_HOST} {
+	encode zstd gzip
+	import security
+	reverse_proxy web:8080
+}

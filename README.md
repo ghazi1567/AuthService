@@ -18,7 +18,7 @@ src/AuthService.Infrastructure/    AuthDbContext, shared DB registration, EF Cor
 src/AuthService.Authorization/     The package a product installs to enforce Auth Service tokens (published from a version tag)
 samples/SampleProduct(.Tests)/     A product API that installs the packed package, as a product outside this repository does
 src/AuthService.Web/               The Blazor web console (setup only so far)
-Dockerfile, deploy/                API and migration images, and an example docker-compose
+Dockerfile, deploy/                API, web console and migration images, and a docker-compose with HTTPS for one Ubuntu server
 tests/AuthService.IntegrationTests/ Real-database integration tests (Testcontainers)
 tests/AuthService.Web.Tests/       Tests of the web console (no database needed)
 ```
