@@ -1,8 +1,13 @@
 # AuthService on one machine (for example an Ubuntu server): the reverse proxy that gets HTTPS certificates, the web console, the API,
 # PostgreSQL and the one-off migration job. The step-by-step guide is docs/deployment.md, "Deploy on an Ubuntu server with Docker".
 #
-#   cp deploy/.env.example deploy/.env      # then fill it in (never commit deploy/.env)
-#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+# The three AuthService images are pulled from the registry, at the version named by AUTHSERVICE_VERSION in .env, so a server needs
+# only this file, the Caddyfile and .env (no source code):
+#
+#   cp .env.example .env      # then fill it in (never commit .env)
+#   docker compose pull && docker compose up -d
+#
+# To build the images from source instead, add docker-compose.build.yml (see that file).
 #
 # Only ports 80 and 443 are published, by the proxy. The API, the web console and the database are reachable only through it (or from
 # inside the stack). The proxy is listed as trusted, by its network, in both apps, so rate limits and audit entries see the real visitor.
@@ -56,9 +61,7 @@ services:
 
   # Runs once per deployment and exits. The API never migrates on startup.
   migrate:
-    build:
-      context: ..
-      target: migrate
+    image: ${AUTHSERVICE_REGISTRY:-ghcr.io/ghazi1567}/authservice-migrate:${AUTHSERVICE_VERSION:?Set AUTHSERVICE_VERSION in .env, for example 1.0.0}
     command: ["--connection", "Host=db;Port=5432;Database=auth;Username=auth;Password=${POSTGRES_PASSWORD}"]
     logging: *logging
     depends_on:
@@ -67,8 +70,7 @@ services:
     restart: "no"
 
   api:
-    build:
-      context: ..
+    image: ${AUTHSERVICE_REGISTRY:-ghcr.io/ghazi1567}/authservice-api:${AUTHSERVICE_VERSION:?Set AUTHSERVICE_VERSION in .env, for example 1.0.0}
     restart: unless-stopped
     logging: *logging
     depends_on:
@@ -112,9 +114,7 @@ services:
       start_period: 30s
 
   web:
-    build:
-      context: ..
-      target: web
+    image: ${AUTHSERVICE_REGISTRY:-ghcr.io/ghazi1567}/authservice-web:${AUTHSERVICE_VERSION:?Set AUTHSERVICE_VERSION in .env, for example 1.0.0}
     restart: unless-stopped
     logging: *logging
     depends_on:

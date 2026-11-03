@@ -1,0 +1,23 @@
+# Builds the three AuthService images from the source in this repository instead of pulling them from the registry. Use it on a machine that
+# has the whole repository (a developer's, or a server that is not given prebuilt images). Add it to the normal file, and give the images a
+# version name of your choice (they are tagged with it locally):
+#
+#   cd deploy
+#   AUTHSERVICE_VERSION=local docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# A server that only runs releases does not need this file or the source.
+services:
+  migrate:
+    build:
+      context: ..
+      target: migrate
+
+  api:
+    build:
+      context: ..
+      target: final
+
+  web:
+    build:
+      context: ..
+      target: web

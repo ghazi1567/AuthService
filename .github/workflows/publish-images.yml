@@ -1,0 +1,241 @@
+name: Publish images
+
+# PLT-10 (AUTH-264): the three container images (API, web console, migration job) are published to GitHub's container registry from here and
+# from nowhere else, so a server can run a release without having the source. Push a tag named v<major>.<minor>.<patch> (for example v1.0.0,
+# or v1.1.0-rc.1 for a pre-release) on a commit that is on main. The whole test suite must pass first; then the images are built for Intel
+# and ARM servers and pushed; then the pushed images are started as the deployment guide does and checked from outside; and only then is
+# the GitHub release created, carrying the few files a server needs (compose file, proxy config, example settings, backup and check scripts).
+# See docs/deployment.md ("Deploy on an Ubuntu server with Docker").
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# One release at a time, and a release is never cancelled half way: images that were pushed must also be checked.
+concurrency:
+  group: publish-images
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  REGISTRY: ghcr.io
+
+jobs:
+  version:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      owner: ${{ steps.version.outputs.owner }}
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # A release is made from main only, so a branch that was never reviewed cannot publish anything.
+      - name: Check that the tagged commit is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::The tagged commit is not on main. Tag a commit that has been merged."
+            exit 1
+          fi
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ! [[ "$version" =~ $semver ]]; then
+            echo "::error::The tag '$tag' does not carry a semantic version. Use v<major>.<minor>.<patch>[-prerelease]."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A pre-release (1.2.0-rc.1) never becomes "latest".
+          if [[ "$version" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+          # Registry names are lower case.
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $version"
+
+  test:
+    name: Build and test
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # The whole suite, against a real PostgreSQL started by Testcontainers, exactly as on a pull request.
+      - name: Test
+        run: dotnet test --no-build --configuration Release
+
+  images:
+    name: Push ${{ matrix.name }}
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The only permission that can change anything: it lets this job push to this repository's package registry, and nothing else.
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: api
+            target: final
+          - name: web
+            target: web
+          - name: migrate
+            target: migrate
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      # Lets this machine build for ARM servers as well as Intel ones. The build itself runs natively; only small steps are emulated.
+      - name: Set up multi-platform builds
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install arm64
+          docker buildx create --name release --driver docker-container --use
+
+      - name: Log in to the registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
+
+      - name: Build and push
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ needs.version.outputs.owner }}/authservice-${{ matrix.name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          tags=(--tag "$IMAGE:$VERSION")
+          if [ "$PRERELEASE" = "false" ]; then tags+=(--tag "$IMAGE:latest"); fi
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --target "${{ matrix.target }}" \
+            "${tags[@]}" \
+            --push .
+
+  verify:
+    name: Start the published images and check them
+    needs: [version, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Log in to the registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login "$REGISTRY" --username "${{ github.actor }}" --password-stdin
+
+      # The way the deployment guide does it, with throwaway secrets and local names: only the registry images and the release's own
+      # compose file are used.
+      - name: Start the stack
+        working-directory: deploy
+        run: |
+          cat > .env <<EOF
+          AUTHSERVICE_VERSION=${{ needs.version.outputs.version }}
+          AUTHSERVICE_REGISTRY=${{ env.REGISTRY }}/${{ needs.version.outputs.owner }}
+          AUTH_HOST=auth.localhost
+          APP_HOST=app.localhost
+          ACME_EMAIL=ops@example.com
+          POSTGRES_PASSWORD=$(openssl rand -hex 16)
+          AUTH_KEY_ENCRYPTION_KEY=$(openssl rand -base64 32)
+          EMAIL_PROVIDER=File
+          EOF
+          docker compose pull
+          docker compose up -d
+
+          # The API and the web console report themselves healthy when they can do their work (the API only after its migration ran).
+          for service in api web; do
+            for _ in $(seq 1 60); do
+              status="$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q "$service")" 2>/dev/null || true)"
+              [ "$status" = "healthy" ] && break
+              sleep 5
+            done
+            if [ "$status" != "healthy" ]; then
+              echo "::error::$service did not become healthy (last state: ${status:-unknown})."
+              exit 1
+            fi
+          done
+
+      - name: Check it from outside
+        working-directory: deploy
+        run: CHECK_INSECURE=1 CHECK_IP=127.0.0.1 ./check.sh auth.localhost app.localhost
+
+      - name: Show the logs if it failed
+        if: failure()
+        working-directory: deploy
+        run: docker compose logs --no-color --tail 200
+
+      - name: Stop the stack
+        if: always()
+        working-directory: deploy
+        run: docker compose down --volumes
+
+  release:
+    name: Create the GitHub release
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          OWNER: ${{ needs.version.outputs.owner }}
+        run: |
+          cat > notes.md <<EOF
+          Images for this release, for Intel and ARM servers:
+
+          - \`$REGISTRY/$OWNER/authservice-api:$VERSION\`
+          - \`$REGISTRY/$OWNER/authservice-web:$VERSION\`
+          - \`$REGISTRY/$OWNER/authservice-migrate:$VERSION\`
+
+          To deploy or update, put \`AUTHSERVICE_VERSION=$VERSION\` in \`.env\` next to the attached \`docker-compose.yml\` and run
+          \`docker compose pull && docker compose up -d\`. The guide is \`docs/deployment.md\` ("Deploy on an Ubuntu server with Docker").
+          Take a backup first (\`./backup.sh\`).
+          EOF
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag \
+            "${flags[@]}" \
+            deploy/docker-compose.yml deploy/Caddyfile deploy/.env.example deploy/backup.sh deploy/check.sh
