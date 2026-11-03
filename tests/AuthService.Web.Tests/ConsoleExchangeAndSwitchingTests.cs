@@ -88,6 +88,44 @@ public sealed class ConsoleExchangeAndSwitchingTests
     }
 
     [Fact]
+    public async Task ASuspendedOrganisationIsExplainedOnEveryConsolePageNotCalledNoAccess()
+    {
+        var api = Api();
+        api.ExchangeResponse = () => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""{"status":403,"title":"x","detail":"x","code":"tenant_suspended"}""", System.Text.Encoding.UTF8, "application/problem+json"),
+        };
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        foreach (var page in new[] { "members", "invitations", "roles", "access", "api-keys", "subscriptions", "audit" })
+        {
+            var html = WebUtility.HtmlDecode(await client.GetStringAsync($"/console/{Acme}/{page}", Token));
+
+            html.ShouldContain("Acme Ltd is suspended", customMessage: page);
+            html.ShouldContain("Nothing can be opened in Acme Ltd right now, and its admin console is closed too.", customMessage: page);
+            html.ShouldNotContain("You don't have access", customMessage: page);
+        }
+    }
+
+    [Fact]
+    public async Task AnOrdinaryRefusalStillSaysTheyAreNotAnActiveMemberAndNeverMentionsASuspension()
+    {
+        var api = Api();
+        api.ExchangeResponse = () => new HttpResponseMessage(HttpStatusCode.Forbidden)
+        {
+            Content = new StringContent("""{"status":403,"title":"x","detail":"x","code":"exchange_denied"}""", System.Text.Encoding.UTF8, "application/problem+json"),
+        };
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync($"/console/{Acme}/members", Token));
+
+        html.ShouldContain("You don't have access");
+        html.ShouldNotContain("suspended");
+    }
+
+    [Fact]
     public async Task BrowsingTheConsoleRepeatedlyMakesOneExchange()
     {
         var api = Api();

@@ -9,7 +9,8 @@ public sealed record AuditEntryItem(
     Guid? ActorId,
     Guid? TenantId,
     string? SourceIp,
-    string? Detail);
+    string? Detail,
+    string? ActorName = null);
 
 /// <summary>Where the next page starts: pass both values back as <c>before</c> and <c>beforeId</c>.</summary>
 public sealed record AuditCursorItem(DateTimeOffset Before, Guid BeforeId);

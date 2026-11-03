@@ -55,9 +55,9 @@ public sealed class ChooseProductPageTests
         html.ShouldContain("What would you like to do?");
         html.ShouldContain("You have a seat.");
         html.ShouldContain("You don't have a seat. Ask an admin at Acme Ltd for access.");
-        html.ShouldContain("Not included in Acme Ltd's subscription.");
-        html.ShouldContain("Acme Ltd's subscription to Inventory is suspended.");
-        html.ShouldContain("Acme Ltd's subscription to Reports has ended.");
+        html.ShouldContain("Acme Ltd hasn't subscribed to Analytics.");
+        html.ShouldContain("The subscription to Inventory is suspended, so it can't be opened.");
+        html.ShouldContain("The subscription to Reports has ended.");
         Regex.Matches(html, "launch-card is-unavailable").Count.ShouldBe(4);
         Regex.Matches(html, "action=\"/choose-product/open\"").Count.ShouldBe(1, "only the available product can be opened");
         html.ShouldContain($"name=\"applicationId\" value=\"{Helpdesk}\"");
@@ -277,6 +277,52 @@ public sealed class ChooseProductPageTests
         response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         response.Headers.Location!.OriginalString.ShouldEndWith("/choose-organisation?change=1");
     }
+
+    [Fact]
+    public async Task AnAdminWithNothingToOpenIsPointedAtConnectingAProductNotAtThemselves()
+    {
+        var api = Member(Product(Helpdesk, "helpdesk", "Helpdesk", "NotSubscribed"));
+        api.ConsolePermissions = AdminPermissions;
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync(PagePath, Token));
+
+        html.ShouldContain("Connect a product below, then give people access to it in the admin console.");
+        html.ShouldNotContain("Your organisation's admin decides");
+    }
+
+    [Fact]
+    public async Task AnOrganisationNameEndingInSDoesNotGetAnAwkwardPossessive()
+    {
+        var api = Member(Product(Helpdesk, "helpdesk", "Helpdesk", "NotSubscribed"));
+        api.MembershipsJson = $$"""[{"tenantId":"{{Acme}}","tenantName":"Okafor Works","status":"Active"}]""";
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}&stay=1", Token));
+
+        html.ShouldContain("Okafor Works hasn't subscribed to Helpdesk.");
+        html.ShouldNotContain("Works's");
+    }
+
+    [Fact]
+    public void TheOpenButtonIsAFullTouchTargetOnAPhone()
+    {
+        // The stylesheet lives in the repository; find it from this source file, wherever the build wrote its output.
+        var root = new FileInfo(SourceFile()).Directory;
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "AuthService.slnx")))
+        {
+            root = root.Parent;
+        }
+
+        root.ShouldNotBeNull();
+        var css = File.ReadAllText(Path.Combine(root.FullName, "src", "AuthService.Web", "wwwroot", "app.css"));
+
+        Regex.IsMatch(css, @"@media \(max-width: 639px\)\s*\{\s*\.launch-card \.btn\s*\{\s*min-height: 44px;").ShouldBeTrue();
+    }
+
+    private static string SourceFile([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
 
     private static string Product(Guid id, string key, string name, string state, string? launchUrl = null) =>
         $$"""{"applicationId":"{{id}}","key":"{{key}}","name":"{{name}}","state":"{{state}}","launchUrl":{{(launchUrl is null ? "null" : $"\"{launchUrl}\"")}}}""";

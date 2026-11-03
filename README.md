@@ -207,6 +207,10 @@ What is in place:
   origin; every other page keeps `form-action 'self'`. The token is in no address, link or log. **A product receives it** at its launch address with a handler like:
   `app.MapPost("/signed-in", async (HttpRequest r) => { var form = await r.ReadFormAsync(); var token = form["access_token"].ToString(); /* check signature (JWKS), audience and expiry; start your session */ return Results.Redirect("/", false); });`
   then answers with a redirect (303) to its own page so the token is not left in history.
+- **Names and suspensions in the console** (UI-06). Both audit logs show the actor's name when the API gives one ("Priya Shah", "Helpdesk") and fall back to "A person (a1b2c3d4)" only when it doesn't. When the
+  API says an organisation is suspended (`tenant_suspended`, told only to its active members), every console page says "Acme Ltd is suspended" and what that means, through one shared component, instead
+  of "You don't have access"; any other refusal reads as before and never mentions a suspension. On the product picker an admin with nothing to open is pointed at connecting a product, the reasons avoid
+  possessives on organisation names, and the Open button is a full 44px touch target on a phone.
 - **The signed-in session** (UI01_T1, [decision 0006](docs/decisions/0006-signed-in-session-kept-on-the-server.md)): the browser gets one
   `HttpOnly` cookie with a session id and never a token; the tokens stay on the server in an `ISessionStore` (in memory by default).
   The access token is renewed a minute before it runs out, one request at a time per session, because each refresh token works once.

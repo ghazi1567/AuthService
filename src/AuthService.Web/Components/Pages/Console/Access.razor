@@ -14,9 +14,7 @@
 }
 else if (outcome == ConsoleOutcome.Denied)
 {
-    <h1 class="page-title">You don't have access</h1>
-    <p class="page-lead">You're not an active member of this organisation, so its admin console isn't open to you.</p>
-    <a class="btn btn-secondary" href="/choose-organisation?change=1">Choose an organisation</a>
+    <ConsoleDenied />
 }
 else if (outcome != ConsoleOutcome.Ready || loadFailed)
 {

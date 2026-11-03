@@ -2008,3 +2008,11 @@ a.org-row:hover {
     flex-direction: column;
     min-width: 0;
 }
+
+/* Phone width: the Open button is a touch target, so it is the full 44px */
+@media (max-width: 639px) {
+    .launch-card .btn {
+        min-height: 44px;
+        padding-inline: 20px;
+    }
+}

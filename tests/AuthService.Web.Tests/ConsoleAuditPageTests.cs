@@ -44,6 +44,24 @@ public sealed class ConsoleAuditPageTests
     }
 
     [Fact]
+    public async Task APersonIsNamedWhenTheApiGivesTheirNameAndOnlyAnIdWhenItDoesNot()
+    {
+        var api = Api();
+        api.AuditJson = api.AuditJson.Replace(
+            $"\"actorId\":\"{Priya}\"",
+            $"\"actorId\":\"{Priya}\",\"actorName\":\"Priya Shah\"");
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?actor={Priya}", Token));
+
+        Rows(html).ShouldContain("Priya Shah");
+        Rows(html).ShouldNotContain("A person (a1b2c3d4)");
+        html.ShouldContain("Only actions by Priya Shah");
+        (await client.GetStringAsync(PagePath, Token)).ShouldContain("Priya Shah");
+    }
+
+    [Fact]
     public async Task NewestIsFirstAsTheApiReturnsThem()
     {
         await using var factory = new WebAppFactory(Api());

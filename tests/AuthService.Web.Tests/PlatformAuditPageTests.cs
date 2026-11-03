@@ -38,6 +38,24 @@ public sealed class PlatformAuditPageTests
     }
 
     [Fact]
+    public async Task PeopleAndProductsAreNamedWhenTheApiGivesTheirNames()
+    {
+        var api = Api();
+        api.AdminAuditJson = api.AdminAuditJson
+            .Replace($"\"actorId\":\"{Priya}\"", $"\"actorId\":\"{Priya}\",\"actorName\":\"Priya Shah\"")
+            .Replace($"\"actorId\":\"{Helpdesk}\"", $"\"actorId\":\"{Helpdesk}\",\"actorName\":\"Helpdesk\"");
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var html = WebUtility.HtmlDecode(await client.GetStringAsync(PagePath, Token));
+
+        Rows(html).ShouldContain("Priya Shah");
+        Rows(html).ShouldContain("Helpdesk");
+        Rows(html).ShouldNotContain("A person (a1b2c3d4)");
+        Rows(html).ShouldNotContain("A product (20000000)");
+    }
+
+    [Fact]
     public async Task TheLogIsReadWithThePersonsOwnSignInToken()
     {
         var api = Api();
