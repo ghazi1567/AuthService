@@ -1,17 +1,47 @@
-# An example of running AuthService on one machine: PostgreSQL, the one-off migration job and the API.
-# It is a starting point, not a requirement: any host that runs containers can use the same two images.
+# AuthService on one machine (for example an Ubuntu server): the reverse proxy that gets HTTPS certificates, the web console, the API,
+# PostgreSQL and the one-off migration job. The step-by-step guide is docs/deployment.md, "Deploy on an Ubuntu server with Docker".
 #
 #   cp deploy/.env.example deploy/.env      # then fill it in (never commit deploy/.env)
 #   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 #
-# The API listens on 127.0.0.1:8080 only. Put a reverse proxy that terminates HTTPS in front of it and list that proxy in
-# Auth__Proxy__TrustedProxies__0 so rate limits and audit entries see the real client address.
+# Only ports 80 and 443 are published, by the proxy. The API, the web console and the database are reachable only through it (or from
+# inside the stack). The proxy is listed as trusted, by its network, in both apps, so rate limits and audit entries see the real visitor.
 name: authservice
 
+x-logging: &logging
+  # Container logs rotate, so they cannot fill the disk.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      AUTH_HOST: ${AUTH_HOST:?Set AUTH_HOST in deploy/.env, for example auth.example.com}
+      APP_HOST: ${APP_HOST:?Set APP_HOST in deploy/.env, for example app.example.com}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificates. Keep this volume: losing it means asking for new ones, which Let's Encrypt limits.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: auth
       POSTGRES_USER: auth
@@ -30,6 +60,7 @@ services:
       context: ..
       target: migrate
     command: ["--connection", "Host=db;Port=5432;Database=auth;Username=auth;Password=${POSTGRES_PASSWORD}"]
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -39,11 +70,10 @@ services:
     build:
       context: ..
     restart: unless-stopped
+    logging: *logging
     depends_on:
       migrate:
         condition: service_completed_successfully
-    ports:
-      - "127.0.0.1:8080:8080"
     environment:
       ConnectionStrings__AuthDb: Host=db;Port=5432;Database=auth;Username=auth;Password=${POSTGRES_PASSWORD};GSS Encryption Mode=Disable
       Auth__Tokens__KeyEncryptionKey: ${AUTH_KEY_ENCRYPTION_KEY:?Set AUTH_KEY_ENCRYPTION_KEY in deploy/.env}
@@ -52,9 +82,12 @@ services:
       Email__BrevoApiKey: ${BREVO_API_KEY:-}
       Email__FromAddress: ${EMAIL_FROM_ADDRESS:-}
       Email__FromName: ${EMAIL_FROM_NAME:-Auth Service}
-      Email__PublicBaseUrl: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in deploy/.env}
-      Auth__Proxy__TrustedProxies__0: ${TRUSTED_PROXY:-}
-      # Who may read /metrics besides loopback, for example the monitoring server's range. Blank means loopback only.
+      # Where the links in emails point: the web console, which handles /verify-email, /reset-password and /accept-invitation.
+      Email__PublicBaseUrl: https://${APP_HOST:?Set APP_HOST in deploy/.env}
+      # The proxy and the web console are both inside the stack's network. The proxy's X-Forwarded-For and the one the web console adds
+      # for its own visitors are believed from here and from nowhere else.
+      Auth__Proxy__TrustedNetworks__0: ${DOCKER_SUBNET:-172.29.200.0/24}
+      # Who may read /metrics besides this machine. Blank means only the stack itself (and the proxy refuses /metrics from outside).
       Observability__AllowedNetworks__0: ${METRICS_ALLOWED_NETWORK:-}
       # One line per database command is too chatty for production; warnings and errors still show.
       Logging__LogLevel__Microsoft.EntityFrameworkCore: Warning
@@ -78,5 +111,50 @@ services:
       retries: 3
       start_period: 30s
 
+  web:
+    build:
+      context: ..
+      target: web
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # The API, by its name inside the stack. The web console calls it from its server, never from the browser.
+      AuthService__Api__BaseUrl: http://api:8080
+      AuthService__Proxy__TrustedNetworks__0: ${DOCKER_SUBNET:-172.29.200.0/24}
+      # The keys that protect the cookies, kept on a volume so a restart or an update does not make every cookie unreadable.
+      AuthService__DataProtection__KeysPath: /keys
+      # The keys sit unencrypted in the volume, which data protection warns about at every start. What they protect is an opaque session
+      # id in a cookie (never a token), and the files are readable only by the app's own user, so the warning is left out of the log.
+      Logging__LogLevel__Microsoft.AspNetCore.DataProtection: Error
+    volumes:
+      - webkeys:/keys
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /healthz HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3 &&
+          head -n 1 <&3 | grep -q ' 200 '
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 volumes:
   dbdata:
+  caddy_data:
+  caddy_config:
+  webkeys:
+
+networks:
+  default:
+    ipam:
+      config:
+        # A fixed range, so the apps can name it as their trusted proxy network. Change it (DOCKER_SUBNET) only if it clashes with
+        # a network your server already uses.
+        - subnet: ${DOCKER_SUBNET:-172.29.200.0/24}

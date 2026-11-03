@@ -77,6 +77,16 @@ jobs:
       - name: Build the migration image
         run: docker build --target migrate --tag authservice-migrate .
 
+      - name: Build the web console image
+        run: docker build --target web --tag authservice-web .
+
+      # The compose file is what the deployment guide tells people to run, so it must stay valid. Dummy secrets: nothing starts.
+      - name: Check the example compose file
+        run: >
+          AUTH_HOST=auth.example.com APP_HOST=app.example.com ACME_EMAIL=ops@example.com
+          POSTGRES_PASSWORD=ci AUTH_KEY_ENCRYPTION_KEY=ci
+          docker compose -f deploy/docker-compose.yml config --quiet
+
   # PLT-07 (AUTH-204): a product installs AuthService.Authorization as a package, so the sample product does too. Nothing is
   # published: the package is packed here and the sample restores it from that folder, with no project reference. A release
   # (publish-authorization-package.yml) repeats this against the package it has published.

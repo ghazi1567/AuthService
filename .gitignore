@@ -30,3 +30,6 @@ appsettings.*.local.json
 
 # Local working files (spec workbook, generated outputs)
 Claude outputs/
+
+# Database dumps written by deploy/backup.sh.
+deploy/backups/

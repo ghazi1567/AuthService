@@ -1,18 +1,185 @@
 # Deploying AuthService
 
-The service ships as two container images built from the one `Dockerfile`. They run on anything that runs containers (a VPS with
-Docker, Railway, Render, Fly, Azure Container Apps, Kubernetes): the host decides how, this page says what.
+The service ships as three container images built from the one `Dockerfile`. They run on anything that runs containers (a VPS with
+Docker, Railway, Render, Fly, Azure Container Apps, Kubernetes): the host decides how, this page says what. **The quickest way to a working
+system is the next section: one Ubuntu server, Docker Compose, HTTPS handled for you.**
 
 | Image | Build | What it does |
 |---|---|---|
 | API | `docker build -t authservice-api .` | The web service. Listens on port **8080**, runs as a non-root user. |
+| Web console | `docker build --target web -t authservice-web .` | The pages people sign in on (sign-up, sign-in, the tenant console, the platform console). Listens on **8080**, runs as a non-root user, calls the API from its server. |
 | Migrate | `docker build --target migrate -t authservice-migrate .` | A one-off job: applies every pending database migration, then exits. |
 
 The API **never migrates on startup** ([decision 0003](decisions/0003-migrations-applied-explicitly.md)). Every release runs the migrate
 job first, then starts the new API.
 
-`deploy/docker-compose.yml` is a worked example for a single machine (PostgreSQL, the migrate job and the API). It was run for real
-while writing this page.
+`deploy/docker-compose.yml` is a worked example for a single machine: the HTTPS proxy (Caddy), the web console, the API, PostgreSQL and
+the migrate job. It was run for real while writing this page.
+
+## Deploy on an Ubuntu server with Docker
+
+One server, everything in containers, HTTPS certificates obtained and renewed by the proxy. It is the right size for a first product and a
+few hundred users; it is a single machine, so it is also a single point of failure (see "What this setup does not give you").
+
+**You need:** an Ubuntu 22.04 or 24.04 server with a public IP address and `sudo`; two names that point at it (an `A` record for the API,
+for example `auth.example.com`, and one for the console, for example `app.example.com`; with Cloudflare, set both to **DNS only**, the grey
+cloud); and a Brevo account if you want real email (see "Production email" below; the first trial can use `EMAIL_PROVIDER=File`).
+
+**1. Check DNS.** From your own computer, both names must answer with the server's address:
+
+```bash
+dig +short auth.example.com
+dig +short app.example.com
+```
+
+**2. Prepare the server.** Log in over SSH and run:
+
+```bash
+sudo apt-get update && sudo apt-get -y upgrade
+sudo apt-get install -y ca-certificates curl git ufw unattended-upgrades
+
+# Only SSH, HTTP and HTTPS may reach the server. HTTP is needed for the certificates.
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+
+# Docker Engine and the compose plugin (Docker's own installer).
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"
+```
+
+Log out and back in so the `docker` group applies, then check `docker compose version`. Docker opens the ports it publishes itself and
+`ufw` does not restrict them, which is why this stack publishes only 80 and 443 and nothing else: the database, the API and the web console
+are not reachable from outside at all.
+
+**3. Get the code.**
+
+```bash
+git clone https://github.com/ghazi1567/AuthService.git
+cd AuthService/deploy
+```
+
+(A private repository asks for a token or a deploy key. To run a released version rather than the latest, `git checkout <tag>` first.)
+
+**4. Fill in the settings.** Everything is in one file that never leaves the server:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+nano .env
+```
+
+Set `AUTH_HOST` and `APP_HOST` to your two names and `ACME_EMAIL` to an address you read. Create the three secrets on the server and paste them in:
+
+```bash
+openssl rand -base64 24   # POSTGRES_PASSWORD
+openssl rand -base64 32   # AUTH_KEY_ENCRYPTION_KEY
+```
+
+**Copy `AUTH_KEY_ENCRYPTION_KEY` to a password manager or another safe place now**, not on this server and not with the database backups: without it
+the stored signing keys cannot be read. Leave `BREVO_API_KEY` and the sender empty and set `EMAIL_PROVIDER=File` for a first trial (emails are
+written to a folder inside the API container instead of sent); switch to Brevo once the sender domain is ready.
+
+**5. Start it.** From the `deploy` folder:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+The first build takes several minutes. Start order is automatic: the database, the migration job, the API, the web console, and then the proxy,
+which asks Let's Encrypt for a certificate for each name. When `docker compose ps` shows `api`, `web` and `db` as `healthy` and `caddy` as
+`Up`, check from your computer:
+
+```bash
+curl https://auth.example.com/health/ready      # {"status":"ready","checks":{"database":"ok","signingKey":"ok"}}
+curl https://auth.example.com/.well-known/jwks.json
+curl -I http://app.example.com                  # 308, redirecting to https
+```
+
+and open `https://app.example.com` in a browser. If a certificate is not issued, see "If something does not work" below.
+
+**6. Make the first platform admin.** Nobody can become a platform admin through the website; it is a database flag, by design. Sign up at
+`https://app.example.com/signup` and verify your email (with `EMAIL_PROVIDER=File` the link is in the API container: `docker compose exec api
+sh -c 'cat /tmp/emails/*'`), then:
+
+```bash
+docker compose exec db psql -U auth -d auth -c "UPDATE users SET is_platform_admin = true WHERE email = 'you@example.com';"
+```
+
+Sign out and in again; the platform console is at `/platform`. Register your product there (README, "Platform admins" and "Applications").
+
+**7. Backups.** `deploy/backup.sh` writes a dump of the database to `deploy/backups` and removes dumps older than 14 days. Run it every night
+from cron, and copy the dumps off the server (a backup on the machine that fails is not a backup):
+
+```bash
+crontab -e
+# add this line (use your own path):
+0 3 * * * /home/ubuntu/AuthService/deploy/backup.sh >> /home/ubuntu/authservice-backup.log 2>&1
+```
+
+Run it once by hand now, and **try a restore before you need one**, into a scratch database so nothing live is touched:
+
+```bash
+./backup.sh
+docker compose exec -T db createdb -U auth restoretest
+docker compose exec -T db pg_restore -U auth -d restoretest --no-owner < backups/auth-<the file just written>.dump
+docker compose exec -T db psql -U auth -d restoretest -c "select count(*) from users;"
+docker compose exec -T db dropdb -U auth restoretest
+```
+
+To restore for real (the data is lost or damaged): `docker compose stop web api`, then `docker compose exec -T db dropdb -U auth auth`, `createdb -U auth
+auth`, `pg_restore -U auth -d auth --no-owner < <file>` the same way, then `docker compose start api web`. The dump does not contain
+`AUTH_KEY_ENCRYPTION_KEY`: keep `.env` safe separately, or the restored signing keys cannot be read.
+
+**8. Updating.** Take a backup, pull the new code and rebuild:
+
+```bash
+./backup.sh
+git pull
+docker compose up -d --build
+```
+
+The migration job runs first and the API waits for it; the console and API restart in a few seconds. People signed in to the console are signed out
+by the restart (see below). To go back, `git checkout` the previous version and run the same `up -d --build`; a migration is not undone by that,
+which is why a migration must stay compatible with the previous version (add before you remove).
+
+**Day to day:** `docker compose logs -f api` (or `web`, `caddy`) shows what is happening; logs rotate by themselves (5 files of 10 MB per container).
+`docker compose restart web` restarts one part. The containers start again by themselves after a reboot.
+
+### What the proxy and the stack do for you
+
+- **HTTPS** for both names, renewed automatically, with HTTP redirected to HTTPS and a Strict-Transport-Security header. Keep the `caddy_data`
+  volume: it holds the certificates.
+- **The real visitor address.** The proxy tells the apps who is calling; the web console passes it on to the API when it calls for a visitor. Rate
+  limits and the audit log therefore see each visitor, not the proxy. Both apps believe those headers only from the stack's own private network
+  (`DOCKER_SUBNET`, 172.29.200.0/24 unless you change it) and never from the internet.
+- **`/metrics` is not served to the internet.** The proxy answers 404 for it. A scraper inside the stack's network can still read it (see
+  "Health checks and metrics").
+- **Cookie keys are kept** in the `webkeys` volume, so a restart does not make every cookie unreadable.
+
+### If something does not work
+
+| What you see | Look at |
+|---|---|
+| The browser says the connection is not private, or `docker compose logs caddy` shows the certificate was refused | DNS must point at this server (step 1), ports 80 and 443 must be open (step 2), and with Cloudflare the records must be **DNS only**. Fix it and `docker compose restart caddy`; Let's Encrypt limits repeated failures, so do not retry in a loop. |
+| `docker compose ps` shows `migrate` exited with an error | `docker compose logs migrate`: usually the database password in `.env` does not match the existing database volume. |
+| `api` stays unhealthy | `docker compose logs api`: a missing `AUTH_KEY_ENCRYPTION_KEY` or a database that is not reachable. |
+| Sign-in answers "temporarily unavailable" | The rate-limit table is missing, so the migration did not run: `docker compose run --rm migrate`. |
+| The web console shows an error page about the API | `docker compose logs web api`; check `curl https://auth.example.com/health/ready`. |
+| Everyone limited at once after a few sign-ins | Both apps must trust the stack's network: `DOCKER_SUBNET` in `.env` must be the network the stack really uses (`docker network inspect authservice_default`). |
+
+### What this setup does not give you
+
+- **A second server.** If this machine goes down, so does everything. Restoring from a backup onto a new server (steps 2 to 5 with the restore in
+  step 7) is the recovery.
+- **Sessions that survive a restart.** The console keeps who is signed in in the web container's memory. Restarting or updating the console signs
+  everyone out; they sign in again. (Running two copies of the console behind a load balancer would not work for the same reason.)
+- **Monitoring.** Nothing watches the server. At least add an uptime check on `https://auth.example.com/health/ready` with an alert to you, and see
+  "Health checks and metrics" for what to alert on.
+- **Cloudflare's orange cloud.** Keep the records DNS only. Turning the proxy on puts Cloudflare's addresses between visitors and this server, and
+  the stack would then see Cloudflare, not the visitor, until the proxy is told to trust Cloudflare's ranges. Ask before enabling it.
 
 ## What you need before you start
 
@@ -23,9 +190,9 @@ while writing this page.
    new key is created and everyone has to log in again.
 3. **A way to send email.** Brevo: an API key and a **verified sender** (ideally on a domain you own, authenticated with SPF and DKIM, or
    mail lands in spam).
-4. **The address of your front end**, for the links in emails (`Email__PublicBaseUrl`). The service only builds
-   `/verify-email?token=...`, `/reset-password?token=...` and `/accept-invitation?token=...` links; the pages that receive them are the
-   front end's job.
+4. **The address of the web console**, for the links in emails (`Email__PublicBaseUrl`). The service builds
+   `/verify-email?token=...`, `/reset-password?token=...` and `/accept-invitation?token=...` links; the web console's pages receive them.
+   The example compose file sets it from `APP_HOST`.
 5. **HTTPS in front of the API.** The container speaks plain HTTP on 8080. Put a reverse proxy or the platform's load balancer in front
    of it to terminate TLS. Tokens and passwords must never cross the network unencrypted.
 

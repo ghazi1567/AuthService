@@ -3,6 +3,7 @@
 # AuthService container images.
 #   API image (default target):   docker build -t authservice-api .
 #   Migration image (one-off job): docker build --target migrate -t authservice-migrate .
+#   Web console image:            docker build --target web -t authservice-web .
 # The API never migrates on startup (docs/decisions/0003): run the migration image against the database before starting a new version.
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
@@ -33,6 +34,22 @@ COPY --from=bundle /bundle/efbundle ./efbundle
 USER $APP_UID
 ENTRYPOINT ["./efbundle"]
 
+# The web console (src/AuthService.Web). It is one more client of the API; it holds no database connection.
+FROM build AS build-web
+RUN dotnet restore src/AuthService.Web/AuthService.Web.csproj \
+ && dotnet publish src/AuthService.Web/AuthService.Web.csproj -c Release --no-restore -o /app-web
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS web
+WORKDIR /app
+COPY --from=build-web /app-web .
+# A folder for the keys that protect the cookies, so they survive a restart; mount a volume on it. Not root.
+RUN mkdir /keys && chown $APP_UID /keys
+USER $APP_UID
+ENV ASPNETCORE_ENVIRONMENT=Production
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "AuthService.Web.dll"]
+
+# Last, so a plain `docker build .` still builds the API.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app .
