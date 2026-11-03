@@ -288,6 +288,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Webhooks:AllowPrivateAddresses` | Allows plain `http` and private callback addresses. Development and tests only; default off. |
 | `Auth:Webhooks:DispatcherEnabled` | Turns the webhook worker off, so events wait. Default on. |
 | `Auth:Applications:SecretGraceHours` | How long a product's old client secret keeps working after a rotation. Default 24. |
+| `Auth:RateLimit:Store` / `CleanupSeconds` | Where the rate-limit counters are kept (PLT-04): `Postgres` (default; shared by every instance, in the `rate_limit_counters` table) or `Memory` (per process, for development, tests and one instance). Expired counters are removed every `CleanupSeconds` (default 60). If the shared store cannot be reached the limited endpoints answer **503** `rate_limit_unavailable` and never let the request through. See `docs/decisions/0008-rate-limit-counters-in-postgresql.md`. |
 | `Auth:Applications:TokenIpLimit` / `TokenIpWindowMinutes` | How many service-token requests one IP may make per window, across all products, before getting 429. Default 60 per minute. |
 | `Auth:LoginProtection:IpLimit` / `IpWindowMinutes` | How many login requests one IP may make per window, across all accounts, before getting 429. Default 20 per minute. |
 | `Auth:EmailVerification:TokenHours` | How long a verification link works. Default 24. |

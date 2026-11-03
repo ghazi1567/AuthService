@@ -1,3 +1,4 @@
+using AuthService.Api.RateLimiting;
 using AuthService.Api.Common;
 
 namespace AuthService.Api.Features.Login;
@@ -9,7 +10,7 @@ public static class LoginEndpoints
 
     public static IEndpointRouteBuilder MapLogin(this IEndpointRouteBuilder app)
     {
-        app.MapPost(Route, LoginAsync).AllowAnonymous().RequireRateLimiting(RateLimitPolicy);
+        app.MapPost(Route, LoginAsync).AllowAnonymous().RequireSharedRateLimit(RateLimitPolicy);
         return app;
     }
 

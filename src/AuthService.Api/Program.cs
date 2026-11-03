@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
-using System.Threading.RateLimiting;
 using AuthService.Api.Common;
 using AuthService.Api.Email;
 using AuthService.Api.Email.Providers;
@@ -25,11 +24,11 @@ using AuthService.Api.Features.Webhooks;
 using AuthService.Api.Features.TokenExchange;
 using AuthService.Api.Features.Tenants;
 using AuthService.Api.Observability;
+using AuthService.Api.RateLimiting;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -104,103 +103,14 @@ builder.Services.AddScoped<PasswordResetService>();
 builder.Services.Configure<EmailVerificationOptions>(builder.Configuration.GetSection(EmailVerificationOptions.SectionName));
 builder.Services.AddScoped<EmailVerificationService>();
 
-// Limits how often one IP address can ask for things like verification emails. Behind a proxy, list the proxy in Auth:Proxy so
-// this sees the client's address and not the proxy's.
-builder.Services.AddRateLimiter(limiter =>
-{
-    limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    limiter.OnRejected = async (context, _) =>
-    {
-        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
-        {
-            context.HttpContext.Response.Headers.RetryAfter =
-                ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
-        }
-
-        await ApiProblem.Create(StatusCodes.Status429TooManyRequests, "rate_limited", "Too many requests", "Try again later.")
-            .ExecuteAsync(context.HttpContext);
-    };
-
-    // Login is limited per IP address across all accounts (TEN-12); per-account protection is the lockout in LoginService.
-    limiter.AddPolicy(LoginEndpoints.RateLimitPolicy, httpContext =>
-    {
-        var settings = httpContext.RequestServices.GetRequiredService<IOptions<LoginProtectionOptions>>().Value;
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = settings.IpLimit,
-                Window = TimeSpan.FromMinutes(settings.IpWindowMinutes),
-                QueueLimit = 0,
-            });
-    });
-
-    // Asking for and using password reset links is limited per IP address.
-    limiter.AddPolicy(PasswordResetEndpoints.RateLimitPolicy, httpContext =>
-    {
-        var settings = httpContext.RequestServices.GetRequiredService<IOptions<PasswordResetOptions>>().Value;
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = settings.IpLimit,
-                Window = TimeSpan.FromMinutes(settings.IpWindowMinutes),
-                QueueLimit = 0,
-            });
-    });
-
-    // Service-token requests are limited per IP address across all products.
-    limiter.AddPolicy(ServiceTokenEndpoints.RateLimitPolicy, httpContext =>
-    {
-        var settings = httpContext.RequestServices.GetRequiredService<IOptions<ApplicationCredentialOptions>>().Value;
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = settings.TokenIpLimit,
-                Window = TimeSpan.FromMinutes(settings.TokenIpWindowMinutes),
-                QueueLimit = 0,
-            });
-    });
-
-    // Token exchange is limited per signed-in person, so one looping client cannot starve the database for everyone else (and a
-    // person is not penalised for sharing an address). Authentication runs before the limiter for this; a caller with no valid
-    // token is limited per IP address instead.
-    limiter.AddPolicy(TokenExchangeEndpoints.RateLimitPolicy, httpContext =>
-    {
-        var settings = httpContext.RequestServices.GetRequiredService<IOptions<TokenExchangeOptions>>().Value;
-        var partition = httpContext.User.GetUserId() is { } userId
-            ? $"user:{userId}"
-            : $"ip:{httpContext.Connection.RemoteIpAddress}";
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            partition,
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = settings.UserLimit,
-                Window = TimeSpan.FromMinutes(settings.UserWindowMinutes),
-                QueueLimit = 0,
-            });
-    });
-
-    limiter.AddPolicy(EmailVerificationEndpoints.ResendRateLimitPolicy, httpContext =>
-    {
-        // Read per request, so configuration added after startup (test overrides) still applies.
-        var settings = httpContext.RequestServices.GetRequiredService<IOptions<EmailVerificationOptions>>().Value;
-
-        return RateLimitPartition.GetFixedWindowLimiter(
-            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = settings.ResendIpLimit,
-                Window = TimeSpan.FromMinutes(settings.ResendIpWindowMinutes),
-                QueueLimit = 0,
-            });
-    });
-});
+// Limits how often one IP address (or person) can use the endpoints that guess or send things (PLT-04). Counters are kept in the
+// service's own database by default, so every instance shares them; Auth:RateLimit:Store = Memory keeps them per process (development,
+// tests, a single instance). Behind a proxy, list the proxy in Auth:Proxy so this sees the client's address and not the proxy's.
+builder.Services.AddOptions<RateLimitOptions>().Bind(builder.Configuration.GetSection(RateLimitOptions.SectionName));
+builder.Services.AddSingleton<IRateLimitStore>(provider => provider.GetRequiredService<IOptions<RateLimitOptions>>().Value.UsesPostgres
+    ? new PostgresRateLimitStore(provider.GetRequiredService<IServiceScopeFactory>())
+    : new InMemoryRateLimitStore());
+builder.Services.AddHostedService<RateLimitCleanupWorker>();
 
 builder.Services.AddScoped<SignupService>();
 builder.Services.AddScoped<LoginService>();
@@ -272,6 +182,12 @@ if (app.Services.GetRequiredService<IOptions<ObservabilityOptions>>().Value.Prob
     throw new InvalidOperationException(string.Join(" ", observabilityProblems));
 }
 
+// A typo in where the rate-limit counters live stops the deployment instead of quietly using the wrong store.
+if (app.Services.GetRequiredService<IOptions<RateLimitOptions>>().Value.Problems().ToList() is { Count: > 0 } rateLimitProblems)
+{
+    throw new InvalidOperationException(string.Join(" ", rateLimitProblems));
+}
+
 // Outside the exception handler, so a request that ends in an error is counted with its 500.
 app.UseMiddleware<RequestMetricsMiddleware>();
 app.UseExceptionHandler();
@@ -279,7 +195,7 @@ app.UseExceptionHandler();
 // Authentication comes first so a limit can be per person (token exchange). A token is checked locally, with no database call, so
 // this costs a rate-limited request almost nothing.
 app.UseAuthentication();
-app.UseRateLimiter();
+app.UseMiddleware<SharedRateLimitMiddleware>();
 app.UseAuthorization();
 
 app.MapGet("/", () => "AuthService").AllowAnonymous();

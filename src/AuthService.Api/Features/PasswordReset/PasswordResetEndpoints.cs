@@ -1,3 +1,4 @@
+using AuthService.Api.RateLimiting;
 using AuthService.Api.Common;
 
 namespace AuthService.Api.Features.PasswordReset;
@@ -10,8 +11,8 @@ public static class PasswordResetEndpoints
 
     public static IEndpointRouteBuilder MapPasswordReset(this IEndpointRouteBuilder app)
     {
-        app.MapPost(ForgotRoute, ForgotAsync).AllowAnonymous().RequireRateLimiting(RateLimitPolicy);
-        app.MapPost(ResetRoute, ResetAsync).AllowAnonymous().RequireRateLimiting(RateLimitPolicy);
+        app.MapPost(ForgotRoute, ForgotAsync).AllowAnonymous().RequireSharedRateLimit(RateLimitPolicy);
+        app.MapPost(ResetRoute, ResetAsync).AllowAnonymous().RequireSharedRateLimit(RateLimitPolicy);
         return app;
     }
 
