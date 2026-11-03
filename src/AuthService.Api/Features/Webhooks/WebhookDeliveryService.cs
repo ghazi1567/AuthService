@@ -61,8 +61,28 @@ public sealed class WebhookDeliveryService(
 
         var application = await db.Applications.AsNoTracking()
             .Where(candidate => candidate.Id == message.ApplicationId)
-            .Select(candidate => new { candidate.WebhookUrl, candidate.WebhookSecretProtected })
+            .Select(candidate => new
+            {
+                candidate.WebhookUrl,
+                candidate.WebhookSecretProtected,
+                candidate.WebhookPreviousSecretProtected,
+                candidate.WebhookPreviousSecretExpiresAt,
+            })
             .SingleAsync(cancellationToken);
+
+        // The previous secret signs only while its overlap lasts. Once it is over it is thrown away, not just ignored.
+        var previousSecret = application.WebhookPreviousSecretProtected;
+        if (previousSecret is not null && application.WebhookPreviousSecretExpiresAt is { } overlapEnds && overlapEnds <= now)
+        {
+            previousSecret = null;
+            await db.Applications
+                .Where(candidate => candidate.Id == message.ApplicationId && candidate.WebhookPreviousSecretExpiresAt <= now)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(candidate => candidate.WebhookPreviousSecretProtected, (string?)null)
+                        .SetProperty(candidate => candidate.WebhookPreviousSecretExpiresAt, (DateTimeOffset?)null),
+                    cancellationToken);
+        }
 
         if (application.WebhookUrl is null || application.WebhookSecretProtected is null)
         {
@@ -80,7 +100,7 @@ public sealed class WebhookDeliveryService(
         }
         else
         {
-            var error = await TrySendAsync(message, application.WebhookUrl, application.WebhookSecretProtected, now, cancellationToken);
+            var error = await TrySendAsync(message, application.WebhookUrl, SigningSecrets(application.WebhookSecretProtected, previousSecret), now, cancellationToken);
             message.Attempts++;
 
             if (error is null)
@@ -123,11 +143,12 @@ public sealed class WebhookDeliveryService(
 
     /// <summary>Posts the event. Returns null on success (any 2xx), otherwise a short code for what went wrong.</summary>
     private async Task<string?> TrySendAsync(
-        WebhookOutboxMessage message, string url, string protectedSecret, DateTimeOffset now, CancellationToken cancellationToken)
+        WebhookOutboxMessage message, string url, IReadOnlyList<string> protectedSecrets, DateTimeOffset now, CancellationToken cancellationToken)
     {
         try
         {
-            var secret = Encoding.UTF8.GetString(keyEncryption.Decrypt(protectedSecret));
+            // Newest first. During an overlap there are two, and the event carries a signature for each.
+            var secrets = protectedSecrets.Select(protectedSecret => Encoding.UTF8.GetString(keyEncryption.Decrypt(protectedSecret))).ToList();
             var timestamp = now.ToUnixTimeSeconds();
 
             using var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -138,7 +159,7 @@ public sealed class WebhookDeliveryService(
             request.Headers.TryAddWithoutValidation("X-Auth-Event-Id", message.Id.ToString());
             request.Headers.TryAddWithoutValidation("X-Auth-Event-Type", message.EventType);
             request.Headers.TryAddWithoutValidation("X-Auth-Timestamp", timestamp.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            request.Headers.TryAddWithoutValidation("X-Auth-Signature", WebhookSigner.Sign(secret, timestamp, message.PayloadJson));
+            request.Headers.TryAddWithoutValidation("X-Auth-Signature", WebhookSigner.SignAll(secrets, timestamp, message.PayloadJson));
 
             using var client = httpClientFactory.CreateClient(WebhookHttp.ClientName);
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -151,6 +172,8 @@ public sealed class WebhookDeliveryService(
             return exception is TaskCanceledException ? "Timed out" : exception.GetType().Name;
         }
     }
+
+    private static List<string> SigningSecrets(string current, string? previous) => previous is null ? [current] : [current, previous];
 
     private static DateTimeOffset Earlier(DateTimeOffset a, DateTimeOffset b) => a < b ? a : b;
 }

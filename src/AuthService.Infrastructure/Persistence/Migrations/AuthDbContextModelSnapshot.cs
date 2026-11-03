@@ -188,6 +188,15 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<DateTimeOffset?>("WebhookPreviousSecretExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("webhook_previous_secret_expires_at");
+
+                    b.Property<string>("WebhookPreviousSecretProtected")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("webhook_previous_secret_protected");
+
                     b.Property<string>("WebhookSecretProtected")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")

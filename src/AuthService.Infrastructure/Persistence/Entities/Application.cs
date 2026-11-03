@@ -46,6 +46,15 @@ public sealed class Application
     public string? WebhookSecretProtected { get; set; }
 
     /// <summary>
+    /// The secret this one replaced, kept for an overlap so a product whose receiver is not yet updated can still verify events (SUB-07).
+    /// Events carry a signature for each of the two. Null when there is no overlap, and never more than one.
+    /// </summary>
+    public string? WebhookPreviousSecretProtected { get; set; }
+
+    /// <summary>When <see cref="WebhookPreviousSecretProtected"/> stops signing. After this it is ignored, and discarded the next time it is seen.</summary>
+    public DateTimeOffset? WebhookPreviousSecretExpiresAt { get; set; }
+
+    /// <summary>
     /// Where the web console sends a person who chooses this product (APP-08): the product's own page for people arriving from the
     /// Auth Service. Set by a platform admin, never by the product. Null until set, and the product then cannot be opened from the picker.
     /// </summary>
