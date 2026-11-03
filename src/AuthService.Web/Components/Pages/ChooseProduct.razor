@@ -299,7 +299,7 @@ else
         }
 
         // The products this person can open here, and why the others can't be opened.
-        var mine = await Api.GetAsync<List<MyProductItem>>($"/api/auth/users/me/applications?tenantId={tenantId}", identityToken, HttpContext.RequestAborted);
+        var mine = await Api.GetAllAsync<MyProductItem>($"/api/auth/users/me/applications?tenantId={tenantId}", identityToken, HttpContext.RequestAborted);
         if (!mine.IsSuccess)
         {
             switch (mine.Problem!)
@@ -331,7 +331,7 @@ else
             if (first.Path is not null)
             {
                 consoleHref = $"/console/{tenantId}/{first.Path}";
-                var list = await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", identityToken, HttpContext.RequestAborted);
+                var list = await Api.GetAllAsync<ProductSummary>("/api/auth/applications", identityToken, HttpContext.RequestAborted);
                 if (list.IsSuccess)
                 {
                     connectable = [.. list.Value!.OrderBy(product => product.Name, StringComparer.OrdinalIgnoreCase)];

@@ -425,7 +425,7 @@ else
             return;
         }
 
-        var list = await Api.GetAsync<List<AdminProductItem>>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
+        var list = await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
         if (!list.IsSuccess)
         {
             if (list.Problem!.Status == StatusCodes.Status401Unauthorized)

@@ -151,8 +151,8 @@ else
             return;
         }
 
-        var membersResult = await Api.GetAsync<List<MemberItem>>("/api/auth/tenants/me/members", console.Token, HttpContext.RequestAborted);
-        var rolesResult = await Api.GetAsync<List<RoleListItem>>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
+        var membersResult = await Api.GetAllAsync<MemberItem>("/api/auth/tenants/me/members", console.Token, HttpContext.RequestAborted);
+        var rolesResult = await Api.GetAllAsync<RoleListItem>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
         if (!membersResult.IsSuccess || !rolesResult.IsSuccess)
         {
             if (membersResult.Problem?.Status == StatusCodes.Status401Unauthorized || rolesResult.Problem?.Status == StatusCodes.Status401Unauthorized)

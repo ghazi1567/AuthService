@@ -48,8 +48,14 @@ public static class MyApplicationsEndpoints
         ClaimsPrincipal caller,
         AuthDbContext db,
         HttpContext httpContext,
+        [AsParameters] PageQuery page,
         CancellationToken cancellationToken)
     {
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
+
         if (caller.GetUserId() is not { } userId)
         {
             return ApiProblem.Create(StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized", "A valid access token is required.");
@@ -83,10 +89,9 @@ public static class MyApplicationsEndpoints
 
         Guid? membershipId = standing.MembershipId;
 
-        var rows = await (
+        var rows = await page.ByNameAsync(
             from application in db.Applications.AsNoTracking()
             where application.IsActive && !application.IsBuiltIn
-            orderby application.Name, application.Key
             select new
             {
                 application.Id,
@@ -99,10 +104,12 @@ public static class MyApplicationsEndpoints
                     .FirstOrDefault(),
                 HasSeat = db.ApplicationAccess.Any(access =>
                     access.TenantId == tenant && access.MembershipId == membershipId && access.ApplicationId == application.Id),
-            })
-            .ToListAsync(cancellationToken);
+            },
+            row => row.Name,
+            row => row.Id,
+            cancellationToken);
 
-        var items = rows.Select(row =>
+        var items = rows.Rows.Select(row =>
         {
             var state = row.Subscription switch
             {
@@ -116,6 +123,6 @@ public static class MyApplicationsEndpoints
 
         // Personal to this person and organisation: never to be stored by a shared cache.
         httpContext.Response.Headers.CacheControl = "no-store";
-        return Results.Ok(items);
+        return Results.Ok(new PagedResponse<MyApplicationItem, NameCursor>([.. items], rows.Next));
     }
 }

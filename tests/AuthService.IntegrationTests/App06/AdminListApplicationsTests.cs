@@ -24,7 +24,7 @@ public sealed class AdminListApplicationsTests(PostgresContainerFixture postgres
         var response = await GetAsync(ApplicationAdminEndpoints.Route, adminToken, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await response.Content.ReadFromJsonAsync<List<AdminApplicationItem>>(Json, ct))!.ShouldBeEmpty("the built-in product is not one to manage");
+        (await response.Content.ReadPageItemsAsync<AdminApplicationItem>(Json, ct))!.ShouldBeEmpty("the built-in product is not one to manage");
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public sealed class AdminListApplicationsTests(PostgresContainerFixture postgres
 
         var body = await (await GetAsync(ApplicationAdminEndpoints.Route, adminToken, ct)).Content.ReadAsStringAsync(ct);
 
-        var item = JsonNode.Parse(body)!.AsArray().Single()!.AsObject();
+        var item = JsonNode.Parse(body)!["items"]!.AsArray().Single()!.AsObject();
         item.Select(property => property.Key).Order().ShouldBe(["createdAt", "id", "isActive", "key", "launchUrl", "name", "permissionCount"]);
         body.ShouldNotContain("billing-api", customMessage: "the audience stays with the product");
     }
@@ -93,7 +93,7 @@ public sealed class AdminListApplicationsTests(PostgresContainerFixture postgres
     }
 
     private async Task<List<AdminApplicationItem>> ListAsync(string token, CancellationToken ct) =>
-        (await (await GetAsync(ApplicationAdminEndpoints.Route, token, ct)).Content.ReadFromJsonAsync<List<AdminApplicationItem>>(Json, ct))!;
+        (await (await GetAsync(ApplicationAdminEndpoints.Route, token, ct)).Content.ReadPageItemsAsync<AdminApplicationItem>(Json, ct))!;
 
     private Task<HttpResponseMessage> SetActiveAsync(string token, Guid applicationId, bool isActive, CancellationToken ct) =>
         PutAsync($"{ApplicationAdminEndpoints.Route}/{applicationId}/active", new SetApplicationActiveRequest(isActive), token, ct);

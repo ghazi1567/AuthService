@@ -1,3 +1,4 @@
+using AuthService.Api.Common;
 using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.TokenExchange;
 using AuthService.Infrastructure.Persistence;
@@ -198,8 +199,12 @@ public sealed class ApiKeyService(
         return new CreateApiKeyResult.Created(new CreatedApiKeyResponse(ToSummary(key, applicationKey, scope, now), generated.RawKey));
     }
 
-    public async Task<List<ApiKeySummary>> ListAsync(Guid tenantId, CancellationToken cancellationToken) =>
-        await LoadSummariesAsync(tenantId, null, cancellationToken);
+    /// <summary>One page of the tenant's keys, newest first (PLT-08).</summary>
+    public async Task<PagedResponse<ApiKeySummary, TimeCursor>> ListAsync(Guid tenantId, PageQuery page, CancellationToken cancellationToken)
+    {
+        var rows = await page.NewestFirstAsync(KeyRows(tenantId), row => row.Key.CreatedAt, row => row.Key.Id, cancellationToken);
+        return new PagedResponse<ApiKeySummary, TimeCursor>(await ToSummariesAsync(tenantId, rows.Rows, cancellationToken), rows.Next);
+    }
 
     public async Task<ApiKeySummary?> GetAsync(Guid tenantId, Guid keyId, CancellationToken cancellationToken) =>
         (await LoadSummariesAsync(tenantId, keyId, cancellationToken)).SingleOrDefault();
@@ -268,28 +273,39 @@ public sealed class ApiKeyService(
         return new RotateApiKeyResult.Rotated(new CreatedApiKeyResponse(summary, generated.RawKey), old.ExpiresAt!.Value);
     }
 
-    private async Task<List<ApiKeySummary>> LoadSummariesAsync(Guid tenantId, Guid? keyId, CancellationToken cancellationToken)
+    // Initialised by member, not by constructor: the database query can then be ordered and filtered by these members.
+    private sealed record KeyRow
+    {
+        public required ApiKey Key { get; init; }
+        public string? ApplicationKey { get; init; }
+    }
+
+    private IQueryable<KeyRow> KeyRows(Guid tenantId) =>
+        from key in db.ApiKeys.AsNoTracking()
+        join application in db.Applications on key.ApplicationId equals application.Id into applications
+        from application in applications.DefaultIfEmpty()
+        where key.TenantId == tenantId
+        select new KeyRow { Key = key, ApplicationKey = application.Key };
+
+    private async Task<List<ApiKeySummary>> LoadSummariesAsync(Guid tenantId, Guid keyId, CancellationToken cancellationToken) =>
+        await ToSummariesAsync(tenantId, await KeyRows(tenantId).Where(row => row.Key.Id == keyId).ToListAsync(cancellationToken), cancellationToken);
+
+    /// <summary>The scopes of just these keys, in one read.</summary>
+    private async Task<List<ApiKeySummary>> ToSummariesAsync(Guid tenantId, IReadOnlyList<KeyRow> keys, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var keys = await (
-            from key in db.ApiKeys.AsNoTracking()
-            join application in db.Applications on key.ApplicationId equals application.Id into applications
-            from application in applications.DefaultIfEmpty()
-            where key.TenantId == tenantId && (keyId == null || key.Id == keyId)
-            orderby key.CreatedAt descending, key.Id descending
-            select new { key, ApplicationKey = application.Key })
-            .ToListAsync(cancellationToken);
+        var ids = keys.Select(row => row.Key.Id).ToList();
 
         var scopes = (await (
                 from grant in db.ApiKeyPermissions.AsNoTracking()
                 join permission in db.Permissions on grant.PermissionId equals permission.Id
-                where grant.TenantId == tenantId && (keyId == null || grant.ApiKeyId == keyId)
+                where grant.TenantId == tenantId && ids.Contains(grant.ApiKeyId)
                 select new { grant.ApiKeyId, permission.Key, grant.Level })
                 .ToListAsync(cancellationToken))
             .ToLookup(row => row.ApiKeyId, row => new ApiKeyScopeDto(row.Key, row.Level.ToString()));
 
         return [.. keys.Select(row => ToSummary(
-            row.key, row.ApplicationKey, [.. scopes[row.key.Id].OrderBy(item => item.Permission, StringComparer.Ordinal)], now))];
+            row.Key, row.ApplicationKey, [.. scopes[row.Key.Id].OrderBy(item => item.Permission, StringComparer.Ordinal)], now))];
     }
 
     private static ApiKeySummary ToSummary(ApiKey key, string? applicationKey, IReadOnlyList<ApiKeyScopeDto> scope, DateTimeOffset now) => new(

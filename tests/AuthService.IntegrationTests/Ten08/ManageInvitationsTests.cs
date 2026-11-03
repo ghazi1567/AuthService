@@ -267,7 +267,7 @@ public sealed class ManageInvitationsTests(PostgresContainerFixture postgres) : 
     {
         var response = await GetAsync(InvitationEndpoints.InviteRoute, token, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return (await response.Content.ReadFromJsonAsync<List<PendingInvitation>>(Json, ct))!;
+        return (await response.Content.ReadPageItemsAsync<PendingInvitation>(Json, ct))!;
     }
 
     private Task<HttpResponseMessage> ResendAsync(string? token, Guid membershipId, CancellationToken ct) =>

@@ -41,6 +41,13 @@ public static class TestTokens
 /// </summary>
 public sealed class FakeAuthApi : HttpMessageHandler
 {
+    /// <summary>
+    /// The API hands lists out a page at a time (PLT-08). A test says what the list holds as a plain array, and this puts it in the
+    /// page the API would return, with nothing after it. A test that wants more pages writes the whole page itself.
+    /// </summary>
+    private static string Paged(string json) =>
+        json.TrimStart().StartsWith('[') ? $"{{\"items\":{json},\"next\":null}}" : json;
+
     private readonly object _gate = new();
     private int _counter;
     private string? _validRefreshToken;
@@ -374,7 +381,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             if (path.EndsWith("/permissions", StringComparison.Ordinal) && request.Method == HttpMethod.Get)
             {
-                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(AdminPermissionsJson, Encoding.UTF8, "application/json") };
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Paged(AdminPermissionsJson), Encoding.UTF8, "application/json") };
             }
 
             if (path.EndsWith("/permissions", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
@@ -464,7 +471,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
             {
                 "/api/auth/admin/audit" => AdminAuditJson,
                 "/api/auth/admin/webhooks" => AdminWebhooksJson,
-                "/api/auth/admin/applications" => AdminProductsJson,
+                "/api/auth/admin/applications" => Paged(AdminProductsJson),
                 _ => "{}",
             };
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(adminJson, Encoding.UTF8, "application/json") };
@@ -490,7 +497,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             return ApiKeysResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(ApiKeysJson, Encoding.UTF8, "application/json"),
+                Content = new StringContent(Paged(ApiKeysJson), Encoding.UTF8, "application/json"),
             };
         }
 
@@ -642,14 +649,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
             case "/api/auth/tenants/me/invitations":
                 return PendingResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(PendingJson, Encoding.UTF8, "application/json"),
+                    Content = new StringContent(Paged(PendingJson), Encoding.UTF8, "application/json"),
                 };
 
             case "/api/auth/tenants/me/permissions":
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(CatalogJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/roles":
-                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(RolesJson, Encoding.UTF8, "application/json") };
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Paged(RolesJson), Encoding.UTF8, "application/json") };
 
             case "/.well-known/jwks.json":
                 return JwksResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JwksJson, Encoding.UTF8, "application/json") };
@@ -661,10 +668,10 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 }
 
                 return MyApplicationsResponse?.Invoke(request.RequestUri.Query)
-                    ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(MyApplicationsJson, Encoding.UTF8, "application/json") };
+                    ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Paged(MyApplicationsJson), Encoding.UTF8, "application/json") };
 
             case "/api/auth/applications":
-                return ProductsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(ProductsJson, Encoding.UTF8, "application/json") };
+                return ProductsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Paged(ProductsJson), Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenant/me":
                 lock (_gate)
@@ -689,7 +696,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 return AuditResponse?.Invoke(request.RequestUri.Query) ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(AuditJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenants/me/subscriptions":
-                return SubscriptionsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(SubscriptionsJson, Encoding.UTF8, "application/json") };
+                return SubscriptionsResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Paged(SubscriptionsJson), Encoding.UTF8, "application/json") };
 
             case "/api/auth/tenants/me/members":
                 lock (_gate)
@@ -699,7 +706,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
                 return MembersResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(MembersJson, Encoding.UTF8, "application/json"),
+                    Content = new StringContent(Paged(MembersJson), Encoding.UTF8, "application/json"),
                 };
 
             case "/api/auth/login":

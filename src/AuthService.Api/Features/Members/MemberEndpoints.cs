@@ -21,11 +21,19 @@ public static class MemberEndpoints
         return app;
     }
 
-    /// <summary>Lists the members of the caller's tenant. The tenant is the token's, so nobody from another tenant is ever shown.</summary>
-    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, MembersService members, CancellationToken cancellationToken)
+    /// <summary>
+    /// Lists the members of the caller's tenant by email, one page at a time (PLT-08). The tenant is the token's, so nobody from another
+    /// tenant is ever shown.
+    /// </summary>
+    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, MembersService members, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
+
         var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
-        return Results.Ok(await members.ListAsync(tenantId, cancellationToken));
+        return Results.Ok(await members.ListAsync(tenantId, page, cancellationToken));
     }
 
     /// <summary>Enables or disables a member's membership in the caller's tenant, and only there.</summary>

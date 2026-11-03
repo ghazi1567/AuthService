@@ -381,7 +381,7 @@ public sealed class AssignRolesTests(PostgresContainerFixture postgres) : AuthAp
     private async Task<int> SeatsUsedAsync(string ownerToken, CancellationToken ct)
     {
         var response = await GetAsync(ListSubscriptionsEndpoints.Route, ownerToken, ct);
-        return (await response.Content.ReadFromJsonAsync<List<TenantSubscriptionItem>>(Json, ct))!.Single().SeatsUsed;
+        return (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!.Single().SeatsUsed;
     }
 
     private async Task<T> WithDbReadAsync<T>(Func<AuthService.Infrastructure.Persistence.AuthDbContext, Task<T>> read)

@@ -230,7 +230,7 @@ public sealed class ChooseProductPageTests
         await client.GetStringAsync(PagePath, Token);
 
         var call = api.MyApplicationsCalls.ShouldHaveSingleItem();
-        call.Query.ShouldBe($"?tenantId={Acme}");
+        call.Query.ShouldBe($"?tenantId={Acme}&limit=200", "the whole list, read a page at a time");
         call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
     }
 

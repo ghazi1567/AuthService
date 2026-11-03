@@ -69,7 +69,7 @@ public sealed class ApiKeyTests(PostgresContainerFixture postgres) : AuthApiTest
             body.ShouldNotContain(secret);
         }
 
-        var summary = (await list.Content.ReadFromJsonAsync<List<ApiKeySummary>>(Json, ct))!.Single();
+        var summary = (await list.Content.ReadPageItemsAsync<ApiKeySummary>(Json, ct))!.Single();
         summary.MaskedKey.ShouldBe(created.Key.MaskedKey);
         summary.MaskedKey.ShouldEndWith("...");
         summary.Permissions.ShouldBe(created.Key.Permissions);
@@ -88,7 +88,7 @@ public sealed class ApiKeyTests(PostgresContainerFixture postgres) : AuthApiTest
         var after = await ValidateAsync(t.Product.ServiceToken, created.RawKey, null, null, ct);
         after.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await ReadProblemAsync(after, ct)).Code.ShouldBe("invalid_api_key");
-        var listed = (await (await GetAsync(ApiKeyEndpoints.Route, t.OwnerToken, ct)).Content.ReadFromJsonAsync<List<ApiKeySummary>>(Json, ct))!.Single();
+        var listed = (await (await GetAsync(ApiKeyEndpoints.Route, t.OwnerToken, ct)).Content.ReadPageItemsAsync<ApiKeySummary>(Json, ct))!.Single();
         (listed.Status, listed.RevokedAt.HasValue).ShouldBe(("Revoked", true));
     }
 
@@ -430,7 +430,7 @@ public sealed class ApiKeyTests(PostgresContainerFixture postgres) : AuthApiTest
     }
 
     private async Task<List<ApiKeySummary>> ListAsync(string token, CancellationToken ct) =>
-        (await (await GetAsync(ApiKeyEndpoints.Route, token, ct)).Content.ReadFromJsonAsync<List<ApiKeySummary>>(Json, ct))!;
+        (await (await GetAsync(ApiKeyEndpoints.Route, token, ct)).Content.ReadPageItemsAsync<ApiKeySummary>(Json, ct))!;
 
     private sealed record Member(Guid UserId, Guid MembershipId, string IdentityToken);
 

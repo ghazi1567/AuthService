@@ -411,6 +411,26 @@ A platform admin reads the whole log with `GET /api/auth/admin/audit` (see "Plat
   returned `next` values passed back as `before` and `beforeId`.
 - Reading the log is itself recorded (`auth.tenant.audit_read`), after the query, so a read never lists itself.
 
+### Paging (PLT-08, AUTH-205)
+
+Every list endpoint answers a page, not the whole list: **`{ "items": [...], "next": ... }`**. `next` is where the following page starts,
+and `null` on the last page. The lists are: members, roles, pending invitations, API keys and subscriptions of a tenant
+(`/api/auth/tenants/me/members`, `/api/auth/roles`, `/api/auth/tenants/me/invitations`, `/api/auth/apikeys`,
+`/api/auth/tenants/me/subscriptions`), the products a person can connect or open (`/api/auth/applications`,
+`/api/auth/users/me/applications`) and, for a platform admin, `/api/auth/admin/applications` and a product's permissions. The audit log and
+the webhook list were already paged this way.
+
+- **`limit`** is 1 to 200 and defaults to 50. With no paging parameters the first page is returned, and a non-null `next` says more exist.
+- **The cursor** is passed back exactly as returned. A list ordered by name (members by email, roles with the built-in ones first, products
+  and permissions by name) returns `next: { after, afterId }` and takes `after` and `afterId`. A newest-first list (pending
+  invitations, API keys) returns `next: { before, beforeId }` and takes `before` and `beforeId`, like the audit log.
+- **The order is stable and total** (the sort key, then the row's id), so no row is skipped or repeated while paging. A row added between
+  two requests appears only if it belongs after the cursor.
+- **A bad `limit`, or half a cursor (only `after`, only `beforeId`), is a 400.** A cursor is only a position in the list, never a tenant or a
+  row, so a cursor from another tenant just starts somewhere in the caller's own rows and shows nothing of that tenant's.
+- The web console reads whole lists with `AuthApiClient.GetAllAsync`, which follows `next` (200 rows a page, up to 50 pages) and fails the
+  whole read if any page fails.
+
 ### Platform admins
 
 A few operations belong to whoever runs the platform, not to any tenant: rotating the signing keys, reading the whole audit log,

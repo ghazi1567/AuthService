@@ -62,11 +62,17 @@ public static class InvitationEndpoints
         };
     }
 
-    private static async Task<IResult> ListPendingAsync(ClaimsPrincipal caller, ManageInvitationsService invitations, CancellationToken cancellationToken)
+    private static async Task<IResult> ListPendingAsync(
+        ClaimsPrincipal caller, ManageInvitationsService invitations, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
+        if (page.Problem(byName: false) is { } problem)
+        {
+            return problem;
+        }
+
         // The tenant comes only from the verified token, never from the request.
         var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
-        return Results.Ok(await invitations.ListPendingAsync(tenantId, cancellationToken));
+        return Results.Ok(await invitations.ListPendingAsync(tenantId, page, cancellationToken));
     }
 
     private static async Task<IResult> ResendAsync(

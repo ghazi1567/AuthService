@@ -1,3 +1,4 @@
+using AuthService.Api.Common;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -21,15 +22,22 @@ public static class ListApplicationsEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(AuthDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> ListAsync(AuthDbContext db, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
-        // A product that is not active (no catalog yet, or withdrawn) has nothing to subscribe to, so it is not offered.
-        var applications = await db.Applications.AsNoTracking()
-            .Where(application => application.IsActive && !application.IsBuiltIn)
-            .OrderBy(application => application.Name).ThenBy(application => application.Key)
-            .Select(application => new ApplicationSummary(application.Id, application.Key, application.Name))
-            .ToListAsync(cancellationToken);
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
 
-        return Results.Ok(applications);
+        // A product that is not active (no catalog yet, or withdrawn) has nothing to subscribe to, so it is not offered.
+        var rows = await page.ByNameAsync(
+            db.Applications.AsNoTracking()
+                .Where(application => application.IsActive && !application.IsBuiltIn)
+                .Select(application => new { application.Id, application.Key, application.Name }),
+            application => application.Name,
+            application => application.Id,
+            cancellationToken);
+
+        return Results.Ok(rows.Map(items => items.Select(item => new ApplicationSummary(item.Id, item.Key, item.Name)).ToList()));
     }
 }

@@ -57,8 +57,8 @@ public static class ApiKeyEndpoints
         };
     }
 
-    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, ApiKeyService keys, CancellationToken cancellationToken) =>
-        Results.Ok(await keys.ListAsync(Caller(caller).TenantId, cancellationToken));
+    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, ApiKeyService keys, [AsParameters] PageQuery page, CancellationToken cancellationToken) =>
+        page.Problem(byName: false) ?? Results.Ok(await keys.ListAsync(Caller(caller).TenantId, page, cancellationToken));
 
     private static async Task<IResult> GetAsync(Guid keyId, ClaimsPrincipal caller, ApiKeyService keys, CancellationToken cancellationToken) =>
         await keys.GetAsync(Caller(caller).TenantId, keyId, cancellationToken) is { } key ? Results.Ok(key) : KeyNotFound();

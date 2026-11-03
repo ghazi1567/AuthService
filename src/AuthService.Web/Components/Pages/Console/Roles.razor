@@ -217,7 +217,7 @@ else
             return;
         }
 
-        var list = await Api.GetAsync<List<RoleListItem>>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
+        var list = await Api.GetAllAsync<RoleListItem>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
         if (!list.IsSuccess)
         {
             if (list.Problem!.Status == StatusCodes.Status401Unauthorized)

@@ -158,7 +158,7 @@ public sealed class TenantProfileTests(PostgresContainerFixture postgres) : Auth
         var (_, adminToken) = await CreatePlatformAdminAsync("ops@platform.test", ct);
 
         var list = await GetAsync(ListApplicationsEndpoints.Route, adminToken, ct);
-        (await list.Content.ReadFromJsonAsync<List<ApplicationSummary>>(Json, ct))!.ShouldBeEmpty("it is not a product to subscribe to");
+        (await list.Content.ReadPageItemsAsync<ApplicationSummary>(Json, ct))!.ShouldBeEmpty("it is not a product to subscribe to");
 
         var route = $"{ApplicationAdminEndpoints.Route}/{BuiltInApplication.Id}";
         (await PostAsync(route + "/permissions", new { permissions = new[] { new { key = "x.y", label = "X" } } }, adminToken, ct)).StatusCode

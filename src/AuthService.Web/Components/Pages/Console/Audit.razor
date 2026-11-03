@@ -341,7 +341,7 @@ else
 
         if (console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly) && entries.Any(entry => entry.ActorType == "Product"))
         {
-            var subscriptions = await Api.GetAsync<List<SubscriptionItem>>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
+            var subscriptions = await Api.GetAllAsync<SubscriptionItem>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
             if (subscriptions.IsSuccess)
             {
                 foreach (var subscription in subscriptions.Value!)
