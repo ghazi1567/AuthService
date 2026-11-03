@@ -284,6 +284,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Invitations:TokenDays` / `ResendCooldownSeconds` | How long an invitation link works (default 7 days), and how long after a link is emailed it cannot be emailed again (default 60 seconds). |
 | `Auth:ApiKeys:RotationGraceHours` | How long an API key keeps working after it is rotated. Default 24. |
 | `Auth:Webhooks:RetryWindowHours` / `RetryDelaySeconds` / `TimeoutSeconds` | How long a webhook is retried (default 24 hours), the delays between tries (default 1 min, 5 min, 30 min, 2 h, 6 h, 12 h) and how long to wait for a product to answer (10 s). |
+| `Auth:Webhooks:SecretOverlapHours` | How long a rotated-out webhook secret keeps signing (SUB-07). Default 24; a rotation can ask for 0 to 720. |
 | `Auth:Webhooks:AllowPrivateAddresses` | Allows plain `http` and private callback addresses. Development and tests only; default off. |
 | `Auth:Webhooks:DispatcherEnabled` | Turns the webhook worker off, so events wait. Default on. |
 | `Auth:Applications:SecretGraceHours` | How long a product's old client secret keeps working after a rotation. Default 24. |
@@ -652,9 +653,34 @@ exists if and only if the change does, and a background worker delivers them.
   **400**, and the address is checked again when it is called, so a name cannot later be pointed inside a network
   (`Auth:Webhooks:AllowPrivateAddresses` relaxes this for development only). The first call creates the product's **signing
   secret** (`whsec_...`) and returns it **once**, with `Cache-Control: no-store`; later calls return none unless
-  `"rotateSecret": true`, which replaces the secret at once (later events are signed with the new one). It is stored encrypted, never
-  logged, and never recorded in the audit log.
-- `GET /api/auth/applications/me/webhook` returns the URL and whether a secret exists.
+  `"rotateSecret": true`, which replaces the secret and returns the new one, once. The old secret keeps signing for an **overlap**
+  (see "Rotating the secret" below). Secrets are stored encrypted, never logged, and never recorded in the audit log.
+- `GET /api/auth/applications/me/webhook` returns the URL, whether a secret exists and, while a rotated-out secret still signs,
+  `previousSecretExpiresAt`.
+
+**Rotating the secret (SUB-07).** A receiver cannot be switched to a new secret at the very moment the service starts using it, so a
+rotation does not cut the old secret off:
+
+- `PUT` with `"rotateSecret": true` keeps the **previous secret signing for `overlapHours`** (0 to 720; default
+  `Auth:Webhooks:SecretOverlapHours`, 24). The response has the new secret, once, and `previousSecretExpiresAt`. During the overlap
+  every event carries **a signature for each secret**, newest first.
+- **Never more than two.** A second rotation inside an overlap drops the oldest secret and starts a new overlap for the one it replaces.
+- **After the overlap** the old secret is discarded and signs nothing.
+- **A leaked secret is cut off at once** with `"rotateSecret": true, "overlapHours": 0`: only the new secret signs from that moment.
+- Each rotation is audit-logged (`auth.webhook.secret_rotated`, with the overlap in hours as its detail, never a secret).
+
+**Verifying during an overlap.** `X-Auth-Signature` holds one or more `v1=<hex>` entries separated by commas. Outside an overlap it is
+exactly one entry, as before. Accept the event if **any** entry equals the signature you compute with **any** secret you hold:
+
+```
+signatures = header("X-Auth-Signature").split(",")          # ["v1=ab12...", "v1=cd34..."]
+for secret in [new_secret, old_secret]:                      # the old one only until you have switched over
+    expected = "v1=" + hex(hmac_sha256(secret, timestamp + "." + body))
+    if any(constant_time_equals(expected, s) for s in signatures): accept
+reject
+```
+
+So a product can store the new secret as soon as it is rotated, keep the old one until the overlap ends, and lose no event in between.
 
 **What the product receives.** A `POST` with the JSON body (it holds `eventId`, `eventType`, `occurredAt`, `tenantId`,
 `applicationId` and the event's details) and these headers:
@@ -664,7 +690,7 @@ exists if and only if the change does, and a background worker delivers them.
 | `X-Auth-Event-Id` | The event id, the same on every retry. **Use it to drop duplicates**: delivery is at-least-once. |
 | `X-Auth-Event-Type` | `ApplicationSubscribed` or `ApplicationUnsubscribed`. |
 | `X-Auth-Timestamp` | When this attempt was made, in Unix seconds. Reject one that is too old to stop replays. |
-| `X-Auth-Signature` | `v1=` and the lowercase hex HMAC-SHA256, with the signing secret, of `{timestamp}.{body}`. |
+| `X-Auth-Signature` | `v1=` and the lowercase hex HMAC-SHA256, with the signing secret, of `{timestamp}.{body}`. During a secret rotation's overlap, one such entry per secret, comma-separated (see above). |
 
 Any **2xx** answer is success. Anything else (another status, a redirect, which is never followed, a timeout or a connection error)
 is a failure.

@@ -19,4 +19,12 @@ public static class WebhookSigner
         var mac = HMACSHA256.HashData(Encoding.UTF8.GetBytes(secret), Encoding.UTF8.GetBytes($"{timestamp}.{body}"));
         return $"{Version}={Convert.ToHexStringLower(mac)}";
     }
+
+    /// <summary>
+    /// The header value for one or more secrets, newest first, as comma-separated <c>v1=&lt;hex&gt;</c> entries. During the overlap after a
+    /// rotation (SUB-07) that is two entries; a receiver accepts the event if any one of them verifies. Outside it, one entry, exactly
+    /// as before.
+    /// </summary>
+    public static string SignAll(IEnumerable<string> secrets, long timestamp, string body) =>
+        string.Join(',', secrets.Select(secret => Sign(secret, timestamp, body)));
 }

@@ -44,6 +44,9 @@ public static class AuditActions
     /// <summary>A product registered or changed its webhook callback (SUB-06). The actor is the product, the detail is its key. The secret is never recorded.</summary>
     public const string WebhookConfigured = "auth.application.webhook_configured";
 
+    /// <summary>A product replaced its webhook signing secret (SUB-07). The actor is the product, the detail is the overlap in hours. The secret is never recorded.</summary>
+    public const string WebhookSecretRotated = "auth.webhook.secret_rotated";
+
     /// <summary>A platform admin set or cleared the address a product is opened at from the console (APP-08). The detail is the product's key.</summary>
     public const string ApplicationLaunchUrlSet = "auth.application.launch_url_set";
 

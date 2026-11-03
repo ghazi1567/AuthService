@@ -221,7 +221,7 @@ public sealed class WebhookDeliveryTests : AuthApiTestBase
         var t = await SetUpAsync(registerCallback: true, ct);
         await SubscribeNewTenantAsync(t, "Acme Ltd", "owner@acme.com", ct);
         await Eventually.UntilAsync(() => _product.Requests.Count == 1, "the first event");
-        var rotated = await RegisterCallbackAsync(t, CallbackUrl, ct, rotate: true);
+        var rotated = await RegisterCallbackAsync(t, CallbackUrl, ct, rotate: true, overlapHours: 0);
 
         await SubscribeNewTenantAsync(t, "Other Co", "boss@other.com", ct);
         await Eventually.UntilAsync(() => _product.Requests.Count == 2, "the second event");
@@ -294,9 +294,9 @@ public sealed class WebhookDeliveryTests : AuthApiTestBase
 
     private sealed record Registered(string Url, string? Secret);
 
-    private async Task<Registered> RegisterCallbackAsync(Setup t, string url, CancellationToken ct, bool rotate = false)
+    private async Task<Registered> RegisterCallbackAsync(Setup t, string url, CancellationToken ct, bool rotate = false, int? overlapHours = null)
     {
-        var response = await PutAsync(WebhookConfigEndpoints.Route, new SetWebhookRequest(url, rotate), t.Product.ServiceToken, ct);
+        var response = await PutAsync(WebhookConfigEndpoints.Route, new SetWebhookRequest(url, rotate, overlapHours), t.Product.ServiceToken, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = (await response.Content.ReadFromJsonAsync<SetWebhookResponse>(Json, ct))!;
         return new Registered(body.Url, body.SigningSecret);

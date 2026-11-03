@@ -58,6 +58,7 @@ public static class AuditLabels
         ["auth.application.deactivated"] = "Product withdrawn",
         ["auth.application.webhook_configured"] = "Product webhook set",
         ["auth.webhook.resent"] = "Webhook sent again",
+        ["auth.webhook.secret_rotated"] = "Webhook secret replaced",
         ["auth.signing_key.created"] = "Signing key created",
         ["auth.signing_key.rotated"] = "Signing key rotated",
     };
@@ -73,6 +74,7 @@ public static class AuditLabels
         "auth.application.deactivated",
         "auth.application.webhook_configured",
         "auth.webhook.resent",
+        "auth.webhook.secret_rotated",
         "auth.signing_key.created",
         "auth.signing_key.rotated",
     };

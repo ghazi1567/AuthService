@@ -17,6 +17,15 @@ public sealed class WebhookOptions
     /// </summary>
     public int[]? RetryDelaySeconds { get; set; }
 
+    /// <summary>
+    /// How long the previous signing secret keeps signing after a rotation (SUB-07), so a receiver that has not been updated yet does
+    /// not reject events. 24 hours. A rotation can ask for a different overlap, or none.
+    /// </summary>
+    public int SecretOverlapHours { get; set; } = 24;
+
+    /// <summary>The longest overlap a rotation may ask for.</summary>
+    public const int MaxSecretOverlapHours = 720;
+
     /// <summary>How long to wait for a product to answer one request.</summary>
     public int TimeoutSeconds { get; set; } = 10;
 
