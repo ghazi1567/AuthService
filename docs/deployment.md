@@ -122,6 +122,7 @@ of `auth_login_failures_total`, or `5xx` in `auth_http_requests_total`.
 3. Start the new API; stop the old one. Several instances can run together: key rotation, email and webhook workers all take database
    locks so instances take turns. Rate-limit counters are kept in memory per instance, so with several instances the effective limit is the setting times the number of instances.
 4. Roll back by starting the old image. A migration is not undone by that, which is why step 2 matters.
+5. Work through [the release checklist](release-checklist.md): the parts of webhook delivery that need the real network.
 
 ## Operations
 

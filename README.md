@@ -700,6 +700,12 @@ event's **24-hour deadline** (`Auth:Webhooks:RetryWindowHours`). One last attemp
 marked **Failed**. An event whose product has registered no URL waits, and fails the same way if none arrives within the 24 hours.
 Several instances can run at once without delivering one event twice at the same time. Logs name only ids and outcomes, never a URL.
 
+**Tested against a real receiver (TST-04).** CI delivers to a real HTTPS server over real TLS and sockets (`tests/AuthService.IntegrationTests/Tst04`):
+signature and headers as a product verifies them, a redirect that is not followed, a receiver slower than the timeout, a certificate
+from an unknown authority or one that has expired (never sent the event), a name resolving to a loopback address refused at connect
+time, and the retry schedule, 24-hour deadline and resend. Public DNS and a publicly trusted certificate are checked by hand before a
+release: [docs/release-checklist.md](docs/release-checklist.md).
+
 **Platform admins** see and resend them:
 
 - `GET /api/auth/admin/webhooks` lists events newest first with `status` (Pending, Delivered or Failed), `attempts`, `lastError`
