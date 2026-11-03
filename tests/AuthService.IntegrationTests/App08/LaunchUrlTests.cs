@@ -135,7 +135,7 @@ public sealed class LaunchUrlTests(PostgresContainerFixture postgres) : AuthApiT
     private static string Route(Guid applicationId) => $"{ApplicationAdminEndpoints.Route}/{applicationId}/launch-url";
 
     private async Task<List<AdminApplicationItem>> ListAsync(string token, CancellationToken ct) =>
-        (await (await GetAsync(ApplicationAdminEndpoints.Route, token, ct)).Content.ReadFromJsonAsync<List<AdminApplicationItem>>(Json, ct))!;
+        (await (await GetAsync(ApplicationAdminEndpoints.Route, token, ct)).Content.ReadPageItemsAsync<AdminApplicationItem>(Json, ct))!;
 
     private async Task<Guid> RegisterAsync(string adminToken, string key, CancellationToken ct)
     {

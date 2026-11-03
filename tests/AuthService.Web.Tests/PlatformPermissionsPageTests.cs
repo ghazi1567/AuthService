@@ -200,7 +200,7 @@ public sealed class PlatformPermissionsPageTests
     public async Task AListTheApiCannotReadIsACalmError()
     {
         var api = Api();
-        api.AdminResponse = path => path.EndsWith("/permissions") ? new HttpResponseMessage(HttpStatusCode.InternalServerError) : null;
+        api.AdminResponse = path => path.Contains("/permissions", StringComparison.Ordinal) ? new HttpResponseMessage(HttpStatusCode.InternalServerError) : null;
         await using var factory = new WebAppFactory(api);
         using var client = await SignedInAsync(factory);
 

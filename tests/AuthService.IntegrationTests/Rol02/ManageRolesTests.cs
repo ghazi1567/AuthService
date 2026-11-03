@@ -36,7 +36,7 @@ public sealed class ManageRolesTests(PostgresContainerFixture postgres) : AuthAp
         var response = await GetAsync(RoleEndpoints.Route, t.OwnerToken, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var roles = (await response.Content.ReadFromJsonAsync<List<RoleListItem>>(Json, ct))!;
+        var roles = (await response.Content.ReadPageItemsAsync<RoleListItem>(Json, ct))!;
         roles.Select(role => (role.Name, role.IsBuiltIn)).ShouldBe([("Owner", true), ("Support", false), ("Writer", false)], "Owner first, then by name");
         roles.Single(role => role.Name == "Owner").MemberCount.ShouldBe(1);
         roles.Single(role => role.Name == "Writer").Permissions.ShouldBe([new RoleGrantDto(t.Product.Id, "whatsapp-saas", "campaign.create", "CreateRead")]);
@@ -55,7 +55,7 @@ public sealed class ManageRolesTests(PostgresContainerFixture postgres) : AuthAp
 
         foreach (var tampered in new[] { "", $"?tenantId={other.TenantId}", $"?tid={other.TenantId}" })
         {
-            var roles = (await (await GetAsync(RoleEndpoints.Route + tampered, t.OwnerToken, ct)).Content.ReadFromJsonAsync<List<RoleListItem>>(Json, ct))!;
+            var roles = (await (await GetAsync(RoleEndpoints.Route + tampered, t.OwnerToken, ct)).Content.ReadPageItemsAsync<RoleListItem>(Json, ct))!;
 
             roles.Select(role => role.Name).ShouldBe(["Owner", "Mine"], $"for '{tampered}'");
         }
@@ -225,7 +225,7 @@ public sealed class ManageRolesTests(PostgresContainerFixture postgres) : AuthAp
         badGrant.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         clash.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await ReadProblemAsync(clash, ct)).Code.ShouldBe("role_name_taken");
-        var role = (await (await GetAsync(RoleEndpoints.Route, t.OwnerToken, ct)).Content.ReadFromJsonAsync<List<RoleListItem>>(Json, ct))!.Single(item => item.Id == roleId);
+        var role = (await (await GetAsync(RoleEndpoints.Route, t.OwnerToken, ct)).Content.ReadPageItemsAsync<RoleListItem>(Json, ct))!.Single(item => item.Id == roleId);
         (role.Name, role.Permissions.Count).ShouldBe(("Writer", 1), "neither the rename nor the emptied grants were kept");
     }
 

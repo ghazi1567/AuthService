@@ -25,7 +25,7 @@ public sealed class AdminPermissionCatalogReadTests(PostgresContainerFixture pos
         var response = await GetAsync(CatalogRoute(id), adminToken, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await response.Content.ReadFromJsonAsync<List<AdminPermissionItem>>(Json, ct))!.ShouldBeEmpty();
+        (await response.Content.ReadPageItemsAsync<AdminPermissionItem>(Json, ct))!.ShouldBeEmpty();
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public sealed class AdminPermissionCatalogReadTests(PostgresContainerFixture pos
             new PermissionInput("campaign.create", "Create campaigns", null),
         ]), adminToken, ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
 
-        var items = (await (await GetAsync(CatalogRoute(id), adminToken, ct)).Content.ReadFromJsonAsync<List<AdminPermissionItem>>(Json, ct))!;
+        var items = (await (await GetAsync(CatalogRoute(id), adminToken, ct)).Content.ReadPageItemsAsync<AdminPermissionItem>(Json, ct))!;
 
         items.Select(item => item.Key).ShouldBe(["campaign.create", "ticket.reply"]);
         items[1].Label.ShouldBe("Answer tickets");
@@ -57,7 +57,7 @@ public sealed class AdminPermissionCatalogReadTests(PostgresContainerFixture pos
         await PostAsync(CatalogRoute(id), new RegisterPermissionsRequest([new PermissionInput("ticket.reply", "Answer tickets", null)]), adminToken, ct);
         await PostAsync(CatalogRoute(id), new RegisterPermissionsRequest([new PermissionInput("ticket.reply", "Reply to tickets", null)]), adminToken, ct);
 
-        var items = (await (await GetAsync(CatalogRoute(id), adminToken, ct)).Content.ReadFromJsonAsync<List<AdminPermissionItem>>(Json, ct))!;
+        var items = (await (await GetAsync(CatalogRoute(id), adminToken, ct)).Content.ReadPageItemsAsync<AdminPermissionItem>(Json, ct))!;
 
         items.ShouldHaveSingleItem().Label.ShouldBe("Reply to tickets");
     }

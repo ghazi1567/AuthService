@@ -27,7 +27,7 @@ public sealed class ListApplicationsTests(PostgresContainerFixture postgres) : A
         var response = await GetAsync(ListApplicationsEndpoints.Route, tenantToken, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var applications = (await response.Content.ReadFromJsonAsync<List<ApplicationSummary>>(Json, ct))!;
+        var applications = (await response.Content.ReadPageItemsAsync<ApplicationSummary>(Json, ct))!;
         applications.ShouldBe([new ApplicationSummary(active, "whatsapp-saas", "WhatsApp SaaS")]);
     }
 
@@ -43,7 +43,7 @@ public sealed class ListApplicationsTests(PostgresContainerFixture postgres) : A
         var response = await GetAsync(ListApplicationsEndpoints.Route, tenantToken, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var applications = (await response.Content.ReadFromJsonAsync<List<ApplicationSummary>>(Json, ct))!;
+        var applications = (await response.Content.ReadPageItemsAsync<ApplicationSummary>(Json, ct))!;
         applications.Select(application => application.Key).ShouldBe(["crm", "whatsapp-saas"], "no subscription is needed to see them");
     }
 
@@ -59,7 +59,7 @@ public sealed class ListApplicationsTests(PostgresContainerFixture postgres) : A
         var response = await GetAsync(ListApplicationsEndpoints.Route, await TenantTokenAsync(ct), ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await response.Content.ReadFromJsonAsync<List<ApplicationSummary>>(Json, ct))!.ShouldBeEmpty();
+        (await response.Content.ReadPageItemsAsync<ApplicationSummary>(Json, ct))!.ShouldBeEmpty();
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class ListApplicationsTests(PostgresContainerFixture postgres) : A
 
         var response = await GetAsync(ListApplicationsEndpoints.Route, await TenantTokenAsync(ct), ct);
 
-        var item = (await response.Content.ReadFromJsonAsync<JsonArray>(ct))!.Single()!.AsObject();
+        var item = (await response.Content.ReadFromJsonAsync<JsonObject>(ct))!["items"]!.AsArray().Single()!.AsObject();
         item.Select(property => property.Key).Order().ShouldBe(["id", "key", "name"]);
     }
 
@@ -116,7 +116,7 @@ public sealed class ListApplicationsTests(PostgresContainerFixture postgres) : A
     }
 
     private async Task<List<string>> KeysAsync(string token, CancellationToken ct) =>
-        (await (await GetAsync(ListApplicationsEndpoints.Route, token, ct)).Content.ReadFromJsonAsync<List<ApplicationSummary>>(Json, ct))!
+        (await (await GetAsync(ListApplicationsEndpoints.Route, token, ct)).Content.ReadPageItemsAsync<ApplicationSummary>(Json, ct))!
             .Select(application => application.Key).ToList();
 
     private Task<HttpResponseMessage> SetActiveAsync(string token, Guid applicationId, bool isActive, CancellationToken ct) =>

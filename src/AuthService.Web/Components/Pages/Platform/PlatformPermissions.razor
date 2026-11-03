@@ -215,7 +215,7 @@ else
             return;
         }
 
-        var products = await Api.GetAsync<List<AdminProductItem>>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
+        var products = await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
         if (!products.IsSuccess)
         {
             Fail(products.Problem!);
@@ -228,7 +228,7 @@ else
             return;
         }
 
-        var list = await Api.GetAsync<List<AdminPermissionItem>>($"/api/auth/admin/applications/{ProductId}/permissions", access.Token!, HttpContext.RequestAborted);
+        var list = await Api.GetAllAsync<AdminPermissionItem>($"/api/auth/admin/applications/{ProductId}/permissions", access.Token!, HttpContext.RequestAborted);
         if (!list.IsSuccess)
         {
             Fail(list.Problem!);

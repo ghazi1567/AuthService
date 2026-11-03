@@ -195,7 +195,7 @@ else
             return;
         }
 
-        var list = await Api.GetAsync<List<SubscriptionItem>>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
+        var list = await Api.GetAllAsync<SubscriptionItem>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
         if (!list.IsSuccess)
         {
             if (list.Problem!.Status == StatusCodes.Status401Unauthorized)

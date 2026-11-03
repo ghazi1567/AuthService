@@ -167,7 +167,7 @@ public sealed class MyApplicationsTests(PostgresContainerFixture postgres) : Aut
     {
         var response = await GetAsync($"{MyApplicationsEndpoints.Route}?tenantId={tenantId}", identityToken, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return (await response.Content.ReadFromJsonAsync<List<MyApplicationItem>>(Json, ct))!;
+        return (await response.Content.ReadPageItemsAsync<MyApplicationItem>(Json, ct))!;
     }
 
     /// <summary>An organisation subscribed to Helpdesk (which has a launch address), with Billing registered but not subscribed to.</summary>

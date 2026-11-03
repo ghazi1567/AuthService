@@ -85,7 +85,7 @@ public sealed class PlatformProductsPageTests
 
         await client.GetStringAsync(PagePath, Token);
 
-        var call = api.AdminCalls.Last(call => call.PathAndQuery == "/api/auth/admin/applications");
+        var call = api.AdminCalls.Last(call => call.PathAndQuery == "/api/auth/admin/applications?limit=200");
         call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
     }
 
@@ -473,7 +473,7 @@ public sealed class PlatformProductsPageTests
     public async Task AListTheApiCannotReadIsACalmError()
     {
         var api = Api();
-        api.AdminResponse = path => path == "/api/auth/admin/applications" ? new HttpResponseMessage(HttpStatusCode.InternalServerError) : null;
+        api.AdminResponse = path => path.StartsWith("/api/auth/admin/applications", StringComparison.Ordinal) ? new HttpResponseMessage(HttpStatusCode.InternalServerError) : null;
         await using var factory = new WebAppFactory(api);
         using var client = await SignedInAsync(factory);
 

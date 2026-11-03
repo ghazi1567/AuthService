@@ -52,7 +52,7 @@ public static class ProductEndpoints
         }
 
         // Where the product opens, and whether this person may open it, come from the API's own answer, never from the request.
-        var mine = await api.GetAsync<List<MyProductItem>>($"/api/auth/users/me/applications?tenantId={tenantId}", identityToken, context.RequestAborted);
+        var mine = await api.GetAllAsync<MyProductItem>($"/api/auth/users/me/applications?tenantId={tenantId}", identityToken, context.RequestAborted);
         if (!mine.IsSuccess)
         {
             return Results.Redirect($"{picker}&stay=1&error={Code(mine.Problem!)}&app={applicationId}");

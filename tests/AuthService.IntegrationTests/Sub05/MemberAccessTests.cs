@@ -317,6 +317,6 @@ public sealed class MemberAccessTests(PostgresContainerFixture postgres) : AuthA
     private async Task<int> SeatsUsedAsync(string ownerToken, CancellationToken ct)
     {
         var response = await GetAsync(ListSubscriptionsEndpoints.Route, ownerToken, ct);
-        return (await response.Content.ReadFromJsonAsync<List<TenantSubscriptionItem>>(Json, ct))!.Single().SeatsUsed;
+        return (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!.Single().SeatsUsed;
     }
 }

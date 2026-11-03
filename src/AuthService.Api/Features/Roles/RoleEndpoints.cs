@@ -24,11 +24,19 @@ public static class RoleEndpoints
 
     public static string RoleRouteFor(Guid roleId) => $"/api/auth/roles/{roleId}";
 
-    /// <summary>Lists the roles of the caller's tenant (ROL-02). The tenant is the token's, so no other tenant's role is ever shown.</summary>
-    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, ManageRolesService roles, CancellationToken cancellationToken)
+    /// <summary>
+    /// Lists the roles of the caller's tenant (ROL-02), one page at a time (PLT-08). The tenant is the token's, so no other tenant's role
+    /// is ever shown.
+    /// </summary>
+    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, ManageRolesService roles, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
+
         var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
-        return Results.Ok(await roles.ListAsync(tenantId, cancellationToken));
+        return Results.Ok(await roles.ListAsync(tenantId, page, cancellationToken));
     }
 
     /// <summary>Changes a role's name and/or the permissions it grants (ROL-03). Holders see it at their next token exchange.</summary>

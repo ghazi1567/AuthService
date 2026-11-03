@@ -374,7 +374,7 @@ else
             return;
         }
 
-        var list = await Api.GetAsync<List<ApiKeySummary>>("/api/auth/apikeys", console.Token, HttpContext.RequestAborted);
+        var list = await Api.GetAllAsync<ApiKeySummary>("/api/auth/apikeys", console.Token, HttpContext.RequestAborted);
         if (!list.IsSuccess)
         {
             if (list.Problem!.Status == StatusCodes.Status401Unauthorized)

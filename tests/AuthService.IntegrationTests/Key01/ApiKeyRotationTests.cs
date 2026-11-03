@@ -46,7 +46,7 @@ public sealed class ApiKeyRotationTests(PostgresContainerFixture postgres) : Aut
         _clock.Advance(TimeSpan.FromHours(23));
         (await ValidateAsync(t, original.RawKey, ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
         (await ValidateAsync(t, rotated.RawKey, ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        var statuses = (await (await GetAsync(ApiKeyEndpoints.Route, t.OwnerToken, ct)).Content.ReadFromJsonAsync<List<ApiKeySummary>>(Json, ct))!
+        var statuses = (await (await GetAsync(ApiKeyEndpoints.Route, t.OwnerToken, ct)).Content.ReadPageItemsAsync<ApiKeySummary>(Json, ct))!
             .ToDictionary(key => key.Id, key => key.Status);
         statuses[original.Key.Id].ShouldBe("Expiring");
         statuses[rotated.Key.Id].ShouldBe("Active");
@@ -209,7 +209,7 @@ public sealed class ApiKeyRotationTests(PostgresContainerFixture postgres) : Aut
         PostAsync(ApiKeyEndpoints.ValidateRoute, new ValidateApiKeyRequest(key, "thing.use", "Full"), t.Product.ServiceToken, ct);
 
     private async Task<List<ApiKeySummary>> ListAsync(Tenant t, CancellationToken ct) =>
-        (await (await GetAsync(ApiKeyEndpoints.Route, t.OwnerToken, ct)).Content.ReadFromJsonAsync<List<ApiKeySummary>>(Json, ct))!;
+        (await (await GetAsync(ApiKeyEndpoints.Route, t.OwnerToken, ct)).Content.ReadPageItemsAsync<ApiKeySummary>(Json, ct))!;
 
     private async Task DeleteKeyAsync(Tenant t, Guid keyId, CancellationToken ct)
     {

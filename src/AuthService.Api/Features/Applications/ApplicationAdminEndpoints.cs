@@ -42,22 +42,32 @@ public static class ApplicationAdminEndpoints
     /// one includes a product that is registered but has no catalog yet and one that was withdrawn, so the admin can finish setting
     /// it up or bring it back. The Auth Service's own built-in product is not a product to manage and is left out.
     /// </summary>
-    private static async Task<IResult> ListAsync(AuthDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> ListAsync(AuthDbContext db, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
-        var applications = await db.Applications.AsNoTracking()
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
+
+        var rows = await page.ByNameAsync(
+            db.Applications.AsNoTracking()
             .Where(application => !application.IsBuiltIn)
-            .OrderBy(application => application.Name).ThenBy(application => application.Key)
-            .Select(application => new AdminApplicationItem(
+            .Select(application => new
+            {
                 application.Id,
                 application.Key,
                 application.Name,
                 application.IsActive,
-                db.Permissions.Count(permission => permission.ApplicationId == application.Id),
+                PermissionCount = db.Permissions.Count(permission => permission.ApplicationId == application.Id),
                 application.LaunchUrl,
-                application.CreatedAt))
-            .ToListAsync(cancellationToken);
+                application.CreatedAt,
+            }),
+            application => application.Name,
+            application => application.Id,
+            cancellationToken);
 
-        return Results.Ok(applications);
+        return Results.Ok(rows.Map(items => items.Select(item => new AdminApplicationItem(
+            item.Id, item.Key, item.Name, item.IsActive, item.PermissionCount, item.LaunchUrl, item.CreatedAt)).ToList()));
     }
 
     /// <summary>
@@ -97,21 +107,28 @@ public static class ApplicationAdminEndpoints
     /// what has to exist before it can be activated. An unknown product, and the built-in one (which cannot be changed through the
     /// admin API), are not found.
     /// </summary>
-    private static async Task<IResult> ListPermissionsAsync(Guid applicationId, AuthDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> ListPermissionsAsync(Guid applicationId, AuthDbContext db, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
+
         var exists = await db.Applications.AsNoTracking().AnyAsync(application => application.Id == applicationId && !application.IsBuiltIn, cancellationToken);
         if (!exists)
         {
             return ApplicationNotFound();
         }
 
-        var permissions = await db.Permissions.AsNoTracking()
-            .Where(permission => permission.ApplicationId == applicationId)
-            .OrderBy(permission => permission.Key)
-            .Select(permission => new AdminPermissionItem(permission.Key, permission.Label, permission.Description, permission.CreatedAt, permission.UpdatedAt))
-            .ToListAsync(cancellationToken);
+        var rows = await page.ByNameAsync(
+            db.Permissions.AsNoTracking()
+                .Where(permission => permission.ApplicationId == applicationId)
+                .Select(permission => new { permission.Id, permission.Key, permission.Label, permission.Description, permission.CreatedAt, permission.UpdatedAt }),
+            row => row.Key,
+            row => row.Id,
+            cancellationToken);
 
-        return Results.Ok(permissions);
+        return Results.Ok(rows.Map(items => items.Select(row => new AdminPermissionItem(row.Key, row.Label, row.Description, row.CreatedAt, row.UpdatedAt)).ToList()));
     }
 
     /// <summary>

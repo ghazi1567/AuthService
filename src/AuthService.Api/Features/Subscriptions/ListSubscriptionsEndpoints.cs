@@ -30,17 +30,21 @@ public static class ListSubscriptionsEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, AuthDbContext db, CancellationToken cancellationToken)
+    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, AuthDbContext db, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
+
         // The tenant is the token's `tid` and nothing else: "me" is not a placeholder for an id the client could change.
         var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
 
         // Every status, so the tenant can see a subscription that was suspended or cancelled. Disabled members use no seat.
-        var items = await (
+        var rows = await page.ByNameAsync(
             from subscription in db.Subscriptions
             join application in db.Applications on subscription.ApplicationId equals application.Id
             where subscription.TenantId == tenantId && !application.IsBuiltIn
-            orderby application.Name, application.Key
             select new
             {
                 subscription.ApplicationId,
@@ -56,11 +60,12 @@ public static class ListSubscriptionsEndpoints
                     select access.Id).Count(),
                 subscription.CreatedAt,
                 subscription.UpdatedAt,
-            })
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+            },
+            row => row.Name,
+            row => row.ApplicationId,
+            cancellationToken);
 
-        return Results.Ok(items.Select(item => new TenantSubscriptionItem(
-            item.ApplicationId, item.Key, item.Name, item.Status.ToString(), item.MaxSeats, item.SeatsUsed, item.CreatedAt, item.UpdatedAt)));
+        return Results.Ok(rows.Map(items => items.Select(item => new TenantSubscriptionItem(
+            item.ApplicationId, item.Key, item.Name, item.Status.ToString(), item.MaxSeats, item.SeatsUsed, item.CreatedAt, item.UpdatedAt)).ToList()));
     }
 }

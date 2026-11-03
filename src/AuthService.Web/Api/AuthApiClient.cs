@@ -34,6 +34,46 @@ public sealed class AuthApiClient(HttpClient httpClient)
             cancellationToken);
     }
 
+    /// <summary>
+    /// Reads a whole list from the API, which hands lists out a page at a time (PLT-08): it asks for the biggest page and follows the
+    /// cursor until there is no next one. A page that fails fails the whole read, so a screen never shows half a list as if it were all
+    /// of it. It stops after <see cref="MaxPages"/> pages; no organisation has a list that long, and a cursor that never ended must not
+    /// keep a request busy for ever.
+    /// </summary>
+    public async Task<ApiResult<List<T>>> GetAllAsync<T>(string path, string? bearerToken, CancellationToken cancellationToken)
+    {
+        var items = new List<T>();
+        var cursor = "";
+        var separator = path.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+
+        for (var page = 0; page < MaxPages; page++)
+        {
+            var result = await GetAsync<ListPage<T>>($"{path}{separator}limit={PageSize}{cursor}", bearerToken, cancellationToken);
+            if (!result.IsSuccess)
+            {
+                return ApiResult<List<T>>.Failure(result.Problem!);
+            }
+
+            items.AddRange(result.Value!.Items ?? []);
+            if (result.Value.Next is not { ValueKind: JsonValueKind.Object } next)
+            {
+                break;
+            }
+
+            // The cursor is whatever the API said it is (after and afterId, or before and beforeId): hand it straight back.
+            cursor = string.Concat(next.EnumerateObject().Select(property => $"&{property.Name}={Uri.EscapeDataString(property.Value.ToString())}"));
+        }
+
+        return ApiResult<List<T>>.Success(items);
+    }
+
+    private const int MaxPages = 50;
+
+    private const int PageSize = 200;
+
+    /// <summary>One page of a list, as the API returns it.</summary>
+    private sealed record ListPage<T>(List<T>? Items, JsonElement? Next);
+
     /// <summary>Sends <paramref name="body"/> as JSON and reads the JSON answer, optionally as the person holding <paramref name="bearerToken"/>.</summary>
     public Task<ApiResult<TResponse>> PostAsync<TRequest, TResponse>(
         string path, TRequest body, CancellationToken cancellationToken, string? bearerToken = null)

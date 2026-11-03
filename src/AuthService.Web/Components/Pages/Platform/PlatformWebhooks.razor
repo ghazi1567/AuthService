@@ -328,7 +328,7 @@ else
         }
 
         // The product filter is a list of the products that can be chosen. If it can't be read, the page works without it.
-        var list = await Api.GetAsync<List<ProductSummary>>("/api/auth/applications", access.Token!, HttpContext.RequestAborted);
+        var list = await Api.GetAllAsync<ProductSummary>("/api/auth/applications", access.Token!, HttpContext.RequestAborted);
         products = list.IsSuccess ? [.. list.Value!.OrderBy(product => product.Name, StringComparer.OrdinalIgnoreCase)] : [];
         if (app is { } chosen && products.All(product => product.Id != chosen))
         {

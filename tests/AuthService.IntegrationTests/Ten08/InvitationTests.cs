@@ -449,12 +449,12 @@ public sealed class InvitationTests(PostgresContainerFixture postgres) : AuthApi
         PostAsync(InvitationEndpoints.AcceptRoute, new AcceptInvitationRequest(token, password), bearerToken, ct);
 
     private async Task<List<MemberItem>> ListMembersAsync(string ownerToken, CancellationToken ct) =>
-        (await (await GetAsync(MemberEndpoints.Route, ownerToken, ct)).Content.ReadFromJsonAsync<List<MemberItem>>(Json, ct))!;
+        (await (await GetAsync(MemberEndpoints.Route, ownerToken, ct)).Content.ReadPageItemsAsync<MemberItem>(Json, ct))!;
 
     private async Task<int> SeatsUsedAsync(string ownerToken, CancellationToken ct)
     {
         var response = await GetAsync(ListSubscriptionsEndpoints.Route, ownerToken, ct);
-        return (await response.Content.ReadFromJsonAsync<List<TenantSubscriptionItem>>(Json, ct))!.Single().SeatsUsed;
+        return (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!.Single().SeatsUsed;
     }
 
     private Task<MembershipStatus> StatusOfAsync(Guid membershipId, CancellationToken ct) =>

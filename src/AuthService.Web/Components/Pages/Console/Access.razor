@@ -265,8 +265,8 @@ else
             return;
         }
 
-        var subs = await Api.GetAsync<List<SubscriptionItem>>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
-        var membersResult = await Api.GetAsync<List<MemberItem>>("/api/auth/tenants/me/members", console.Token, HttpContext.RequestAborted);
+        var subs = await Api.GetAllAsync<SubscriptionItem>("/api/auth/tenants/me/subscriptions", console.Token, HttpContext.RequestAborted);
+        var membersResult = await Api.GetAllAsync<MemberItem>("/api/auth/tenants/me/members", console.Token, HttpContext.RequestAborted);
         if (!subs.IsSuccess || !membersResult.IsSuccess)
         {
             if (subs.Problem?.Status == StatusCodes.Status401Unauthorized || membersResult.Problem?.Status == StatusCodes.Status401Unauthorized)

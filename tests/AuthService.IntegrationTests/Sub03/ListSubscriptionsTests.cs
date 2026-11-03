@@ -36,7 +36,7 @@ public sealed class ListSubscriptionsTests(PostgresContainerFixture postgres) : 
         var response = await GetAsync(ListSubscriptionsEndpoints.Route, await OwnerTenantTokenAsync(owner, ct), ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var items = (await response.Content.ReadFromJsonAsync<List<TenantSubscriptionItem>>(Json, ct))!;
+        var items = (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!;
         items.Select(item => (item.ApplicationKey, item.ApplicationName, item.Status, item.MaxSeats, item.SeatsUsed))
             .ShouldBe([("crm", "crm", "Suspended", (int?)null, 1), ("whatsapp-saas", "whatsapp-saas", "Active", (int?)5, 1)],
                 "ordered by product name, each with status, MaxSeats and SeatsUsed");
@@ -61,7 +61,7 @@ public sealed class ListSubscriptionsTests(PostgresContainerFixture postgres) : 
             var response = await GetAsync(ListSubscriptionsEndpoints.Route + tampered, token, ct);
 
             response.StatusCode.ShouldBe(HttpStatusCode.OK);
-            var items = (await response.Content.ReadFromJsonAsync<List<TenantSubscriptionItem>>(Json, ct))!;
+            var items = (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!;
             items.Select(item => item.ApplicationKey).ShouldBe(["mine-product"], $"for '{tampered}'");
         }
     }
@@ -167,7 +167,7 @@ public sealed class ListSubscriptionsTests(PostgresContainerFixture postgres) : 
     {
         var response = await GetAsync(ListSubscriptionsEndpoints.Route, token, ct);
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        return (await response.Content.ReadFromJsonAsync<List<TenantSubscriptionItem>>(Json, ct))!;
+        return (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!;
     }
 
     private async Task SubscribeAsync(TestProduct product, Guid tenantId, string rawJson, CancellationToken ct)

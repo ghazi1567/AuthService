@@ -1,3 +1,4 @@
+using AuthService.Api.Common;
 using AuthService.Api.Features.Audit;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Configurations;
@@ -69,25 +70,44 @@ public static class UpdateRoleValidator
 /// <summary>ROL-02, ROL-03 and ROL-04: list, change and delete the roles of the caller's tenant.</summary>
 public sealed class ManageRolesService(AuthDbContext db, AuditLog audit)
 {
-    public async Task<List<RoleListItem>> ListAsync(Guid tenantId, CancellationToken cancellationToken)
+    // Initialised by member, not by constructor: the database query can then be ordered and filtered by these members.
+    private sealed record RoleRow
     {
-        var roles = await db.Roles.AsNoTracking()
-            .Where(role => role.TenantId == tenantId)
-            .OrderByDescending(role => role.IsBuiltIn).ThenBy(role => role.Name)
-            .Select(role => new
-            {
-                role.Id,
-                role.Name,
-                role.IsBuiltIn,
-                role.CreatedAt,
-                MemberCount = db.MembershipRoles.Count(assignment => assignment.RoleId == role.Id),
-            })
-            .ToListAsync(cancellationToken);
+        public Guid Id { get; init; }
+        public required string Name { get; init; }
+        public bool IsBuiltIn { get; init; }
+        public DateTimeOffset CreatedAt { get; init; }
+        public int MemberCount { get; init; }
+        public required string SortKey { get; init; }
+    }
 
-        var grants = await LoadGrantsAsync(tenantId, cancellationToken);
-        return [.. roles.Select(role => new RoleListItem(
-            role.Id, role.Name, role.IsBuiltIn, role.MemberCount,
-            grants.TryGetValue(role.Id, out var held) ? held : [], role.CreatedAt))];
+    /// <summary>One page of the roles (PLT-08): the built-in ones first, then by name.</summary>
+    public async Task<PagedResponse<RoleListItem, NameCursor>> ListAsync(Guid tenantId, PageQuery page, CancellationToken cancellationToken)
+    {
+        var rows = await page.ByNameAsync(
+            db.Roles.AsNoTracking()
+                .Where(role => role.TenantId == tenantId)
+                .Select(role => new RoleRow
+                {
+                    Id = role.Id,
+                    Name = role.Name,
+                    IsBuiltIn = role.IsBuiltIn,
+                    CreatedAt = role.CreatedAt,
+                    MemberCount = db.MembershipRoles.Count(assignment => assignment.RoleId == role.Id),
+
+                    // "0" sorts before "1", so the built-in roles lead; the cursor carries this key.
+                    SortKey = (role.IsBuiltIn ? "0" : "1") + role.Name,
+                }),
+            row => row.SortKey,
+            row => row.Id,
+            cancellationToken);
+
+        var grants = await LoadGrantsAsync(tenantId, [.. rows.Rows.Select(role => role.Id)], cancellationToken);
+        return new PagedResponse<RoleListItem, NameCursor>(
+            [.. rows.Rows.Select(role => new RoleListItem(
+                role.Id, role.Name, role.IsBuiltIn, role.MemberCount,
+                grants.TryGetValue(role.Id, out var held) ? held : [], role.CreatedAt))],
+            rows.Next);
     }
 
     public async Task<UpdateRoleResult> UpdateAsync(
@@ -206,13 +226,17 @@ public sealed class ManageRolesService(AuthDbContext db, AuditLog audit)
         return new DeleteRoleResult.Deleted();
     }
 
-    private async Task<Dictionary<Guid, List<RoleGrantDto>>> LoadGrantsAsync(Guid tenantId, CancellationToken cancellationToken)
+    private async Task<Dictionary<Guid, List<RoleGrantDto>>> LoadGrantsAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        await LoadGrantsAsync(tenantId, null, cancellationToken);
+
+    /// <summary>The permissions granted by the tenant's roles, or by just <paramref name="roleIds"/> when they are given.</summary>
+    private async Task<Dictionary<Guid, List<RoleGrantDto>>> LoadGrantsAsync(Guid tenantId, IReadOnlyCollection<Guid>? roleIds, CancellationToken cancellationToken)
     {
         var rows = await (
             from grant in db.RolePermissions
             join permission in db.Permissions on grant.PermissionId equals permission.Id
             join application in db.Applications on permission.ApplicationId equals application.Id
-            where grant.TenantId == tenantId
+            where grant.TenantId == tenantId && (roleIds == null || roleIds.Contains(grant.RoleId))
             select new { grant.RoleId, permission.ApplicationId, ApplicationKey = application.Key, Permission = permission.Key, grant.Level })
             .AsNoTracking()
             .ToListAsync(cancellationToken);

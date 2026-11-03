@@ -46,31 +46,46 @@ public sealed class ManageInvitationsService(
     AuditLog audit,
     TimeProvider timeProvider)
 {
-    public async Task<IReadOnlyList<PendingInvitation>> ListPendingAsync(Guid tenantId, CancellationToken cancellationToken)
+    // Initialised by member, not by constructor: the database query can then be ordered and filtered by these members.
+    private sealed record PendingRow
+    {
+        public Guid InvitationId { get; init; }
+        public Guid MembershipId { get; init; }
+        public required string Email { get; init; }
+        public required string InvitedBy { get; init; }
+        public DateTimeOffset CreatedAt { get; init; }
+        public DateTimeOffset LastSentAt { get; init; }
+        public DateTimeOffset ExpiresAt { get; init; }
+    }
+
+    /// <summary>One page of the invitations still waiting to be accepted, newest first (PLT-08).</summary>
+    public async Task<PagedResponse<PendingInvitation, TimeCursor>> ListPendingAsync(Guid tenantId, PageQuery page, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
 
-        var open = await (
-            from invitation in db.Invitations
+        var rows = await page.NewestFirstAsync(
+            from invitation in db.Invitations.AsNoTracking()
             join membership in db.TenantMemberships on new { invitation.TenantId, invitation.MembershipId } equals new { membership.TenantId, MembershipId = membership.Id }
             join invitee in db.Users on membership.UserId equals invitee.Id
             join inviter in db.Users on invitation.InvitedByUserId equals inviter.Id
             where invitation.TenantId == tenantId && invitation.UsedAt == null && membership.Status == MembershipStatus.Invited
-            orderby invitation.CreatedAt descending, invitation.Id descending
-            select new
+            select new PendingRow
             {
-                invitation.MembershipId,
+                InvitationId = invitation.Id,
+                MembershipId = invitation.MembershipId,
                 Email = invitee.Email,
                 InvitedBy = inviter.Email,
-                invitation.CreatedAt,
-                invitation.LastSentAt,
-                invitation.ExpiresAt,
-            })
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+                CreatedAt = invitation.CreatedAt,
+                LastSentAt = invitation.LastSentAt,
+                ExpiresAt = invitation.ExpiresAt,
+            },
+            row => row.CreatedAt,
+            row => row.InvitationId,
+            cancellationToken);
+        var open = rows.Rows;
         if (open.Count == 0)
         {
-            return [];
+            return new PagedResponse<PendingInvitation, TimeCursor>([], rows.Next);
         }
 
         var membershipIds = open.Select(item => item.MembershipId).ToList();
@@ -86,7 +101,7 @@ public sealed class ManageInvitationsService(
             .Select(grant => new { grant.MembershipId, grant.ApplicationId })
             .ToListAsync(cancellationToken);
 
-        return [.. open.Select(item => new PendingInvitation(
+        return new PagedResponse<PendingInvitation, TimeCursor>([.. open.Select(item => new PendingInvitation(
             item.MembershipId,
             item.Email,
             [.. roles.Where(entry => entry.MembershipId == item.MembershipId).Select(entry => entry.Role).OrderBy(role => role.Name, StringComparer.OrdinalIgnoreCase)],
@@ -95,7 +110,7 @@ public sealed class ManageInvitationsService(
             item.CreatedAt,
             item.LastSentAt,
             item.ExpiresAt,
-            item.ExpiresAt <= now))];
+            item.ExpiresAt <= now))], rows.Next);
     }
 
     public async Task<ResendInvitationResult> ResendAsync(Guid callerUserId, Guid tenantId, Guid membershipId, CancellationToken cancellationToken)

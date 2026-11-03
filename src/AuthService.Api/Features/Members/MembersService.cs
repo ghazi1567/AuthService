@@ -1,3 +1,4 @@
+using AuthService.Api.Common;
 using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.Subscriptions;
 using AuthService.Infrastructure.Persistence;
@@ -65,8 +66,13 @@ public static class MemberStatusValidator
 /// <summary>TEN-07: the members of the caller's tenant, and enabling or disabling their membership.</summary>
 public sealed class MembersService(AuthDbContext db, AuditLog audit)
 {
-    public async Task<List<MemberItem>> ListAsync(Guid tenantId, CancellationToken cancellationToken) =>
-        await LoadAsync(tenantId, null, cancellationToken);
+    /// <summary>One page of the members, by email (PLT-08).</summary>
+    public async Task<PagedResponse<MemberItem, NameCursor>> ListAsync(Guid tenantId, PageQuery page, CancellationToken cancellationToken)
+    {
+        var rows = await page.ByNameAsync(MemberRows(tenantId), row => row.Email, row => row.Id, cancellationToken);
+        var members = await ToItemsAsync(tenantId, rows.Rows, cancellationToken);
+        return new PagedResponse<MemberItem, NameCursor>(members, rows.Next);
+    }
 
     public async Task<SetMemberStatusResult> SetStatusAsync(
         Guid callerUserId, Guid tenantId, Guid membershipId, MembershipStatus status, CancellationToken cancellationToken)
@@ -179,21 +185,34 @@ public sealed class MembersService(AuthDbContext db, AuditLog audit)
          select assignment.Id)
         .AnyAsync(cancellationToken);
 
-    private async Task<List<MemberItem>> LoadAsync(Guid tenantId, Guid? membershipId, CancellationToken cancellationToken)
+    // Initialised by member, not by constructor: the database query can then be ordered and filtered by these members.
+    private sealed record MemberRow
     {
-        var members = await (
-            from membership in db.TenantMemberships
-            join user in db.Users on membership.UserId equals user.Id
-            where membership.TenantId == tenantId && (membershipId == null || membership.Id == membershipId)
-            orderby user.Email
-            select new { membership.Id, user.Email, user.DisplayName, membership.Status, membership.CreatedAt })
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
+        public Guid Id { get; init; }
+        public required string Email { get; init; }
+        public string? DisplayName { get; init; }
+        public MembershipStatus Status { get; init; }
+        public DateTimeOffset CreatedAt { get; init; }
+    }
+
+    private IQueryable<MemberRow> MemberRows(Guid tenantId) =>
+        from membership in db.TenantMemberships.AsNoTracking()
+        join user in db.Users on membership.UserId equals user.Id
+        where membership.TenantId == tenantId
+        select new MemberRow { Id = membership.Id, Email = user.Email, DisplayName = user.DisplayName, Status = membership.Status, CreatedAt = membership.CreatedAt };
+
+    private async Task<List<MemberItem>> LoadAsync(Guid tenantId, Guid membershipId, CancellationToken cancellationToken) =>
+        await ToItemsAsync(tenantId, await MemberRows(tenantId).Where(row => row.Id == membershipId).ToListAsync(cancellationToken), cancellationToken);
+
+    /// <summary>The roles and products of just these members, in two small reads.</summary>
+    private async Task<List<MemberItem>> ToItemsAsync(Guid tenantId, IReadOnlyList<MemberRow> members, CancellationToken cancellationToken)
+    {
+        var ids = members.Select(member => member.Id).ToList();
 
         var roles = (await (
                 from assignment in db.MembershipRoles
                 join role in db.Roles on new { assignment.TenantId, assignment.RoleId } equals new { role.TenantId, RoleId = role.Id }
-                where assignment.TenantId == tenantId && (membershipId == null || assignment.MembershipId == membershipId)
+                where assignment.TenantId == tenantId && ids.Contains(assignment.MembershipId)
                 select new { assignment.MembershipId, role.Id, role.Name })
                 .AsNoTracking()
                 .ToListAsync(cancellationToken))
@@ -202,7 +221,7 @@ public sealed class MembersService(AuthDbContext db, AuditLog audit)
         var applications = (await (
                 from access in db.ApplicationAccess
                 join application in db.Applications on access.ApplicationId equals application.Id
-                where access.TenantId == tenantId && (membershipId == null || access.MembershipId == membershipId)
+                where access.TenantId == tenantId && ids.Contains(access.MembershipId)
                 select new { access.MembershipId, application.Id, application.Key })
                 .AsNoTracking()
                 .ToListAsync(cancellationToken))

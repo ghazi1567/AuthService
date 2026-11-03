@@ -234,7 +234,7 @@ else
 
         if (!IsNew)
         {
-            var roles = await Api.GetAsync<List<RoleListItem>>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
+            var roles = await Api.GetAllAsync<RoleListItem>("/api/auth/roles", console.Token, HttpContext.RequestAborted);
             if (!roles.IsSuccess)
             {
                 loadFailed = true;

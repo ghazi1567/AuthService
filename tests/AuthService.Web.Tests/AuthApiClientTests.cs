@@ -35,6 +35,65 @@ public sealed class AuthApiClientTests
     }
 
     [Fact]
+    public async Task AListIsReadPageByPageUntilThereIsNoNextCursor()
+    {
+        var handler = new FakeApiHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                request.RequestUri!.Query switch
+                {
+                    "?limit=200" => """{"items":[{"name":"Acme"},{"name":"Globex"}],"next":{"after":"Globex","afterId":"6f9619ff-8b86-d011-b42d-00c04fc964ff"}}""",
+                    "?limit=200&after=Globex&afterId=6f9619ff-8b86-d011-b42d-00c04fc964ff" => """{"items":[{"name":"Initech"}],"next":null}""",
+                    _ => throw new InvalidOperationException("Unexpected request " + request.RequestUri),
+                },
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        });
+
+        var result = await ClientFor(handler).GetAllAsync<Tenant>("/api/auth/roles", "a-token", Token);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value!.Select(tenant => tenant.Name).ShouldBe(["Acme", "Globex", "Initech"]);
+        handler.Requests.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task ATimeCursorIsHandedBackWithItsTimestampEscaped()
+    {
+        var handler = new FakeApiHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                request.RequestUri!.Query.Contains("before=", StringComparison.Ordinal)
+                    ? """{"items":[{"name":"Old"}],"next":null}"""
+                    : """{"items":[{"name":"New"}],"next":{"before":"2026-11-02T09:00:00+00:00","beforeId":"6f9619ff-8b86-d011-b42d-00c04fc964ff"}}""",
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        });
+
+        var result = await ClientFor(handler).GetAllAsync<Tenant>("/api/auth/apikeys?tenantId=1", "a-token", Token);
+
+        result.Value!.Select(tenant => tenant.Name).ShouldBe(["New", "Old"]);
+        handler.Requests[1].RequestUri!.Query.ShouldBe("?tenantId=1&limit=200&before=2026-11-02T09%3A00%3A00%2B00%3A00&beforeId=6f9619ff-8b86-d011-b42d-00c04fc964ff");
+    }
+
+    [Fact]
+    public async Task AFailingPageFailsTheWholeListInsteadOfShowingHalfOfIt()
+    {
+        var calls = 0;
+        var handler = new FakeApiHandler(_ => ++calls == 1
+            ? new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"items":[{"name":"Acme"}],"next":{"after":"Acme","afterId":"6f9619ff-8b86-d011-b42d-00c04fc964ff"}}""", System.Text.Encoding.UTF8, "application/json"),
+            }
+            : new HttpResponseMessage(HttpStatusCode.InternalServerError));
+
+        var result = await ClientFor(handler).GetAllAsync<Tenant>("/api/auth/roles", "a-token", Token);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Problem!.Status.ShouldBe(500);
+    }
+
+    [Fact]
     public async Task ARateLimitBecomesAProblemWithItsCodeAndRetryAfter()
     {
         var handler = new FakeApiHandler(_ =>

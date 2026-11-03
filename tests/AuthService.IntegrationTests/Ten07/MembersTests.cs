@@ -86,7 +86,7 @@ public sealed class MembersTests(PostgresContainerFixture postgres) : AuthApiTes
         var response = await GetAsync(MemberEndpoints.Route, t.OwnerToken, ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        var members = (await response.Content.ReadFromJsonAsync<List<MemberItem>>(Json, ct))!;
+        var members = (await response.Content.ReadPageItemsAsync<MemberItem>(Json, ct))!;
         members.Select(item => (item.Email, item.Status)).ShouldBe([("invited@other.com", "Invited"), ("member@other.com", "Active"), (OwnerEmail, "Active")]);
         var listed = members.Single(item => item.Email == "member@other.com");
         listed.Roles.Select(item => item.Name).ShouldBe(["Support"]);
@@ -104,7 +104,7 @@ public sealed class MembersTests(PostgresContainerFixture postgres) : AuthApiTes
 
         foreach (var tampered in new[] { "", $"?tenantId={other.TenantId}", $"?tid={other.TenantId}" })
         {
-            var members = (await (await GetAsync(MemberEndpoints.Route + tampered, t.OwnerToken, ct)).Content.ReadFromJsonAsync<List<MemberItem>>(Json, ct))!;
+            var members = (await (await GetAsync(MemberEndpoints.Route + tampered, t.OwnerToken, ct)).Content.ReadPageItemsAsync<MemberItem>(Json, ct))!;
 
             members.Select(item => item.Email).ShouldBe([OwnerEmail], $"for '{tampered}'");
         }
@@ -138,7 +138,7 @@ public sealed class MembersTests(PostgresContainerFixture postgres) : AuthApiTes
         (await ExchangeAsync(member.IdentityToken, t.Owner.TenantId, t.Product.Id, ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await PostAsync("/api/auth/token/exchange", new { tenantId = t.Owner.TenantId, applicationId = BuiltInApplication.Id }, member.IdentityToken, ct))
             .StatusCode.ShouldBe(HttpStatusCode.Forbidden, "not even a tenant-admin token");
-        var kept = (await (await GetAsync(MemberEndpoints.Route, t.OwnerToken, ct)).Content.ReadFromJsonAsync<List<MemberItem>>(Json, ct))!
+        var kept = (await (await GetAsync(MemberEndpoints.Route, t.OwnerToken, ct)).Content.ReadPageItemsAsync<MemberItem>(Json, ct))!
             .Single(item => item.MembershipId == member.MembershipId);
         (kept.Status, kept.Roles.Count, kept.Applications.Count).ShouldBe(("Disabled", 1, 1));
 
@@ -337,7 +337,7 @@ public sealed class MembersTests(PostgresContainerFixture postgres) : AuthApiTes
     private async Task<int> SeatsUsedAsync(string ownerToken, CancellationToken ct)
     {
         var response = await GetAsync(ListSubscriptionsEndpoints.Route, ownerToken, ct);
-        return (await response.Content.ReadFromJsonAsync<List<TenantSubscriptionItem>>(Json, ct))!.Single().SeatsUsed;
+        return (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!.Single().SeatsUsed;
     }
 
     private async Task<T> ReadAsync<T>(Func<AuthService.Infrastructure.Persistence.AuthDbContext, Task<T>> read)
