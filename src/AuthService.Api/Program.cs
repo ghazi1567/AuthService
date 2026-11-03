@@ -24,6 +24,7 @@ using AuthService.Api.Features.Subscriptions;
 using AuthService.Api.Features.Webhooks;
 using AuthService.Api.Features.TokenExchange;
 using AuthService.Api.Features.Tenants;
+using AuthService.Api.Observability;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -232,6 +233,12 @@ builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<ApiKeyValidationService>();
 builder.Services.AddScoped<AcceptInvitationService>();
 
+// Health, readiness and metrics (PLT-05).
+builder.Services.AddOptions<ObservabilityOptions>()
+    .Bind(builder.Configuration.GetSection(ObservabilityOptions.SectionName));
+builder.Services.AddSingleton<AuthMetrics>();
+builder.Services.AddScoped<ReadinessService>();
+
 var app = builder.Build();
 
 // Load the signing keys now, creating the first one on a new database, so a missing key-encryption secret or an unreachable
@@ -259,6 +266,14 @@ if (proxy.IsConfigured)
     app.UseForwardedHeaders(proxy.ToForwardedHeadersOptions());
 }
 
+// A typo in the networks allowed to read the metrics stops the deployment instead of locking the monitoring out, or letting everyone in.
+if (app.Services.GetRequiredService<IOptions<ObservabilityOptions>>().Value.Problems().ToList() is { Count: > 0 } observabilityProblems)
+{
+    throw new InvalidOperationException(string.Join(" ", observabilityProblems));
+}
+
+// Outside the exception handler, so a request that ends in an error is counted with its 500.
+app.UseMiddleware<RequestMetricsMiddleware>();
 app.UseExceptionHandler();
 
 // Authentication comes first so a limit can be per person (token exchange). A token is checked locally, with no database call, so
@@ -268,6 +283,7 @@ app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapGet("/", () => "AuthService").AllowAnonymous();
+app.MapObservability();
 app.MapSignup();
 app.MapEmailVerification();
 app.MapLogin();

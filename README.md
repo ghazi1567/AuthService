@@ -267,6 +267,7 @@ plan the repository must be public. Until that is enabled, a red check is adviso
 | `Auth:Tokens:SigningKeyRefreshSeconds` | How often each instance reloads the keys and checks whether it is time to rotate. Default 60. |
 | `Auth:Tokens:Issuer` | `iss` claim of issued tokens. Default `AuthService`. |
 | `Auth:Proxy:TrustedProxies` / `TrustedNetworks` / `ForwardLimit` | The reverse proxies in front of the service: addresses (`10.0.0.5`) and/or ranges (`10.0.0.0/8`), as arrays (`Auth__Proxy__TrustedProxies__0`). Only from these is `X-Forwarded-For` believed, and then the client address replaces the proxy's in per-IP rate limits and audit entries; from any other address the header is ignored. `ForwardLimit` (default 1, 1 to 10) is how many hops, counted from the right, to believe. **Leave unset if nothing sits in front, and set it whenever something does**: a typo stops the service from starting. |
+| `Observability:AllowedNetworks` | Ranges allowed to read `/metrics` besides loopback, as an array of CIDR ranges (`Observability__AllowedNetworks__0=10.0.0.0/8`). Anyone else gets a plain 404. Blank values are ignored; a typo stops the service from starting. |
 | `Auth:Tokens:AccessTokenMinutes` | Identity access token lifetime. Default 15. |
 | `Auth:Tokens:RefreshTokenDays` | Refresh token lifetime. Default 30. |
 | `Auth:TokenExchange:UserLimit` / `UserWindowMinutes` | How many token exchanges one signed-in person may make per window before they get 429 with `Retry-After`. Default 30 per 1 minute. |
@@ -330,6 +331,22 @@ rotation** replaces the key immediately and removes the old one from the JWKS at
 is triggered by a platform admin with `POST /api/auth/admin/signing-keys/rotate` (see "Platform admins" below).
 
 Changing `KeyEncryptionKey` makes the stored keys unreadable. Re-encrypting them under a new secret is not built yet.
+
+### Health checks and metrics
+
+Three endpoints, none of which needs a login, so a platform's probes can use them (PLT-05, AUTH-202):
+
+| Endpoint | Answers |
+|---|---|
+| `GET /health/live` | `200` `{"status":"alive"}` while the process runs. It checks nothing else, so a database outage does not get the service restarted. |
+| `GET /health/ready` | `200` when the database is reachable with every migration applied and a signing key can sign right now; otherwise `503`. The body is `{"status","checks":{"database","signingKey"}}` with `ok` or `failed` and nothing about why (no connection string, no error text); the reason is logged as `Not ready: ...`. A release started before its migration stays `503` until the migrate job has run. |
+| `GET /metrics` | Prometheus text, only from loopback and the networks in `Observability:AllowedNetworks`; anyone else gets `404`. |
+
+The metrics are request counts and a latency histogram by method, route **template** and status (`auth_http_requests_total`,
+`auth_http_request_duration_seconds`), refused logins by reason (`auth_login_failures_total`), what waits in the email and webhook
+outboxes and for how long (`auth_email_outbox_messages`, `auth_webhook_outbox_messages`, `..._oldest_pending_age_seconds`), and the age
+of the signing key (`auth_signing_key_age_seconds`). No label holds an email address, a name, an id or a token. Setup and suggested
+alerts are in [docs/deployment.md](docs/deployment.md), "Health checks and metrics".
 
 ### Email
 
