@@ -85,6 +85,52 @@ entry would name the balancer. List the proxy so the service believes its `X-For
   shows a real client address.
 - Too wide a range lets any host in it choose its own address. List as little as you can.
 
+## Production email
+
+Verification, password-reset and invitation emails are how people get into the product, so they must reach an inbox. A personal mailbox
+as the sender does not: messages tend to land in spam and fail DMARC alignment. Set this up once, before the first real user.
+
+**1. Authenticate a domain you own in Brevo.** In Brevo, *Senders, Domains & Dedicated IPs → Domains → Add a domain* (use a subdomain
+such as `mail.example.com` if you do not want to touch the main domain's records). Brevo shows the exact DNS records to create; add them at
+your DNS host and press *Authenticate* until the domain shows as authenticated:
+
+| Record | What it is for |
+|---|---|
+| Brevo's verification `TXT` (`brevo-code:...`) | Proves you own the domain. |
+| **SPF**: a `TXT` on the domain that includes Brevo's servers (`include:spf.brevo.com`) | Says Brevo may send for the domain. If the domain already has an SPF record, **add the include to it**: a domain may have only one. |
+| **DKIM**: the record(s) Brevo shows, usually `CNAME`s under `_domainkey` | Lets receivers check each message was signed by Brevo for your domain. |
+| **DMARC**: a `TXT` on `_dmarc.<domain>`, for example `v=DMARC1; p=none; rua=mailto:dmarc@example.com` | Tells receivers what to do when SPF or DKIM fail, and where to send reports. Start with `p=none` and read the reports for a couple of weeks; move to `quarantine` once real mail passes. |
+
+**2. Send from that domain.** Add a sender on the authenticated domain in Brevo, then set `Email__FromAddress` to it (for example
+`no-reply@mail.example.com`) and `Email__FromName` to the product's name. The address must be on the authenticated domain: that is what makes
+the DMARC check line up. Never send from a personal mailbox in production.
+
+**3. Point the links at the real front end.** `Email__PublicBaseUrl` is the public address of the app that serves `/verify-email`,
+`/reset-password` and `/accept-invitation` (for example `https://app.example.com`), with no trailing path. Open a link from a real email to
+check that its flow completes.
+
+**4. Check it before launch**, with the list in [the release checklist](release-checklist.md#production-email): a message to a Gmail and an
+Outlook mailbox lands in the inbox and passes SPF, DKIM and DMARC in its headers.
+
+**The API key is a platform secret.** Keep `Email__BrevoApiKey` in your host's secret store (not in the repository, not in a committed
+`.env`, not in a chat). It is never logged by the service. To rotate it: create a new API key in Brevo (*SMTP & API → API Keys*), set the
+new value in the secret store and redeploy or restart the API, check that the next verification email arrives, **then** delete the old key
+in Brevo. Do it at once if the key may have leaked.
+
+**Bounces and complaints.** The service hands a message to Brevo and is done: a later bounce is *not* reported back, so an address that
+bounces looks "sent" in `email_outbox`. Someone has to look at Brevo:
+
+- Check *Transactional → Logs* (and *Contacts → Blocked contacts*) at least weekly and after every launch or invitation campaign.
+- A **hard bounce** (no such mailbox, no such domain) blocks the address in Brevo. It is nearly always a typo in an invitation: ask the
+  inviter to check the address and invite again; do not try to send to it again.
+- A **soft bounce** (full mailbox, temporary failure) is retried by Brevo; act only if it repeats.
+- A **spam complaint** blocks the address. Do not unblock it. A rising complaint rate (above roughly 0.1%) or hard-bounce rate (above
+  roughly 2%) puts the sender's reputation, and so every user's emails, at risk: stop invitation sending until you know why.
+- Optionally add a Brevo webhook for `hardBounce` and `spam` events to a channel your team reads, so you do not rely on remembering.
+
+An email the service gave up on after its last retry shows as `Failed` in `email_outbox` and in the `auth_email_outbox_messages{status="failed"}`
+metric (see "Health checks and metrics"): that means Brevo itself refused or could not be reached, a different problem from a bounce.
+
 ## Rate limits with several instances
 
 The limits on login, password reset, verification resend, service tokens and token exchange are counted in the service's own database

@@ -37,3 +37,23 @@ Do this after the migrate job has run and the new API is serving, with `Auth__We
 8. **Clean up.** Restore the product's real callback, and delete the test organisation's events or leave them to expire.
 
 If a step fails, do not release: the delivery path is the only way a product learns that a tenant was subscribed or suspended.
+
+## Production email (PLT-06, AUTH-203)
+
+Nothing in CI can send real mail. Do this once for a new sending domain, and again after changing the domain, the sender or the Brevo
+account. Setup is in [the deployment guide](deployment.md#production-email).
+
+1. **Domain.** In Brevo the sending domain shows as authenticated (SPF, DKIM and DMARC records all green).
+   - [ ] `Email__FromAddress` is on that domain, and the production settings use it.
+2. **Send the three emails** to a Gmail and an Outlook test mailbox: sign up (verification), *Forgot password* (reset) and invite a new
+   person (invitation).
+   - [ ] Each lands in the **inbox**, not spam.
+   - [ ] In the message headers (Gmail: *Show original*): `SPF: PASS`, `DKIM: PASS` and `DMARC: PASS`, with the From domain aligned.
+3. **Links.** For each email, open the link from the message itself.
+   - [ ] Verification link: the address becomes verified and sign-in works.
+   - [ ] Reset link: a new password can be set.
+   - [ ] Invitation link: the invited person can accept and sign in.
+4. **Bounces.** Invite an address that does not exist on a real domain.
+   - [ ] The bounce shows in Brevo's transactional logs, and whoever operates the service knows to look there.
+5. **Secret.** [ ] `Email__BrevoApiKey` is in the secret store only, and the rotation steps in the deployment guide have been read by whoever
+   would perform them.
