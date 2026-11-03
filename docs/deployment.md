@@ -43,6 +43,7 @@ All settings are environment variables. A double underscore stands for the colon
 | `Email__PublicBaseUrl` | yes | Where links in emails point, for example `https://app.example.com`. |
 | `Auth__Tokens__Issuer` | no | `iss` of every token. Default `AuthService`. Products must be configured with the same value. |
 | `Auth__Proxy__TrustedProxies__0` (`__1`...) / `Auth__Proxy__TrustedNetworks__0` | behind a proxy | The proxy's address or CIDR range. See "Behind a proxy". Blank values are ignored. |
+| `Auth__RateLimit__Store` | no | Where rate-limit counters are kept: `Postgres` (the default) or `Memory`. See "Rate limits with several instances". |
 | `Observability__AllowedNetworks__0` (`__1`...) | to scrape `/metrics` | A CIDR range allowed to read `/metrics`, for example the monitoring server's `10.0.0.0/8`. Loopback is always allowed. See "Health checks and metrics". A typo stops the service from starting. |
 | `Auth__Webhooks__AllowPrivateAddresses` | never | Leave unset in production: it would let a product point webhooks inside your network. |
 
@@ -84,6 +85,24 @@ entry would name the balancer. List the proxy so the service believes its `X-For
   shows a real client address.
 - Too wide a range lets any host in it choose its own address. List as little as you can.
 
+## Rate limits with several instances
+
+The limits on login, password reset, verification resend, service tokens and token exchange are counted in the service's own database
+(table `rate_limit_counters`), so every instance shares them and a restart does not clear them (decision 0008).
+
+- **`Auth__RateLimit__Store`**: `Postgres` (the default) or `Memory`. `Memory` counts inside each process: right for development, tests and
+  one instance, but with several instances a limit becomes the setting times the number of instances. Anything else stops the service
+  from starting.
+- **Requirements:** nothing beyond the database you already run. The migrate job creates the table, and it must run before the new version
+  starts: until it has, the limited endpoints answer `503`. The database user needs no extra rights.
+- **If the counters cannot be read, nothing fails open.** The request is refused with `503` `rate_limit_unavailable` and
+  `Retry-After: 5`, and does nothing else. These endpoints need the same database, so this costs nothing that a database outage had not
+  already cost, and it means an attacker cannot lift a limit by making the counters fail.
+- **Size:** one small row per caller per limit, with the caller stored only as a hash. A worker deletes rows a minute after their window
+  ends (`Auth__RateLimit__CleanupSeconds`, default 60), so the table is as large as the number of callers in the last few minutes.
+- **Behind a proxy**, list the proxy in `Auth__Proxy__*` so the limits see the client's address and not the proxy's; otherwise everyone
+  shares one counter.
+
 ## Health checks and metrics
 
 None of these needs a login, because a platform's probe cannot send one.
@@ -120,7 +139,7 @@ of `auth_login_failures_total`, or `5xx` in `auth_http_requests_total`.
 2. Run the migrate job. A migration is applied while the old version is still serving, so a migration must stay compatible with the
    running version (add before you remove).
 3. Start the new API; stop the old one. Several instances can run together: key rotation, email and webhook workers all take database
-   locks so instances take turns. Rate-limit counters are kept in memory per instance, so with several instances the effective limit is the setting times the number of instances.
+   locks so instances take turns. Rate-limit counters are shared through the database (see "Rate limits with several instances"), so a limit is the same with one instance or ten.
 4. Roll back by starting the old image. A migration is not undone by that, which is why step 2 matters.
 5. Work through [the release checklist](release-checklist.md): the parts of webhook delivery that need the real network.
 

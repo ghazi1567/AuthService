@@ -1,3 +1,4 @@
+using AuthService.Api.RateLimiting;
 using AuthService.Api.Common;
 using AuthService.Api.Tokens;
 
@@ -12,7 +13,7 @@ public static class TokenExchangeEndpoints
     public static IEndpointRouteBuilder MapTokenExchange(this IEndpointRouteBuilder app)
     {
         // Needs an identity token: a product token or service token cannot be traded for another one.
-        app.MapPost(Route, ExchangeAsync).RequireAuthorization(IdentityAuthentication.PolicyName).RequireRateLimiting(RateLimitPolicy);
+        app.MapPost(Route, ExchangeAsync).RequireAuthorization(IdentityAuthentication.PolicyName).RequireSharedRateLimit(RateLimitPolicy);
         return app;
     }
 

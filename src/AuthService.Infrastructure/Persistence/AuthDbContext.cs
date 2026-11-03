@@ -37,6 +37,9 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<SigningKey> SigningKeys => Set<SigningKey>();
 
+    /// <summary>The shared rate-limit counters (PLT-04). Written with raw SQL, an atomic upsert; here so the migration creates the table.</summary>
+    public DbSet<RateLimitCounter> RateLimitCounters => Set<RateLimitCounter>();
+
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     public DbSet<Application> Applications => Set<Application>();

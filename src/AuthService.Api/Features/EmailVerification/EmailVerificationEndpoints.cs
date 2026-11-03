@@ -1,3 +1,4 @@
+using AuthService.Api.RateLimiting;
 using AuthService.Api.Common;
 
 namespace AuthService.Api.Features.EmailVerification;
@@ -11,7 +12,7 @@ public static class EmailVerificationEndpoints
     public static IEndpointRouteBuilder MapEmailVerification(this IEndpointRouteBuilder app)
     {
         app.MapPost(VerifyRoute, VerifyAsync).AllowAnonymous();
-        app.MapPost(ResendRoute, ResendAsync).AllowAnonymous().RequireRateLimiting(ResendRateLimitPolicy);
+        app.MapPost(ResendRoute, ResendAsync).AllowAnonymous().RequireSharedRateLimit(ResendRateLimitPolicy);
         return app;
     }
 

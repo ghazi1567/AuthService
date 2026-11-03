@@ -50,3 +50,4 @@ What becomes easier, what becomes harder, and what must be revisited if circumst
 | [0005](0005-auth-service-as-its-own-product.md) | The Auth Service is a product of its own | Accepted |
 | [0006](0006-signed-in-session-kept-on-the-server.md) | The signed-in session is kept on the server | Accepted |
 | [0007](0007-hand-the-token-to-a-product-with-a-form-post.md) | Hand a product its token with a form post | Accepted |
+| [0008](0008-rate-limit-counters-in-postgresql.md) | Keep rate-limit counters in PostgreSQL, and fail closed | Accepted |

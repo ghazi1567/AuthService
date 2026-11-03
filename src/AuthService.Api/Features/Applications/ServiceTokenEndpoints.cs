@@ -1,3 +1,4 @@
+using AuthService.Api.RateLimiting;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AuthService.Api.Common;
@@ -26,7 +27,7 @@ public static class ServiceTokenEndpoints
 
     public static IEndpointRouteBuilder MapServiceToken(this IEndpointRouteBuilder app)
     {
-        app.MapPost(Route, TokenAsync).AllowAnonymous().RequireRateLimiting(RateLimitPolicy);
+        app.MapPost(Route, TokenAsync).AllowAnonymous().RequireSharedRateLimit(RateLimitPolicy);
         return app;
     }
 

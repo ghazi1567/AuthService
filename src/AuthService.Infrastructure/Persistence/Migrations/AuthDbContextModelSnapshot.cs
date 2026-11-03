@@ -640,6 +640,30 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("permissions", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RateLimitCounter", b =>
+                {
+                    b.Property<string>("KeyHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key_hash");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<long>("Hits")
+                        .HasColumnType("bigint")
+                        .HasColumnName("hits");
+
+                    b.HasKey("KeyHash")
+                        .HasName("pk_rate_limit_counters");
+
+                    b.HasIndex("ExpiresAt")
+                        .HasDatabaseName("ix_rate_limit_counters_expires_at");
+
+                    b.ToTable("rate_limit_counters", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
