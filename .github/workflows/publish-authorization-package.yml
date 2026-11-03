@@ -1,0 +1,163 @@
+name: Publish AuthService.Authorization
+
+# PLT-07 (AUTH-204): the package products install is published from here and from nowhere else. Push a tag named
+# authorization-v<major>.<minor>.<patch> (for example authorization-v1.2.0, or authorization-v2.0.0-rc.1 for a pre-release) on a commit
+# that is on main. The version of the package is the tag's, the whole test suite must pass first, and the package is then installed from
+# the feed by the sample product, whose tests must pass too. See docs/decisions/0009-publish-the-authorization-package-to-github-packages.md
+# and the release steps in src/AuthService.Authorization/README.md.
+
+on:
+  push:
+    tags:
+      - "authorization-v*"
+
+# One release at a time, and a release is never cancelled half way: a package that was pushed must also be checked.
+concurrency:
+  group: publish-authorization-package
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  PACKAGE_ID: AuthService.Authorization
+  FEED: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+
+jobs:
+  version:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # A release is made from main only, so a branch that was never reviewed cannot publish a package.
+      - name: Check that the tagged commit is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::The tagged commit is not on main. Tag a commit that has been merged."
+            exit 1
+          fi
+
+      - name: Read the version from the tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#authorization-v}"
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if ! [[ "$version" =~ $semver ]]; then
+            echo "::error::The tag '$tag' does not carry a semantic version. Use authorization-v<major>.<minor>.<patch>[-prerelease]."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing $PACKAGE_ID $version"
+
+  test:
+    name: Build and test
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # The whole suite, against a real PostgreSQL started by Testcontainers, exactly as on a pull request.
+      - name: Test
+        run: dotnet test --no-build --configuration Release
+
+  publish:
+    name: Pack and publish
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # The only permission that can change anything: it lets this job push to this repository's package feed, and nothing else.
+      packages: write
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Pack
+        run: >
+          dotnet pack src/AuthService.Authorization
+          --configuration Release
+          --output artifacts/packages
+          -p:Version=${{ needs.version.outputs.version }}
+
+      - name: Keep the package
+        uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: artifacts/packages/*.nupkg
+          retention-days: 30
+
+      # The token GitHub gives this run: it expires with the run and is not stored anywhere. A version is never overwritten; pushing one
+      # that exists fails, and the fix is a new version.
+      - name: Push to GitHub Packages
+        run: >
+          dotnet nuget push "artifacts/packages/${PACKAGE_ID}.${{ needs.version.outputs.version }}.nupkg"
+          --source "$FEED"
+          --api-key "${{ secrets.GITHUB_TOKEN }}"
+
+  verify:
+    name: Install the published package in the sample product
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # The sample's NuGet.config looks in artifacts/packages, which is empty here, so the only place it can get the package from is
+      # the feed it was just published to.
+      - name: Add the feed
+        run: >
+          dotnet nuget add source "$FEED"
+          --name github
+          --username "${{ github.actor }}"
+          --password "${{ secrets.GITHUB_TOKEN }}"
+          --store-password-in-clear-text
+          --configfile samples/NuGet.config
+
+      - name: Test the sample product against the published package
+        run: >
+          dotnet test samples/SampleProduct.Tests
+          --configuration Release
+          -p:AuthorizationPackageVersion=${{ needs.version.outputs.version }}

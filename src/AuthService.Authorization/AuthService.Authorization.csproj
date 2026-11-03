@@ -4,11 +4,38 @@
     <!-- The package a product API installs to enforce Auth Service tokens (TOK-03). Version it like any library: a breaking change
          to the claim contract or the public API is a new major version. -->
     <PackageId>AuthService.Authorization</PackageId>
-    <Version>1.1.0</Version>
     <IsPackable>true</IsPackable>
     <Description>Validates Auth Service product tokens locally against the published JWKS, checks the audience, exposes the tenant, and enforces permissions by level.</Description>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Version">
+    <!-- The version of a released package is the tag that CI was triggered by (authorization-v1.2.3 gives 1.2.3), passed in as
+         -p:Version. A build from anywhere else is not a release and says so. -->
+    <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package contents">
+    <Authors>Auth Service</Authors>
+    <PackageTags>authentication;authorization;jwt;jwks;multi-tenant;aspnetcore</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+    <PackageProjectUrl>https://github.com/ghazi1567/AuthService</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ghazi1567/AuthService</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Symbols">
+    <!-- The debug symbols travel inside the package, with Source Link, so a debugger can step into it from any feed. GitHub Packages
+         does not host separate .snupkg symbol packages, and an embedded PDB needs no second package to publish. -->
+    <DebugType>embedded</DebugType>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <!-- Paths in the symbols are rewritten so they do not depend on the machine that built them. -->
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,6 +48,7 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="LICENSE.txt" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

@@ -44,6 +44,34 @@ var open = await EndpointPolicyAudit.FindEndpointsWithoutPermissionPolicyAsync(
 open.ShouldBeEmpty();
 ```
 
+## Installing
+
+The package is published to this repository's GitHub Packages feed. Add the feed once (a personal access token with `read:packages`, or the
+`GITHUB_TOKEN` in a GitHub Actions workflow of the same organisation):
+
+```bash
+dotnet nuget add source https://nuget.pkg.github.com/<owner>/index.json --name authservice \
+  --username <your-github-user> --password <token> --store-password-in-clear-text
+dotnet add package AuthService.Authorization
+```
+
+`samples/SampleProduct` is a small product API that installs the package this way and enforces tokens with it; its tests
+(`samples/SampleProduct.Tests`) are the ones a product team would write.
+
+## Releasing (for the Auth Service team)
+
+A release is made by CI, never from a developer machine, and only from a commit that is on `main`:
+
+1. Decide the version. The claim contract (`sub`, `tid`, `aud`, `permissions`) and the public API are the surface: a breaking change to
+   either is a **new major version**, a backwards-compatible addition a new minor, a fix a patch. The Auth Service keeps issuing the
+   old contract until products have moved.
+2. Push a tag named `authorization-v<version>` on the merged commit, for example `authorization-v1.3.0` (or `authorization-v2.0.0-rc.1`
+   for a pre-release).
+3. The "Publish AuthService.Authorization" workflow checks the tag is a semantic version on `main`, runs the whole test suite, packs the
+   package at the tag's version, pushes it to the feed, and then restores it from the feed into the sample product and runs the sample's
+   tests. A failure at any step publishes nothing further.
+4. A published version is never replaced. If one is wrong, publish the next one.
+
 ## Versioning
 
 The package follows semantic versioning. The claim contract (`sub`, `tid`, `aud`, `permissions` as `key:Level`) and the public API are
