@@ -24,21 +24,20 @@ public sealed class SigningKeyService(
     private volatile KeyEntry[] _entries = [];
 
     /// <summary>The key that signs a token issued right now.</summary>
-    public SecurityKey CurrentSigningKey
-    {
-        get
-        {
-            var now = timeProvider.GetUtcNow();
+    public SecurityKey CurrentSigningKey =>
+        FindCurrent(timeProvider.GetUtcNow())?.Private
+            ?? throw new InvalidOperationException("There is no signing key to sign with. The signing keys have not been loaded.");
 
-            var current = _entries
-                .Where(entry => entry.SignFrom <= now && (entry.SignUntil is null || entry.SignUntil > now))
-                .OrderByDescending(entry => entry.SignFrom)
-                .FirstOrDefault();
+    /// <summary>Whether there is a key that can sign right now. Without one no token can be issued (PLT-05 readiness).</summary>
+    public bool HasCurrentKey => FindCurrent(timeProvider.GetUtcNow())?.Private is not null;
 
-            return current?.Private
-                ?? throw new InvalidOperationException("There is no signing key to sign with. The signing keys have not been loaded.");
-        }
-    }
+    /// <summary>How long the key that signs now has been signing, or null when there is none (PLT-05 metrics).</summary>
+    public TimeSpan? CurrentKeyAge => FindCurrent(timeProvider.GetUtcNow()) is { } current ? timeProvider.GetUtcNow() - current.SignFrom : null;
+
+    private KeyEntry? FindCurrent(DateTimeOffset now) => _entries
+        .Where(entry => entry.SignFrom <= now && (entry.SignUntil is null || entry.SignUntil > now))
+        .OrderByDescending(entry => entry.SignFrom)
+        .FirstOrDefault();
 
     /// <summary>
     /// The keys a token with this <c>kid</c> may have been signed with: the published key with that id, if there is one.

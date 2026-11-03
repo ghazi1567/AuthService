@@ -1,5 +1,6 @@
 using AuthService.Api.Features.Accounts;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Observability;
 using AuthService.Api.Tokens;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
@@ -34,6 +35,7 @@ public sealed class LoginService(
     IOptions<LoginProtectionOptions> options,
     AuditLog audit,
     TimeProvider timeProvider,
+    AuthMetrics metrics,
     ILogger<LoginService> logger)
 {
     // Hashed once so an unknown email still costs one password check: response time must not reveal whether an email exists.
@@ -138,6 +140,7 @@ public sealed class LoginService(
             .SingleAsync(cancellationToken);
 
         audit.Record(AuditActions.LoginFailed, AuditActor.User(userId), detail: "wrong_password");
+        metrics.RecordLoginFailure("wrong_password");
 
         // Postgres stores microseconds and .NET keeps finer ticks, so compare with a tolerance, not for equality.
         if (lockedUntil is { } storedLockedUntil && (storedLockedUntil - lockUntil).Duration() < TimeSpan.FromMilliseconds(1))
@@ -157,6 +160,7 @@ public sealed class LoginService(
     private async Task RecordFailureAsync(AuditActor actor, string detail, CancellationToken cancellationToken)
     {
         audit.Record(AuditActions.LoginFailed, actor, detail: detail);
+        metrics.RecordLoginFailure(detail);
         await db.SaveChangesAsync(cancellationToken);
     }
 }

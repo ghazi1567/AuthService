@@ -20,6 +20,9 @@ public sealed class EndpointInventoryTests(PostgresContainerFixture postgres) : 
     [
         "GET /",
         "GET /.well-known/jwks.json",
+        "GET /health/live",
+        "GET /health/ready",
+        "GET /metrics",
         "POST /api/auth/email/verify",
         "POST /api/auth/email/verify/resend",
         "POST /api/auth/invitations/accept",
