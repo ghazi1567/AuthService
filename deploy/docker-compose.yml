@@ -4,7 +4,7 @@
 # The three AuthService images are pulled from the registry, at the version named by AUTHSERVICE_VERSION in .env, so a server needs
 # only this file, the Caddyfile and .env (no source code):
 #
-#   cp .env.example .env      # then fill it in (never commit .env)
+#   cp env.example .env      # then fill it in (never commit .env); the repository calls it .env.example
 #   docker compose pull && docker compose up -d
 #
 # To build the images from source instead, add docker-compose.build.yml (see that file).
