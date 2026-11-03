@@ -1,20 +1,27 @@
 # Deploying AuthService
 
-The service ships as three container images built from the one `Dockerfile`. They run on anything that runs containers (a VPS with
-Docker, Railway, Render, Fly, Azure Container Apps, Kubernetes): the host decides how, this page says what. **The quickest way to a working
-system is the next section: one Ubuntu server, Docker Compose, HTTPS handled for you.**
+The service ships as three container images built from the one `Dockerfile`. Every release (a Git tag `v1.0.0`) publishes them to GitHub's
+container registry, for Intel and ARM servers, so **a server runs a release without ever having the source code**. They run on anything that
+runs containers (a VPS with Docker, Railway, Render, Fly, Azure Container Apps, Kubernetes): the host decides how, this page says what. **The
+quickest way to a working system is the next section: one Ubuntu server, Docker Compose, HTTPS handled for you.**
 
-| Image | Build | What it does |
+| Image | Published as | What it does |
 |---|---|---|
-| API | `docker build -t authservice-api .` | The web service. Listens on port **8080**, runs as a non-root user. |
-| Web console | `docker build --target web -t authservice-web .` | The pages people sign in on (sign-up, sign-in, the tenant console, the platform console). Listens on **8080**, runs as a non-root user, calls the API from its server. |
-| Migrate | `docker build --target migrate -t authservice-migrate .` | A one-off job: applies every pending database migration, then exits. |
+| API | `ghcr.io/ghazi1567/authservice-api:<version>` | The web service. Listens on port **8080**, runs as a non-root user. |
+| Web console | `ghcr.io/ghazi1567/authservice-web:<version>` | The pages people sign in on (sign-up, sign-in, the tenant console, the platform console). Listens on **8080**, runs as a non-root user, calls the API from its server. |
+| Migrate | `ghcr.io/ghazi1567/authservice-migrate:<version>` | A one-off job: applies every pending database migration, then exits. |
+
+To build them yourself instead: `docker build -t authservice-api .`, `docker build --target web -t authservice-web .` and
+`docker build --target migrate -t authservice-migrate .`, or use `deploy/docker-compose.build.yml` (below).
 
 The API **never migrates on startup** ([decision 0003](decisions/0003-migrations-applied-explicitly.md)). Every release runs the migrate
 job first, then starts the new API.
 
 `deploy/docker-compose.yml` is a worked example for a single machine: the HTTPS proxy (Caddy), the web console, the API, PostgreSQL and
-the migrate job. It was run for real while writing this page.
+the migrate job. It pulls the images from the registry. It was run for real while writing this page.
+
+**Before the first release exists**, nothing is in the registry yet: tag one (see "Publishing a release") or build from source on a machine that
+has the repository (`AUTHSERVICE_VERSION=local docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`).
 
 ## Deploy on an Ubuntu server with Docker
 
@@ -36,7 +43,7 @@ dig +short app.example.com
 
 ```bash
 sudo apt-get update && sudo apt-get -y upgrade
-sudo apt-get install -y ca-certificates curl git ufw unattended-upgrades
+sudo apt-get install -y ca-certificates curl ufw unattended-upgrades
 
 # Only SSH, HTTP and HTTPS may reach the server. HTTP is needed for the certificates.
 sudo ufw allow OpenSSH
@@ -53,14 +60,27 @@ Log out and back in so the `docker` group applies, then check `docker compose ve
 `ufw` does not restrict them, which is why this stack publishes only 80 and 443 and nothing else: the database, the API and the web console
 are not reachable from outside at all.
 
-**3. Get the code.**
+**3. Get the five small files and log in to the registry.** No source code and no `git` are needed on the server. Open the repository's
+**Releases** page, pick the version, and download the attached files: `docker-compose.yml`, `Caddyfile`, `.env.example`, `backup.sh` and
+`check.sh`. Put them in one folder on the server, for example by copying them from your own computer:
 
 ```bash
-git clone https://github.com/ghazi1567/AuthService.git
-cd AuthService/deploy
+# on your computer, in the folder you downloaded them to
+scp docker-compose.yml Caddyfile .env.example backup.sh check.sh ubuntu@your-server:~/authservice/
 ```
 
-(A private repository asks for a token or a deploy key. To run a released version rather than the latest, `git checkout <tag>` first.)
+(Or on the server, if you have the GitHub command-line tool signed in: `gh release download v1.0.0 --repo ghazi1567/AuthService --dir ~/authservice`.)
+
+The images are private, like the repository, so the server logs in to the registry once. In GitHub, **Settings, Developer settings, Personal access
+tokens, Tokens (classic)**: create one with only the `read:packages` permission, then on the server:
+
+```bash
+cd ~/authservice
+chmod +x backup.sh check.sh
+echo "<the token>" | docker login ghcr.io -u <your GitHub user name> --password-stdin
+```
+
+(If you would rather not use a token, set the three packages to public under the repository's **Packages**: they contain the program, no secrets.)
 
 **4. Fill in the settings.** Everything is in one file that never leaves the server:
 
@@ -70,7 +90,8 @@ chmod 600 .env
 nano .env
 ```
 
-Set `AUTH_HOST` and `APP_HOST` to your two names and `ACME_EMAIL` to an address you read. Create the three secrets on the server and paste them in:
+Set `AUTHSERVICE_VERSION` to the release you downloaded the files from, without the `v` (`1.0.0`). Set `AUTH_HOST` and `APP_HOST` to your two names and
+`ACME_EMAIL` to an address you read. Create the secrets on the server and paste them in:
 
 ```bash
 openssl rand -base64 24   # POSTGRES_PASSWORD
@@ -81,24 +102,25 @@ openssl rand -base64 32   # AUTH_KEY_ENCRYPTION_KEY
 the stored signing keys cannot be read. Leave `BREVO_API_KEY` and the sender empty and set `EMAIL_PROVIDER=File` for a first trial (emails are
 written to a folder inside the API container instead of sent); switch to Brevo once the sender domain is ready.
 
-**5. Start it.** From the `deploy` folder:
+**5. Start it.** In the folder with the files:
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 docker compose ps
 ```
 
-The first build takes several minutes. Start order is automatic: the database, the migration job, the API, the web console, and then the proxy,
+The download takes a minute or two. Start order is automatic: the database, the migration job, the API, the web console, and then the proxy,
 which asks Let's Encrypt for a certificate for each name. When `docker compose ps` shows `api`, `web` and `db` as `healthy` and `caddy` as
-`Up`, check from your computer:
+`Up`, run the check script (from the server or from your own computer; it makes the same requests a visitor and a product would):
 
 ```bash
-curl https://auth.example.com/health/ready      # {"status":"ready","checks":{"database":"ok","signingKey":"ok"}}
-curl https://auth.example.com/.well-known/jwks.json
-curl -I http://app.example.com                  # 308, redirecting to https
+./check.sh auth.example.com app.example.com
 ```
 
-and open `https://app.example.com` in a browser. If a certificate is not issued, see "If something does not work" below.
+Every line should say `ok`: the API is ready (database reachable, migrated, a signing key), the public keys are published, `/metrics` is refused,
+the console and its sign-in page are served, HTTP is sent to HTTPS, and HTTPS is enforced. Then open `https://app.example.com` in a browser. If a
+certificate is not issued, see "If something does not work" below.
 
 **6. Make the first platform admin.** Nobody can become a platform admin through the website; it is a database flag, by design. Sign up at
 `https://app.example.com/signup` and verify your email (with `EMAIL_PROVIDER=File` the link is in the API container: `docker compose exec api
@@ -110,13 +132,13 @@ docker compose exec db psql -U auth -d auth -c "UPDATE users SET is_platform_adm
 
 Sign out and in again; the platform console is at `/platform`. Register your product there (README, "Platform admins" and "Applications").
 
-**7. Backups.** `deploy/backup.sh` writes a dump of the database to `deploy/backups` and removes dumps older than 14 days. Run it every night
+**7. Backups.** `backup.sh` writes a dump of the database to a `backups` folder next to it and removes dumps older than 14 days. Run it every night
 from cron, and copy the dumps off the server (a backup on the machine that fails is not a backup):
 
 ```bash
 crontab -e
 # add this line (use your own path):
-0 3 * * * /home/ubuntu/AuthService/deploy/backup.sh >> /home/ubuntu/authservice-backup.log 2>&1
+0 3 * * * /home/ubuntu/authservice/backup.sh >> /home/ubuntu/authservice-backup.log 2>&1
 ```
 
 Run it once by hand now, and **try a restore before you need one**, into a scratch database so nothing live is touched:
@@ -133,17 +155,23 @@ To restore for real (the data is lost or damaged): `docker compose stop web api`
 auth`, `pg_restore -U auth -d auth --no-owner < <file>` the same way, then `docker compose start api web`. The dump does not contain
 `AUTH_KEY_ENCRYPTION_KEY`: keep `.env` safe separately, or the restored signing keys cannot be read.
 
-**8. Updating.** Take a backup, pull the new code and rebuild:
+**8. Updating.** Read the new release's notes, take a backup, change the version and pull:
 
 ```bash
 ./backup.sh
-git pull
-docker compose up -d --build
+nano .env                      # AUTHSERVICE_VERSION=1.1.0
+docker compose pull
+docker compose up -d
+./check.sh auth.example.com app.example.com
 ```
 
+If the release came with newer `docker-compose.yml` or `Caddyfile` attachments (the release notes say so), download them over the old ones first.
 The migration job runs first and the API waits for it; the console and API restart in a few seconds. People signed in to the console are signed out
-by the restart (see below). To go back, `git checkout` the previous version and run the same `up -d --build`; a migration is not undone by that,
-which is why a migration must stay compatible with the previous version (add before you remove).
+by the restart (see below).
+
+**Going back** is the same with the previous version in `.env`: `AUTHSERVICE_VERSION=1.0.0`, `docker compose pull`, `docker compose up -d`. A
+migration is not undone by that, which is why a migration must stay compatible with the previous version (add before you remove). If a release
+broke the data, restore the backup you took before updating (step 7).
 
 **Day to day:** `docker compose logs -f api` (or `web`, `caddy`) shows what is happening; logs rotate by themselves (5 files of 10 MB per container).
 `docker compose restart web` restarts one part. The containers start again by themselves after a reboot.
@@ -346,15 +374,34 @@ turns them into rates. Suggested alerts: readiness failing for more than a minut
 `auth_webhook_outbox_messages{status="failed"}` above zero; `auth_email_outbox_oldest_pending_age_seconds` above a few minutes; a burst
 of `auth_login_failures_total`, or `5xx` in `auth_http_requests_total`.
 
-## Releasing a new version
+## Publishing a release
 
-1. Build both images from the same commit.
-2. Run the migrate job. A migration is applied while the old version is still serving, so a migration must stay compatible with the
-   running version (add before you remove).
-3. Start the new API; stop the old one. Several instances can run together: key rotation, email and webhook workers all take database
-   locks so instances take turns. Rate-limit counters are shared through the database (see "Rate limits with several instances"), so a limit is the same with one instance or ten.
-4. Roll back by starting the old image. A migration is not undone by that, which is why step 2 matters.
-5. Work through [the release checklist](release-checklist.md): the parts of webhook delivery that need the real network.
+A release is a Git tag, and CI does the rest. Nothing is built or pushed from a developer machine.
+
+1. Merge what should be in the release to `main` and wait for its CI run to be green.
+2. Tag the merged commit and push the tag (from any clone, or create the tag in GitHub's **Releases** page):
+
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+   Use semantic versions: `v1.0.0`, `v1.1.0`, `v1.1.1`; a pre-release such as `v1.1.0-rc.1` is published too but never becomes `latest`.
+3. The **Publish images** workflow (`.github/workflows/publish-images.yml`) then runs, and each step needs the one before: it checks the tag is a
+   semantic version on `main`; builds and runs the whole test suite; builds the API, web console and migration images for Intel and ARM and pushes
+   them as `ghcr.io/ghazi1567/authservice-api`, `-web` and `-migrate` tagged with the version (and `latest` for a final release); starts the pushed
+   images with the release's own compose file and runs `check.sh` against them; and only then creates the GitHub release, with the five files a
+   server needs attached. A failure at any step creates no release. Images already pushed stay in the registry: fix the problem and tag the next
+   patch version rather than reusing the tag.
+4. The first time, the registry packages are private to the repository, like the repository itself. A server logs in with a token that has only
+   `read:packages` (step 3 of "Deploy on an Ubuntu server with Docker").
+5. Servers update when you say so (step 8 of the same guide). Work through [the release checklist](release-checklist.md) for the parts that need the
+   real network.
+
+Updating a running system: a migration is applied while the old version is still serving, so a migration must stay compatible with the
+running version (add before you remove). Several instances can run together: key rotation, email and webhook workers all take database
+locks so instances take turns. Rate-limit counters are shared through the database (see "Rate limits with several instances"), so a limit is
+the same with one instance or ten. A migration is not undone by going back to an older version.
 
 ## Operations
 

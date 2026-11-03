@@ -6,7 +6,9 @@
 #   Web console image:            docker build --target web -t authservice-web .
 # The API never migrates on startup (docs/decisions/0003): run the migration image against the database before starting a new version.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# The build stages always run on the machine doing the build (BUILDPLATFORM): the published output is the same for every processor, and
+# the migration bundle is cross-compiled for the target. So an image for another processor (arm64) is not compiled under emulation.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Restore first, on the project files alone, so a code change does not repeat it.
@@ -29,6 +31,7 @@ RUN dotnet tool restore \
       --self-contained --target-runtime "$rid" --configuration Release --force --output /bundle/efbundle
 
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS migrate
+LABEL org.opencontainers.image.source="https://github.com/ghazi1567/AuthService"       org.opencontainers.image.description="AuthService migration job: applies every pending database migration, then exits."
 WORKDIR /app
 COPY --from=bundle /bundle/efbundle ./efbundle
 USER $APP_UID
@@ -40,6 +43,7 @@ RUN dotnet restore src/AuthService.Web/AuthService.Web.csproj \
  && dotnet publish src/AuthService.Web/AuthService.Web.csproj -c Release --no-restore -o /app-web
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS web
+LABEL org.opencontainers.image.source="https://github.com/ghazi1567/AuthService"       org.opencontainers.image.description="AuthService web console."
 WORKDIR /app
 COPY --from=build-web /app-web .
 # A folder for the keys that protect the cookies, so they survive a restart; mount a volume on it. Not root.
@@ -51,6 +55,8 @@ ENTRYPOINT ["dotnet", "AuthService.Web.dll"]
 
 # Last, so a plain `docker build .` still builds the API.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+# The label links the published image to this repository, so it takes the repository's access rules on ghcr.io.
+LABEL org.opencontainers.image.source="https://github.com/ghazi1567/AuthService"       org.opencontainers.image.description="AuthService API."
 WORKDIR /app
 COPY --from=build /app .
 # Not root. The image listens on 8080 (the .NET default for containers); put a TLS-terminating proxy in front.
