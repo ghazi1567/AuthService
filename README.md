@@ -48,8 +48,9 @@ The first run pulls the Postgres image, so it takes longer.
 
 ## The web console (`src/AuthService.Web`)
 
-A Blazor Web App ([decision 0002](docs/decisions/0002-blazor-web-app-for-ui.md)) that is one more client of the API. This is its
-**setup only**: the finished screens follow the Figma design and the Jira Web UI epic (AUTH-195).
+A Blazor Web App ([decision 0002](docs/decisions/0002-blazor-web-app-for-ui.md)) that is one more client of the API. Its screens (the
+public pages, the picker, the organisation console and the platform console) are built; [docs/reference/06-web-console.md](docs/reference/06-web-console.md)
+is the current description and this section is older, so trust that file where they differ. The bullets below describe how it was set up.
 
 ```bash
 dotnet run --project src/AuthService.Web      # http://localhost:5090, expects the API at http://localhost:5080
@@ -224,8 +225,8 @@ What is in place:
   `frame-ancestors`/`form-action` policy and `Permissions-Policy`; HTML pages are `Cache-Control: no-store`. A script-source policy is
   decided with the finished design, because Blazor's scripts need a tested nonce policy.
 - **`GET /healthz`** answers `ok` while the app runs, and says nothing about the API.
-- **Not yet:** the other auth screens (signup, verify email, password reset, accept invitation), the consoles and the picker, a shared
-  session store for more than one copy, and a container image.
+- **Not yet:** a shared session store for more than one copy of the console, a script-source content policy, and the Figma designs. (The auth screens,
+  the picker, both consoles and the container image exist.)
 
 `tests/AuthService.Web.Tests` tests it with no database and no Docker (`dotnet test tests/AuthService.Web.Tests`).
 
@@ -377,8 +378,8 @@ Login is protected against password guessing in two ways:
   with `Retry-After`. Behind a reverse proxy, list the proxy in `Auth:Proxy` (see Configuration) so this is the client's address and not the
   proxy's.
 
-The lockout is logged by user id, never by email. The audit log (AUD-01) will record it too once it exists, and password
-reset (TEN-10) will clear the count.
+The lockout is logged by user id, never by email. The audit log (AUD-01) records it too (`auth.login.failed`, `auth.account.locked`), and
+password reset (TEN-10) clears the count.
 
 ### Audit log
 
@@ -1033,8 +1034,8 @@ Someone who forgot their password recovers it through an emailed single-use link
    everywhere** (every refresh token is revoked), and retires their other outstanding reset links.
 
 Both endpoints are limited per IP address (429), and an account is not sent a new link more often than the cooldown allows,
-so a stranger cannot flood someone's inbox. A reset is logged by user id, never by email. The audit log (AUD-01) will record
-it too once it exists.
+so a stranger cannot flood someone's inbox. A reset is logged by user id, never by email. The audit log (AUD-01) records
+it too (`auth.password_reset.completed`).
 
 ### Email verification
 
