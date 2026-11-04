@@ -265,8 +265,8 @@ The rate limits, token lifetimes and lockout rules have safe defaults; the READM
    ```sql
    UPDATE users SET is_platform_admin = true WHERE email = 'you@example.com';
    ```
-   Log in again for a token that carries it. From there you register products through `/api/auth/admin/applications` (README,
-   "Platform admins").
+   The flag is read from the database on every request, so it applies at once (reload `/platform`; signing out and in is not needed).
+   From there you register products through `/platform/products` or `/api/auth/admin/applications` (README, "Platform admins").
 
 ## Behind a proxy
 
