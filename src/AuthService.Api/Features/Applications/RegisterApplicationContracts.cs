@@ -12,7 +12,8 @@ public sealed record RegisterApplicationRequest(
     string? JwtAudience,
     string? LaunchUrl = null,
     IReadOnlyList<PermissionInput>? Permissions = null,
-    bool? Activate = null);
+    bool? Activate = null,
+    IReadOnlyList<RoleTemplateInput>? Roles = null);
 
 /// <summary>
 /// The registered product, with its client credentials. <see cref="ClientSecret"/> is in this response and nowhere else, ever:
@@ -29,7 +30,8 @@ public sealed record RegisterApplicationResponse(
     DateTimeOffset CreatedAt,
     string? LaunchUrl = null,
     int PermissionCount = 0,
-    string Credential = "");
+    string Credential = "",
+    int RoleTemplateCount = 0);
 
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/name</c>. Nullable so a missing name is a validation error.</summary>
 public sealed record RenameApplicationRequest(string? Name);

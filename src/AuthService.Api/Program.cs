@@ -122,6 +122,7 @@ builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<CreateTenantService>();
 builder.Services.AddScoped<RegisterApplicationService>();
 builder.Services.AddScoped<PermissionCatalogService>();
+builder.Services.AddScoped<RoleTemplateService>();
 builder.Services.Configure<ApplicationCredentialOptions>(builder.Configuration.GetSection(ApplicationCredentialOptions.SectionName));
 builder.Services.AddScoped<ServiceTokenService>();
 builder.Services.AddScoped<SecretRotationService>();

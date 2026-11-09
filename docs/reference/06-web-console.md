@@ -813,6 +813,7 @@ Rules:
 | `GET /platform` | none | `Program.cs` `MapGet("/platform")` | n/a | Redirects to `/platform/audit`. |
 | `GET /platform/products` | `[Authorize]` + API probe | `Pages/Platform/PlatformProducts.razor` | `GET /api/auth/admin/applications` | Lists every product, available or not. |
 | `GET /platform/products/{id}/permissions` | same | `PlatformPermissions.razor` | `GET /api/auth/admin/applications/{id}/permissions` | A product's permission list. |
+| `GET /platform/products/{id}/roles` | same | `PlatformRoleTemplates.razor` | `GET /api/auth/admin/applications/{id}/role-templates`, `PUT` the same route, `POST .../role-templates/apply` | The roles a product ships with, editing the whole set as JSON, and copying them to organisations (ONB-04). |
 | `GET /platform/webhooks` | same | `PlatformWebhooks.razor` | `GET /api/auth/admin/webhooks?limit=&status=&applicationId=` and `GET /api/auth/applications` | Webhook events, newest first. |
 | `GET /platform/signing-keys` | same | `PlatformSigningKeys.razor` | `GET /.well-known/jwks.json` (no token) | The published public signing keys. |
 | `GET /platform/audit` | same | `PlatformAudit.razor` | `GET /api/auth/admin/audit?limit=&action=&tenantId=&actorId=&before=` | The audit log across every organisation. |
@@ -851,6 +852,7 @@ Details by part:
   subscriptions and seats are not changed), Opens at (an https address, no user name, password or fragment, at most 2000 characters;
   the API's reasons are shown in the dialog), Replace secret (grace 0 to 720 hours, same choices as API keys), Permissions. A product
   becomes available only after it has permissions (`no_permissions_registered`).
+- **Roles.** (`/platform/products/{id}/roles`) Lists the roles a product ships with (name, what it is for, and each permission with its level in words: View only, View and create, Full access). "Edit roles" opens the whole set as JSON (`RoleTemplateText`, with "Load from a file" when the script runs); a role left out is removed, `{"roles": []}` removes them all, and the API's reasons (an unknown key, a bad level, a repeated name) appear in the dialog. "Copy to organisations" (offered only when there are roles) asks first, saying nothing is overwritten, and reports how many roles were created, in how many organisations, and how many were left alone. The register dialog reads a `roles` list from the same JSON it reads permissions from and sends it with the registration.
 - **Permissions.** Lists a product's catalog by key. "Add permissions" takes one per line as `key | label | optional description`, or pasted JSON (`PermissionText`).
   The list only grows; adding an existing key changes its label and description. The page says "Up to 200 at a time"
   (`MaxPerPost`) but does not enforce it; the API does.

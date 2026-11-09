@@ -264,6 +264,22 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Path, string Body)> TestOrganisationCalls { get; } = [];
 
+    /// <summary>A product's role templates as the API lists them (<c>GET /api/auth/admin/applications/{id}/role-templates</c>), as its JSON.</summary>
+    public string RoleTemplatesJson { get; set; } = """{"roles":[]}""";
+
+    /// <summary>Answers the role templates being read; null (the default) answers with <see cref="RoleTemplatesJson"/>.</summary>
+    public Func<HttpResponseMessage?>? RolesReadResponse { get; set; }
+
+    /// <summary>Answers the role templates being set (given the request body); null (the default) accepts them.</summary>
+    public Func<string, HttpResponseMessage?>? SetRolesResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> SetRolesCalls { get; } = [];
+
+    /// <summary>Answers the role templates being copied to organisations; null (the default) says 4 roles were created in 3 organisations and 2 left alone.</summary>
+    public Func<HttpResponseMessage?>? ApplyRolesResponse { get; set; }
+
+    public List<(string? Authorization, string Path)> ApplyRolesCalls { get; } = [];
+
     /// <summary>Answers an organisation being subscribed by an admin (given the request body); null (the default) subscribes it.</summary>
     public Func<string, HttpResponseMessage?>? SubscribeOrganisationResponse { get; set; }
 
@@ -402,13 +418,53 @@ public sealed class FakeAuthApi : HttpMessageHandler
                     ? permissionsElement.GetArrayLength()
                     : 0;
                 var live = json.RootElement.TryGetProperty("activate", out var activateElement) && activateElement.ValueKind == JsonValueKind.True ? "true" : "false";
+                var roleCount = json.RootElement.TryGetProperty("roles", out var rolesElement) && rolesElement.ValueKind == JsonValueKind.Array
+                    ? rolesElement.GetArrayLength()
+                    : 0;
                 return new HttpResponseMessage(HttpStatusCode.Created)
                 {
                     Content = new StringContent(
-                        $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":{{live}},"clientId":"new-client","clientSecret":"{{ProductSecret}}","credential":"new-client.{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z","launchUrl":{{launch}},"permissionCount":{{permissionCount}}}""",
+                        $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":{{live}},"clientId":"new-client","clientSecret":"{{ProductSecret}}","credential":"new-client.{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z","launchUrl":{{launch}},"permissionCount":{{permissionCount}},"roleTemplateCount":{{roleCount}}}""",
                         Encoding.UTF8,
                         "application/json"),
                 };
+            }
+
+            if (path.StartsWith("/api/auth/admin/applications/", StringComparison.Ordinal) && path.EndsWith("/role-templates/apply", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    ApplyRolesCalls.Add((request.Headers.Authorization?.ToString(), path));
+                }
+
+                return ApplyRolesResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"organisations":3,"rolesCreated":4,"rolesSkipped":2}""", Encoding.UTF8, "application/json"),
+                };
+            }
+
+            if (path.StartsWith("/api/auth/admin/applications/", StringComparison.Ordinal) && path.EndsWith("/role-templates", StringComparison.Ordinal))
+            {
+                if (request.Method == HttpMethod.Put)
+                {
+                    lock (_gate)
+                    {
+                        SetRolesCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                    }
+
+                    return SetRolesResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"roles":[]}""", Encoding.UTF8, "application/json"),
+                    };
+                }
+
+                if (request.Method == HttpMethod.Get)
+                {
+                    return RolesReadResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(RoleTemplatesJson, Encoding.UTF8, "application/json"),
+                    };
+                }
             }
 
             if (path.StartsWith("/api/auth/admin/applications/", StringComparison.Ordinal) && path.EndsWith("/test-organisations", StringComparison.Ordinal) && request.Method == HttpMethod.Post)

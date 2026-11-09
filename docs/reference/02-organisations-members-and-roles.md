@@ -554,7 +554,9 @@ SELECT email, password_hash IS NULL AS no_password, email_verified_at FROM users
 
 A role is a named bundle of permissions defined by one organisation. Each permission is granted at a *level*. Admins create, rename,
 change and delete roles. Every organisation also has one built-in role, **Owner**, that is created with it and can never be changed or
-deleted.
+deleted. A role does not have to be made by hand: a product can ship roles of its own (ONB-04), and the first time an organisation
+subscribes to it each becomes an ordinary custom role there (`RoleTemplateCopier`, part 3). It is a copy: nothing marks it, it is edited and
+deleted like any other, and one with the same name (case ignored) that the organisation already has is left exactly as it is.
 
 Rules:
 

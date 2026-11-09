@@ -155,6 +155,11 @@ Rules (all in `ApplicationValidator`, `RegisterApplicationService.cs`):
   `400` on `Activate`). They are validated with the product's fields and saved with it in one `SaveChangesAsync`: if anything is invalid or
   the key or audience is taken, nothing is created. The audit log gets the same entries the separate calls write: `registered`,
   `permissions_registered` (only with permissions), `launch_url_set` (only with an address) and `activated` (only when activated).
+- **Role templates (ONB-04):** the same body may carry `roles`, the roles the product ships with, which must grant only keys of the `permissions` sent in
+  the same request (else `400` on `Roles[n].Permissions[m].Key`). They are saved with the product and audited as `auth.application.role_templates_set`.
+  Their rules, the copy into an organisation when it first subscribes and the admin routes are in the README ("Roles a product ships with"):
+  `RoleTemplateService` (`PUT` / `GET /api/auth/admin/applications/{id}/role-templates`, `POST .../role-templates/apply`), `RoleTemplateValidator`,
+  `RoleTemplateCopier` (called by `SubscribeTenantService` for a new subscription only, in the same transaction).
 - **Rename (ONB-01):** `PUT /api/auth/admin/applications/{id}/name` with `{"name": "…"}` changes the display name only, under the name rules
   above. The key and the audience never change. Saying the current name again is `200` and leaves no audit entry. The built-in product and
   an unknown id are `404 application_not_found`.

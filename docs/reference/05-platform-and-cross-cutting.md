@@ -89,6 +89,8 @@ column holds the value shown, or nothing where the cell says "none".
 | Products | `ApplicationActivated` / `ApplicationDeactivated` | `auth.application.activated` / `auth.application.deactivated` | User | no | product key |
 | Products | `ApplicationLaunchUrlSet` | `auth.application.launch_url_set` | User | no | product key |
 | Products | `ApplicationRenamed` | `auth.application.renamed` | User | no | product key |
+| Products | `RoleTemplatesSet` | `auth.application.role_templates_set` | User | no | product key |
+| Products | `RoleTemplatesApplied` | `auth.application.role_templates_applied` | Product or User (whoever subscribed the organisation, or the platform admin who copied the roles) | yes | product key |
 | Webhooks | `WebhookConfigured` | `auth.application.webhook_configured` | Product | no | product key |
 | Webhooks | `WebhookSecretRotated` | `auth.webhook.secret_rotated` | Product | no | `overlap_hours_<n>` |
 | Webhooks | `WebhookResent` | `auth.webhook.resent` | User (platform admin) | no | webhook id |
@@ -947,6 +949,8 @@ Tables (entity class in `src/AuthService.Infrastructure/Persistence/Entities`). 
 | Products | `applications` | `Application` | Product: unique `key`, `jwt_audience`, `client_id`; `is_active`, `is_built_in`, webhook and launch URL fields |
 | Products | `application_secrets` | `ApplicationSecret` | `application_id` -> applications; hashed client secrets with `expires_at` |
 | Products | `permissions` | `Permission` | `application_id` -> applications; unique `(application_id, key)` |
+| Products | `application_role_templates` | `ApplicationRoleTemplate` | `application_id` -> applications; unique `(application_id, name)`; `description` at most 500 (ONB-04) |
+| Products | `application_role_template_permissions` | `ApplicationRoleTemplatePermission` | `template_id` -> templates, `permission_id` -> permissions; unique `(template_id, permission_id)`; `level` as text |
 | Products | `subscriptions` | `TenantApplicationSubscription` | `tenant_id`, `application_id`; unique pair; `status`, `max_seats` (check: null or at least 1) |
 | Products | `application_access` | `MembershipApplicationAccess` | `(tenant_id, membership_id)`, `application_id`; unique `(membership_id, application_id)` |
 | Invitations | `invitations` | `Invitation` | `(tenant_id, membership_id)` -> memberships, `invited_by_user_id` -> users; `token_hash` unique; `expires_at`, `used_at`, `last_sent_at` |

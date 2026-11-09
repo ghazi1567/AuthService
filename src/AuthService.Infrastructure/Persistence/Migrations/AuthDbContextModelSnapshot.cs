@@ -225,6 +225,78 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("applications", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationRoleTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_application_role_templates");
+
+                    b.HasIndex("ApplicationId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ux_application_role_templates_application_id_name");
+
+                    b.ToTable("application_role_templates", (string)null);
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationRoleTemplatePermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("level");
+
+                    b.Property<Guid>("PermissionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("permission_id");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("template_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_application_role_template_permissions");
+
+                    b.HasIndex("PermissionId")
+                        .HasDatabaseName("ix_application_role_template_permissions_permission_id");
+
+                    b.HasIndex("TemplateId", "PermissionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_application_role_template_permissions_template_id_permissio");
+
+                    b.ToTable("application_role_template_permissions", (string)null);
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationSecret", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1121,6 +1193,33 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_api_key_permissions_api_keys_tenant_id_api_key_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationRoleTemplate", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_application_role_templates_applications_application_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationRoleTemplatePermission", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Permission", null)
+                        .WithMany()
+                        .HasForeignKey("PermissionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_application_role_template_permissions_permissions_permissio");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.ApplicationRoleTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_application_role_template_permissions_application_role_temp");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApplicationSecret", b =>

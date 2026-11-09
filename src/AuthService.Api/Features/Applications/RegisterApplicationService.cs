@@ -22,7 +22,8 @@ public sealed record ValidApplication(
     string JwtAudience,
     string? LaunchUrl = null,
     IReadOnlyList<ValidPermission>? Permissions = null,
-    bool Activate = false);
+    bool Activate = false,
+    IReadOnlyList<ValidRoleTemplate>? Roles = null);
 
 public abstract record RegisterApplicationResult
 {
@@ -103,6 +104,34 @@ public static partial class ApplicationValidator
             }
         }
 
+        // Roles the product ships with (ONB-04) grant permissions of the catalogue sent in the same request, so they are checked against it.
+        List<ValidRoleTemplate>? roles = null;
+        if (request.Roles is { Count: > 0 })
+        {
+            if (RoleTemplateValidator.TryValidate(request.Roles, out var checkedRoles, out var roleErrors))
+            {
+                var keyErrors = RoleTemplateValidator.CheckKeys(checkedRoles, (permissions ?? []).Select(permission => permission.Key).ToHashSet(StringComparer.Ordinal));
+                if (keyErrors.Count == 0)
+                {
+                    roles = checkedRoles;
+                }
+                else
+                {
+                    foreach (var (field, messages) in keyErrors)
+                    {
+                        errors[field] = messages;
+                    }
+                }
+            }
+            else
+            {
+                foreach (var (field, messages) in roleErrors)
+                {
+                    errors[field] = messages;
+                }
+            }
+        }
+
         if (request.Activate == true && request.Permissions is not { Count: > 0 })
         {
             errors[nameof(RegisterApplicationRequest.Activate)] = ["Activate needs at least one permission, so a tenant has something to grant."];
@@ -113,7 +142,7 @@ public static partial class ApplicationValidator
             return false;
         }
 
-        valid = new ValidApplication(key!, name, audience!, launchUrl, permissions, request.Activate == true);
+        valid = new ValidApplication(key!, name, audience!, launchUrl, permissions, request.Activate == true, roles);
         return true;
     }
 
@@ -178,11 +207,14 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
         };
 
         db.Applications.Add(application);
+        var catalogue = new Dictionary<string, Guid>(StringComparer.Ordinal);
         foreach (var permission in input.Permissions ?? [])
         {
+            var permissionId = Guid.CreateVersion7();
+            catalogue[permission.Key] = permissionId;
             db.Permissions.Add(new Permission
             {
-                Id = Guid.CreateVersion7(),
+                Id = permissionId,
                 ApplicationId = application.Id,
                 Key = permission.Key,
                 Label = permission.Label,
@@ -200,6 +232,11 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
             CreatedAt = now,
         });
 
+        if (input.Roles is { Count: > 0 })
+        {
+            RoleTemplateService.AddTemplates(db, application.Id, input.Roles, catalogue, now);
+        }
+
         // The product's key is a safe, readable detail; the secret never goes near the audit log.
         audit.Record(AuditActions.ApplicationRegistered, AuditActor.User(adminId), detail: application.Key);
 
@@ -212,6 +249,11 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
         if (input.LaunchUrl is not null)
         {
             audit.Record(AuditActions.ApplicationLaunchUrlSet, AuditActor.User(adminId), detail: application.Key);
+        }
+
+        if (input.Roles is { Count: > 0 })
+        {
+            audit.Record(AuditActions.RoleTemplatesSet, AuditActor.User(adminId), detail: application.Key);
         }
 
         if (input.Activate)
@@ -235,7 +277,7 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
         return new RegisterApplicationResult.Created(new RegisterApplicationResponse(
             application.Id, application.Key, application.Name, application.JwtAudience, application.IsActive,
             application.ClientId, clientSecret, now, application.LaunchUrl, input.Permissions?.Count ?? 0,
-            ClientCredential.Combine(application.ClientId, clientSecret)));
+            ClientCredential.Combine(application.ClientId, clientSecret), input.Roles?.Count ?? 0));
     }
 
     private static bool BrokeUniqueRule(DbUpdateException exception, string indexName) =>

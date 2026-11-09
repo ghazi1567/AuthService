@@ -85,7 +85,8 @@ public sealed record RegisterProductRequest(
     string JwtAudience,
     string? LaunchUrl = null,
     IReadOnlyList<PermissionToAdd>? Permissions = null,
-    bool? Activate = null);
+    bool? Activate = null,
+    IReadOnlyList<ProductRoleToSet>? Roles = null);
 
 /// <summary>What the API publishes about itself at <c>/.well-known/auth-service-configuration</c> (ONB-03): all of it public.</summary>
 public sealed record DiscoveryDocument(string Issuer, string ApiBaseUrl, string JwksUrl, string TokenUrl, string? ConsoleUrl);
@@ -120,7 +121,8 @@ public sealed record RegisteredProduct(
     DateTimeOffset CreatedAt,
     string? LaunchUrl = null,
     int PermissionCount = 0,
-    string Credential = "")
+    string Credential = "",
+    int RoleTemplateCount = 0)
 {
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
@@ -146,3 +148,21 @@ public sealed record AddPermissionsRequest(IReadOnlyList<PermissionToAdd> Permis
 
 /// <summary>What adding permissions did: how many were new, how many had their words changed, how many were already as given.</summary>
 public sealed record AddPermissionsResult(Guid ApplicationId, int Created, int Updated, int Unchanged);
+
+/// <summary>One permission a role the product ships with grants: a key of the product's catalogue and a level (None, ReadOnly, CreateRead or Full).</summary>
+public sealed record ProductRoleGrant(string Key, string Level);
+
+/// <summary>A role a product ships with, as the API lists it (ONB-04). An organisation gets a copy when it first subscribes.</summary>
+public sealed record ProductRoleTemplate(Guid Id, string Name, string? Description, List<ProductRoleGrant> Permissions);
+
+/// <summary>A product's role templates (<c>GET /api/auth/admin/applications/{id}/role-templates</c>).</summary>
+public sealed record ProductRoleTemplates(List<ProductRoleTemplate> Roles);
+
+/// <summary>One role to set on a product, as an admin wrote it.</summary>
+public sealed record ProductRoleToSet(string Name, string? Description, IReadOnlyList<ProductRoleGrant> Permissions);
+
+/// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/role-templates</c>: the whole set; an empty list removes them all.</summary>
+public sealed record SetProductRolesRequest(IReadOnlyList<ProductRoleToSet> Roles);
+
+/// <summary>What copying a product's roles into its organisations did.</summary>
+public sealed record AppliedProductRoles(int Organisations, int RolesCreated, int RolesSkipped);

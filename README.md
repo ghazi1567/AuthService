@@ -466,6 +466,8 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
 | `POST /api/auth/admin/applications` | Register a product (see "Applications" below). It can carry the product's `launchUrl`, its `permissions` and `activate: true` too, so it is ready in one call, saved all or nothing (ONB-01). |
 | `POST /api/auth/admin/applications/{id}/subscriptions` | Subscribe an existing organisation to a product as the platform admin (`{"tenantId", "maxSeats"}`; ONB-02), see "Subscriptions". |
 | `POST /api/auth/admin/applications/{id}/test-organisations` | Create an organisation owned by an existing verified person and subscribe it to a product (`{"name", "ownerEmail", "maxSeats"}`; ONB-02), see "Subscriptions". |
+| `GET` / `PUT /api/auth/admin/applications/{id}/role-templates` | Read, or set (the whole set; `{"roles": [...]}`), the roles a product ships with (ONB-04), see "Roles a product ships with". |
+| `POST /api/auth/admin/applications/{id}/role-templates/apply` | Copy the product's role templates into every organisation with an active subscription that lacks a role of that name (ONB-04). |
 | `PUT /api/auth/admin/applications/{id}/name` | Change a product's display name (`{"name": "…"}`; ONB-01). Its key and audience never change. Recorded in the audit log. |
 | `PUT /api/auth/admin/applications/{id}/launch-url` | Set (`{"url": "https://…"}`) or clear (`{"url": null}`) where the web console sends a person who chooses the product (APP-08). Absolute `https` only (plain `http` for localhost), no user name or password, no `#` fragment, at most 2000 characters. Recorded in the audit log. Also shown in the admin product list. |
 | `GET /api/auth/admin/applications/{id}/permissions` | Read a product's permission catalog (APP-07): `key`, `label`, `description`, `createdAt`, `updatedAt`, by key, whether or not the product is active. Unknown and built-in products are `404 application_not_found`. |
@@ -494,6 +496,25 @@ A **product** (for example WhatsApp SaaS) is registered by a platform admin with
   also takes the permissions as pasted JSON or from a file.
 - A product's display name can be changed afterwards with `PUT /api/auth/admin/applications/{id}/name`; its key and audience can't.
 - Registration is audit-logged under the admin, with the product's key as the detail.
+
+#### Roles a product ships with
+
+A product can come with roles, such as Marketer or Agent (ONB-04), so every organisation does not rebuild them. A platform admin keeps them
+with `PUT /api/auth/admin/applications/{id}/role-templates` and a body of
+`{"roles": [{"name", "description", "permissions": [{"key", "level"}]}]}` (the whole set: templates left out are removed, and an empty list
+removes them all), or sends `roles` in the registration call beside `permissions`. A grant names a key of the product's own catalogue and a level
+(`None`, `ReadOnly`, `CreateRead` or `Full`); an unknown key, a bad level, a repeated name (case ignored) and the name `Owner` are `400`, naming
+the entry by position. At most 50 roles of 500 grants each.
+
+- **The first time an organisation subscribes** (the product's own call, a platform admin's, or a test organisation), each template becomes an
+  ordinary custom role in it, with the same name and grants. It is a **copy**: its admins edit or delete it freely, and changing a template
+  later changes no copy. A role the organisation already has under that name (case ignored) is left exactly as it is, and subscribing
+  again after a suspension or a cancellation adds nothing, so a role its admins deleted stays deleted. The audit log records
+  `auth.application.role_templates_applied` (the organisation, the product key, and whoever subscribed it).
+- **`POST .../role-templates/apply`** copies the templates into every organisation with an **active** subscription that lacks a role of that name,
+  for those that subscribed before the templates existed. It answers `{"organisations", "rolesCreated", "rolesSkipped"}`. Nothing is overwritten;
+  asking twice creates nothing the second time. A role created by someone at the same moment is `409 role_name_conflict` with nothing changed.
+- The console's Roles page for a product (`/platform/products/{id}/roles`) lists them, edits the whole set as JSON and copies them to organisations.
 
 #### Permission catalog
 

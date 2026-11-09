@@ -1,0 +1,398 @@
+@page "/platform/products/{ProductId:guid}/roles"
+@attribute [Authorize]
+@layout PlatformLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>@(product is null ? "Roles" : $"{product.Name} roles") · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Roles</h1>
+    <ErrorState Title="We couldn't load the roles" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (product is null)
+{
+    <h1 class="page-title">That product isn't here</h1>
+    <p class="page-lead">It may have been removed. Go back to the list to see what is there now.</p>
+    <a class="btn btn-secondary" href="/platform/products">Back to products</a>
+}
+else
+{
+    <p class="back-link"><a href="/platform/products"><Icon Name="chevron-right" />Products</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@product.Name roles</h1>
+            <p class="page-lead">The roles this product comes with. When an organisation subscribes for the first time, each one is copied into it as an ordinary role its admins can change.</p>
+        </div>
+        <div class="page-actions">
+            @if (roles.Count > 0)
+            {
+                <a class="btn btn-secondary" href="@PagePath?apply=1">Copy to organisations</a>
+            }
+
+            <a class="btn btn-primary" href="@PagePath?edit=1"><Icon Name="plus" />Edit roles</a>
+        </div>
+    </div>
+
+    @if (Notice() is { } notice)
+    {
+        @notice
+    }
+
+    <AlertBanner Kind="AlertKind.Info" Title="Copies, not links" Class="auth-alert">
+        <p class="alert-body">Changing a role here doesn't change the roles organisations already have, and a role an organisation already has under the same name is never overwritten. Use Copy to organisations to give the roles to organisations that subscribed before they existed.</p>
+    </AlertBanner>
+
+    @if (roles.Count == 0)
+    {
+        <EmptyState Title="No roles yet" IconName="key">
+            <p class="empty-body">Without roles, every organisation builds its own from @product.Name's permissions. Add the roles the product comes with so they are ready the day an organisation subscribes.</p>
+            <a class="btn btn-primary" href="@PagePath?edit=1">Edit roles</a>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Role</th>
+                        <th scope="col">What it is for</th>
+                        <th scope="col">What it can do</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var role in roles)
+                    {
+                        <tr>
+                            <td data-label="Role"><span class="person-name">@role.Name</span></td>
+                            <td data-label="What it is for">@(string.IsNullOrWhiteSpace(role.Description) ? "Not described" : role.Description)</td>
+                            <td data-label="What it can do">
+                                @if (role.Permissions.Count == 0)
+                                {
+                                    <span class="muted">Nothing yet</span>
+                                }
+                                else
+                                {
+                                    <ul class="grant-list">
+                                        @foreach (var grant in role.Permissions)
+                                        {
+                                            <li><code class="mono">@grant.Key</code> <span class="muted">@LevelLabel(grant.Level)</span></li>
+                                        }
+                                    </ul>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @roles.Count @(roles.Count == 1 ? "role" : "roles")</p>
+    }
+
+    @if (editing)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+                <form method="post" @onsubmit="SaveAsync" @formname="edit" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="edit-title" class="modal-title">Edit the roles of @product.Name</h2>
+                        <p class="modal-text">This is the whole set. A role you leave out is removed from the list (organisations keep the copies they have). Each role grants permissions of @product.Name by key, at a level: None, ReadOnly, CreateRead or Full.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="roles-json">Roles (JSON)</label>
+                            <textarea id="roles-json" name="json" class="input mono permissions-text" rows="14" spellcheck="false" autocomplete="off" placeholder="@Placeholder">@enteredJson</textarea>
+                            <p class="field-message">Paste the roles the product's team keeps, or edit what is here. An empty list, {"roles": []}, removes them all.</p>
+                            <label class="btn btn-secondary btn-sm" data-needs-script hidden for="roles-file"><Icon Name="plus" />Load from a file</label>
+                            <input id="roles-file" type="file" hidden accept=".json,.txt,application/json,text/plain" data-load-into="roles-json" />
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Saving…">Save roles</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+    else if (applying)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="apply-title">
+                <form method="post" @onsubmit="ApplyAsync" @formname="apply">
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="apply-title" class="modal-title">Copy @(roles.Count == 1 ? "the role" : $"the {roles.Count} roles") to organisations?</h2>
+                        <p class="modal-text">Every organisation with an active subscription to @product.Name gets the roles it doesn't have yet. A role an organisation already has under the same name is left exactly as it is. Nothing is overwritten or removed, and it can't be undone in one step: each organisation's admins can delete a role they don't want.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="We couldn't copy the roles" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Copying…">Copy roles</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private const string Placeholder = "{\n  \"roles\": [\n    {\n      \"name\": \"Marketer\",\n      \"description\": \"Builds and sends campaigns\",\n      \"permissions\": [\n        { \"key\": \"campaign.view\", \"level\": \"ReadOnly\" },\n        { \"key\": \"campaign.send\", \"level\": \"CreateRead\" }\n      ]\n    }\n  ]\n}";
+
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool editing;
+    private bool applying;
+    private string? reference;
+    private string enteredJson = "";
+    private AdminProductItem? product;
+    private readonly List<string> errors = [];
+    private List<ProductRoleTemplate> roles = [];
+
+    [Parameter] public Guid ProductId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "edit")] private string? Edit { get; set; }
+
+    [SupplyParameterFromQuery(Name = "apply")] private string? Apply { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "roles")] private int? RoleCount { get; set; }
+
+    [SupplyParameterFromQuery(Name = "orgs")] private int? Organisations { get; set; }
+
+    [SupplyParameterFromQuery(Name = "created")] private int? Created { get; set; }
+
+    [SupplyParameterFromQuery(Name = "skipped")] private int? Skipped { get; set; }
+
+    private string PagePath => $"/platform/products/{ProductId}/roles";
+
+    private static string LevelLabel(string level) => level switch
+    {
+        "ReadOnly" => "View only",
+        "CreateRead" => "View and create",
+        "Full" => "Full access",
+        "None" => "No access",
+        _ => level,
+    };
+
+    private RenderFragment? Notice() => builder =>
+    {
+        string title, body;
+        switch (NoticeCode)
+        {
+            case "saved":
+                title = "The roles are saved";
+                body = RoleCount is 0
+                    ? "There are no roles now. Organisations build their own."
+                    : $"{RoleCount} {(RoleCount == 1 ? "role" : "roles")} now. Organisations that subscribe from now on get a copy; use Copy to organisations for the ones that subscribed already.";
+                break;
+            case "applied":
+                title = Created is > 0 ? "The roles are copied" : "Nothing needed copying";
+                body = $"{Created ?? 0} {(Created == 1 ? "role was" : "roles were")} created in {Organisations ?? 0} {(Organisations == 1 ? "organisation" : "organisations")}"
+                    + (Skipped is > 0 ? $", and {Skipped} {(Skipped == 1 ? "was" : "were")} left alone because the organisation already had a role with that name." : ".");
+                break;
+            default:
+                return;
+        }
+
+        builder.OpenComponent<AlertBanner>(0);
+        builder.AddAttribute(1, nameof(AlertBanner.Kind), AlertKind.Success);
+        builder.AddAttribute(2, nameof(AlertBanner.Title), title);
+        builder.AddAttribute(3, nameof(AlertBanner.Class), "auth-alert");
+        builder.AddAttribute(4, nameof(AlertBanner.ChildContent), (RenderFragment)(inner =>
+            inner.AddMarkupContent(0, $"<p class=\"alert-body\">{System.Net.WebUtility.HtmlEncode(body)}</p>")));
+        builder.CloseComponent();
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private bool Posted(string handler) =>
+        HttpContext is { } context && context.Request.HasFormContentType && context.Request.Form["_handler"] == handler;
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // The layout has already asked the API; this is the same answer.
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var products = await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
+        if (!products.IsSuccess)
+        {
+            Fail(products.Problem!);
+            return;
+        }
+
+        product = products.Value!.FirstOrDefault(candidate => candidate.Id == ProductId);
+        if (product is null)
+        {
+            return;
+        }
+
+        var list = await Api.GetAsync<ProductRoleTemplates>($"/api/auth/admin/applications/{ProductId}/role-templates", access.Token!, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            Fail(list.Problem!);
+            return;
+        }
+
+        roles = [.. list.Value!.Roles.OrderBy(role => role.Name, StringComparer.OrdinalIgnoreCase)];
+
+        // A posted form must already be on the page when the post arrives.
+        editing = Edit == "1" || Posted("edit");
+        applying = !editing && roles.Count > 0 && (Apply == "1" || Posted("apply"));
+        if (editing && !Posted("edit"))
+        {
+            enteredJson = RoleTemplateText.ToJson(roles);
+        }
+    }
+
+    private void Fail(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+
+    private async Task SaveAsync()
+    {
+        enteredJson = HttpContext!.Request.Form["json"].ToString();
+        errors.Clear();
+
+        var (parsed, readErrors) = RoleTemplateText.Parse(enteredJson);
+        errors.AddRange(readErrors.Take(5));
+        if (parsed is null && errors.Count == 0)
+        {
+            errors.Add("Paste JSON with a \"roles\" list, like {\"roles\": [{\"name\": \"Marketer\", \"permissions\": []}]}. An empty list removes them all.");
+        }
+
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PutNoContentAsync(
+            $"/api/auth/admin/applications/{ProductId}/role-templates", new SetProductRolesRequest(parsed!), access.Token!, HttpContext.RequestAborted);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?notice=saved&roles={parsed!.Count}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(5))
+            {
+                errors.Add(reason);
+            }
+        }
+        else if (problem?.Code == "application_not_found")
+        {
+            errors.Add("That product isn't here any more.");
+        }
+        else
+        {
+            errors.Add(problem?.Status == StatusCodes.Status403Forbidden
+                ? "You don't have permission to change roles."
+                : "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
+        }
+    }
+
+    private async Task ApplyAsync()
+    {
+        errors.Clear();
+        var access = await Platform.LoadAsync(HttpContext!);
+        var result = await Api.PostAsync<object, AppliedProductRoles>(
+            $"/api/auth/admin/applications/{ProductId}/role-templates/apply", new { }, HttpContext!.RequestAborted, access.Token);
+        if (result.IsSuccess)
+        {
+            var applied = result.Value!;
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?notice=applied&orgs={applied.Organisations}&created={applied.RolesCreated}&skipped={applied.RolesSkipped}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        errors.Add(problem?.Code switch
+        {
+            "role_name_conflict" => "An organisation created a role with one of these names at the same moment. Nothing was changed. Try again.",
+            "application_not_found" => "That product isn't here any more.",
+            _ => problem?.Status == StatusCodes.Status403Forbidden
+                ? "You don't have permission to change roles."
+                : "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.",
+        });
+    }
+}

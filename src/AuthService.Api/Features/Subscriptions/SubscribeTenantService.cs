@@ -1,3 +1,4 @@
+using AuthService.Api.Features.Applications;
 using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.Webhooks;
 using AuthService.Infrastructure.Persistence;
@@ -106,6 +107,17 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
         subscription.UpdatedAt = now;
 
         await GrantOwnersAccessAsync(tenantId, applicationId, now, cancellationToken);
+
+        // The roles the product ships with become ordinary roles in the organisation the first time it subscribes (ONB-04), never again: a
+        // role its admins deleted or changed since is theirs, and a role that already has the name is left exactly as it is.
+        if (isNew)
+        {
+            var copied = await RoleTemplateCopier.CopyToTenantAsync(db, tenantId, applicationId, now, cancellationToken);
+            if (copied.Created > 0)
+            {
+                audit.Record(AuditActions.RoleTemplatesApplied, actor ?? AuditActor.Product(applicationId), tenantId, application.Key);
+            }
+        }
 
         // The event is written with the change, so it exists if and only if the subscription does.
         db.WebhookOutbox.Add(WebhookEvents.Create(applicationId, ApplicationSubscribedEvent, now, webhookOptions.Value.RetryWindowHours, eventId => new

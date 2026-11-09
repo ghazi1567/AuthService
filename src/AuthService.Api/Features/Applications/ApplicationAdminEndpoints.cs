@@ -36,6 +36,7 @@ public static class ApplicationAdminEndpoints
         admin.MapPut("/applications/{applicationId:guid}/active", SetActiveAsync);
         admin.MapPost("/applications/{applicationId:guid}/secret/rotate", RotateSecretAsync);
         admin.MapApplicationSubscriptionsAdmin();
+        admin.MapRoleTemplatesAdmin();
         return admin;
     }
 
