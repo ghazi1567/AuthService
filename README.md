@@ -551,6 +551,25 @@ entries per request).
   changes are audited.
 - Registering permissions, activating and deactivating are each audit-logged under the admin, with the product's key as the detail.
 
+#### Limit definitions (plans and entitlements)
+
+The first step of plans and entitlements (epic AUTH-277, ENT-01). A product names the numbers it limits, such as `contacts.reachable`; plans and
+per-tenant overrides will give them values in the next stories. The Auth Service stores and hands out the numbers; the product enforces them and
+counts its own usage.
+
+A platform admin adds or changes limits with `POST /api/auth/admin/applications/{id}/limits` and a body of
+`{"limits": [{"key", "label", "description", "unit", "defaultValue"}]}`, and reads them back with `GET` on the same route (paged by key).
+
+- **Keys** follow the permission-key rules (lowercase letters, digits and `. _ -`, up to 100 characters, lowercased on the way in) and are unique
+  within the product. A product can have at most **100** limits (`409 too_many_limits` past that).
+- **`defaultValue` is required:** a whole number of at least 0, or `null` for unlimited. It is what a tenant gets when its plan says nothing. Leaving it
+  out is **400**, so a forgotten field can never mean "unlimited".
+- **`unit`** is display text only (`contacts`, `MB`). The unit **`flag`** marks an on/off feature, whose default must be `0` or `1`.
+- Like permissions, the call is an upsert: a key is updated in place and **never removed or renamed**. Send the whole limit each time, because a left-out
+  description or unit is cleared. **201** when something was added, **200** otherwise; only a real change is audited
+  (`auth.application.limits_registered`).
+- The product reads its own limits with its service token: `GET /api/auth/applications/me/limits`.
+
 ### Working on a tenant (the built-in Auth Service product)
 
 A tenant's own people (roles, members, subscriptions, invitations) are managed through endpoints under `/api/auth/tenants/me/...`

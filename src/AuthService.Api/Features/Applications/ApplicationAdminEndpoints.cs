@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using AuthService.Api.Common;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.Entitlements;
 using AuthService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -37,6 +38,7 @@ public static class ApplicationAdminEndpoints
         admin.MapPost("/applications/{applicationId:guid}/secret/rotate", RotateSecretAsync);
         admin.MapApplicationSubscriptionsAdmin();
         admin.MapRoleTemplatesAdmin();
+        admin.MapLimitDefinitionsAdmin();
         return admin;
     }
 

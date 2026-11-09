@@ -48,6 +48,8 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<Permission> Permissions => Set<Permission>();
 
+    public DbSet<LimitDefinition> LimitDefinitions => Set<LimitDefinition>();
+
     public DbSet<ApplicationRoleTemplate> RoleTemplates => Set<ApplicationRoleTemplate>();
 
     public DbSet<ApplicationRoleTemplatePermission> RoleTemplatePermissions => Set<ApplicationRoleTemplatePermission>();
