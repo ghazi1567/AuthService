@@ -53,6 +53,12 @@ public static class AuditActions
     /// <summary>A platform admin changed a product's display name (ONB-01). The detail is the product's key, which never changes.</summary>
     public const string ApplicationRenamed = "auth.application.renamed";
 
+    /// <summary>A platform admin set a product's role templates, or registered it with some (ONB-04). The detail is the product's key.</summary>
+    public const string RoleTemplatesSet = "auth.application.role_templates_set";
+
+    /// <summary>A product's role templates became roles in an organisation, when it subscribed or when a platform admin copied them (ONB-04). The tenant is that organisation, the detail is the product's key.</summary>
+    public const string RoleTemplatesApplied = "auth.application.role_templates_applied";
+
     /// <summary>A platform admin sent a failed webhook again (SUB-06). The detail is the webhook id.</summary>
     public const string WebhookResent = "auth.webhook.resent";
 

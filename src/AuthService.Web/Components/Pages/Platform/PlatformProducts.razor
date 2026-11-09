@@ -103,6 +103,7 @@ else
                                 }
 
                                 <a class="btn btn-secondary btn-sm" href="/platform/products/@product.Id/permissions">Permissions</a>
+                                <a class="btn btn-secondary btn-sm" href="/platform/products/@product.Id/roles">Roles</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?rename=@product.Id">Rename</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?launch=@product.Id">Opens at</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?rotate=@product.Id">Replace secret</a>
@@ -163,6 +164,10 @@ else
                     @if (Registered == "1" && PermissionTotal > 0)
                     {
                         <p class="modal-text">Permissions: @PermissionTotal @(PermissionTotal == 1 ? "permission" : "permissions") registered</p>
+                    }
+                    @if (Registered == "1" && RoleTotal is > 0)
+                    {
+                        <p class="modal-text">Roles: @RoleTotal @(RoleTotal == 1 ? "role" : "roles") that every organisation gets when it subscribes</p>
                     }
 
                     <label class="visually-hidden" for="raw-secret">Client secret</label>
@@ -235,7 +240,7 @@ else
                         <div class="field">
                             <label for="permissions-text">Permissions (optional)</label>
                             <textarea id="permissions-text" name="permissions" class="input mono permissions-text" rows="7" spellcheck="false" autocomplete="off" placeholder="ticket.reply | Answer tickets | Reply to a customer&#10;ticket.close | Close tickets">@enteredPermissions</textarea>
-                            <p class="field-message">One per line as key | label | description, or paste the permission JSON the product's team keeps. Permissions can be added later, but never removed.</p>
+                            <p class="field-message">One per line as key | label | description, or paste the permission JSON the product's team keeps, which can carry the roles it comes with too. Permissions can be added later, but never removed.</p>
                             <label class="btn btn-secondary btn-sm" data-needs-script hidden for="permissions-file"><Icon Name="plus" />Load from a file</label>
                             <input id="permissions-file" type="file" hidden accept=".json,.txt,application/json,text/plain" data-load-into="permissions-text" />
                         </div>
@@ -530,6 +535,8 @@ else
 
     [SupplyParameterFromQuery(Name = "perms")] private int? Permissions { get; set; }
 
+    [SupplyParameterFromQuery(Name = "roles")] private int? RoleTotal { get; set; }
+
     private int PermissionTotal => Math.Max(0, Permissions ?? 0);
 
     // The two settings a product needs, as environment variables its host can read as AuthService:Url and AuthService:ClientSecret.
@@ -764,6 +771,10 @@ else
         var (permissions, permissionErrors) = PermissionText.Parse(enteredPermissions);
         errors.AddRange(permissionErrors.Take(5));
 
+        // The same JSON can carry the roles the product comes with, which organisations get a copy of when they subscribe (ONB-04).
+        var (roles, roleErrors) = RoleTemplateText.Parse(enteredPermissions);
+        errors.AddRange(roleErrors.Take(5));
+
         if (errors.Count > 0)
         {
             return;
@@ -776,7 +787,8 @@ else
             enteredAudience.Length == 0 ? $"{enteredKey}-api" : enteredAudience,
             enteredLaunchUrl.Length == 0 ? null : enteredLaunchUrl,
             permissions.Count == 0 ? null : permissions,
-            activateChecked && permissions.Count > 0 ? true : null);
+            activateChecked && permissions.Count > 0 ? true : null,
+            roles is { Count: > 0 } ? roles : null);
 
         var access = await Platform.LoadAsync(HttpContext);
         var result = await Api.PostAsync<RegisterProductRequest, RegisteredProduct>(
@@ -789,7 +801,7 @@ else
             var reference_ = Secrets.Put(sid.Value, product.Credential.Length > 0 ? product.Credential : product.ClientSecret);
             leaving = true;
             var opens = product.LaunchUrl is { Length: > 0 } address ? $"&opens={Uri.EscapeDataString(address)}" : "";
-            Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&app={product.Id}&name={Uri.EscapeDataString(product.Name)}&client={Uri.EscapeDataString(product.ClientId)}&aud={Uri.EscapeDataString(product.JwtAudience)}&perms={product.PermissionCount}&live={(product.IsActive ? 1 : 0)}{opens}");
+            Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&app={product.Id}&name={Uri.EscapeDataString(product.Name)}&client={Uri.EscapeDataString(product.ClientId)}&aud={Uri.EscapeDataString(product.JwtAudience)}&perms={product.PermissionCount}&live={(product.IsActive ? 1 : 0)}{opens}{(product.RoleTemplateCount > 0 ? $"&roles={product.RoleTemplateCount}" : "")}");
             return;
         }
 
