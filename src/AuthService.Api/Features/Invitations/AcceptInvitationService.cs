@@ -19,6 +19,9 @@ public abstract record AcceptInvitationResult
     /// <summary>Unknown, expired or already-used link, or the invitation was withdrawn. Deliberately not told apart.</summary>
     public sealed record Gone : AcceptInvitationResult;
 
+    /// <summary>The organisation that sent the invitation is suspended, so nobody can join it now (AUTH-268). The link is not used up: it works again if the organisation is reactivated.</summary>
+    public sealed record TenantSuspended : AcceptInvitationResult;
+
     /// <summary>A new person must choose a password, and it was missing or not acceptable.</summary>
     public sealed record PasswordInvalid(string Reason) : AcceptInvitationResult;
 
@@ -58,6 +61,12 @@ public sealed class AcceptInvitationService(
         if (membership.Status != MembershipStatus.Invited)
         {
             return new AcceptInvitationResult.Gone();
+        }
+
+        // Checked before anything is used up or any password is hashed: a suspended organisation takes nobody new.
+        if (await db.Tenants.AsNoTracking().AnyAsync(tenant => tenant.Id == membership.TenantId && tenant.Status == TenantStatus.Suspended, cancellationToken))
+        {
+            return new AcceptInvitationResult.TenantSuspended();
         }
 
         var user = await db.Users.SingleAsync(candidate => candidate.Id == membership.UserId, cancellationToken);

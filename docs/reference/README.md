@@ -222,7 +222,7 @@ Review these first, most risky first. Each links to the part that explains it. T
    choose their address. Both the API (`Auth:Proxy`) and the console (`AuthService:Proxy`) must be right. Parts [5](05-platform-and-cross-cutting.md),
    [6](06-web-console.md), [1](01-accounts-and-sign-in.md).
 4. **Nothing is revoked early, so changes reach products late.** A suspension, a removed seat or a role downgrade takes up to 15 minutes (plus the
-   console's cache) to take effect. Tenant suspension itself is a manual database change with no audit entry and gaps in what it blocks. Parts
+   console's cache) to take effect. Tenant suspension itself is now an audited admin action that is checked on every tenant-admin call (AUTH-268). Parts
    [4](04-tokens-keys-and-the-authorization-package.md), [2](02-organisations-members-and-roles.md), [3](03-products-and-subscriptions.md).
 5. **Signing-key lifecycle has no self-repair.** If no key is signing (the worker was down past a key's end, or rows are inconsistent), login and
    exchange fail and nothing fixes it. An emergency rotation is instant only on the instance that handled it. Part [4](04-tokens-keys-and-the-authorization-package.md).

@@ -94,6 +94,8 @@ public static class SubscriptionEndpoints
         return result switch
         {
             SetSeatLimitResult.Updated updated => Results.Ok(updated.Subscription),
+            SetSeatLimitResult.TenantSuspended => ApiProblem.Create(StatusCodes.Status409Conflict, "tenant_suspended",
+                "Organisation suspended", "A suspended organisation's seat limit cannot be changed."),
             _ => SubscriptionNotFound(),
         };
     }

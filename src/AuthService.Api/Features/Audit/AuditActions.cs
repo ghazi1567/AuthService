@@ -9,6 +9,10 @@ public static class AuditActions
     public const string SignupCompleted = "auth.signup.completed";
     public const string TenantCreated = "auth.tenant.created";
 
+    /// <summary>A platform admin suspended an organisation, or made it active again (AUTH-268). The actor is the admin, the tenant is the organisation, the detail is the reason the admin gave.</summary>
+    public const string TenantSuspended = "auth.tenant.suspended";
+    public const string TenantReactivated = "auth.tenant.reactivated";
+
     public const string LoginSucceeded = "auth.login.succeeded";
     public const string LoginFailed = "auth.login.failed";
     public const string AccountLocked = "auth.account.locked";

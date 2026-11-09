@@ -131,6 +131,12 @@ public sealed record RegisteredProduct(
     }
 }
 
+/// <summary>An organisation as the platform admin's list shows it (AUTH-268).</summary>
+public sealed record OrganisationItem(Guid Id, string Name, string Status, int MemberCount, DateTimeOffset CreatedAt);
+
+/// <summary>Body of <c>PUT /api/auth/admin/tenants/{id}/status</c>: Active or Suspended, and why (one of the reason codes).</summary>
+public sealed record SetOrganisationStatusRequest(string Status, string Reason);
+
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/active</c>.</summary>
 public sealed record SetProductActiveRequest(bool IsActive);
 

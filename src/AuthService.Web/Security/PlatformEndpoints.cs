@@ -13,10 +13,70 @@ public static class PlatformEndpoints
     public static IEndpointRouteBuilder MapPlatformEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/platform/webhooks/{webhookId:guid}/resend", ResendWebhookAsync).AllowAnonymous();
+        app.MapPost("/platform/organisations/{tenantId:guid}/status", SetOrganisationStatusAsync).AllowAnonymous();
         app.MapPost("/platform/signing-keys/rotate", RotateSigningKeyAsync).AllowAnonymous();
         app.MapPost("/platform/products/{applicationId:guid}/rotate-secret", RotateProductSecretAsync).AllowAnonymous();
         app.MapPost("/platform/products/{applicationId:guid}/active", SetProductActiveAsync).AllowAnonymous();
         return app;
+    }
+
+    /// <summary>The reasons the form offers; the API checks them too, and the audit log keeps the code.</summary>
+    public static readonly string[] OrganisationReasons = ["non_payment", "abuse", "security", "customer_request", "resolved", "other"];
+
+    /// <summary>AUTH-268: suspends an organisation or makes it active again, with a reason, as the signed-in platform admin.</summary>
+    private static async Task<IResult> SetOrganisationStatusAsync(
+        Guid tenantId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        PlatformSession platform,
+        AuthApiClient api)
+    {
+        try
+        {
+            await antiforgery.ValidateRequestAsync(context);
+        }
+        catch (AntiforgeryValidationException)
+        {
+            return Results.BadRequest();
+        }
+
+        const string page = "/platform/organisations";
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return Results.Redirect($"{SessionAuthentication.LoginPath}?returnUrl={Uri.EscapeDataString(page)}");
+        }
+
+        var opened = await platform.LoadAsync(context);
+        if (opened.Outcome != PlatformOutcome.Allowed)
+        {
+            return Results.Redirect(page);
+        }
+
+        var form = await context.Request.ReadFormAsync();
+        var status = form["status"].ToString();
+        if (status is not ("Active" or "Suspended"))
+        {
+            return Results.BadRequest();
+        }
+
+        var reason = form["reason"].ToString();
+        if (!OrganisationReasons.Contains(reason))
+        {
+            // Nothing is sent: the question is shown again, asking for a reason.
+            return Results.Redirect($"{page}?org={tenantId}&to={status}&error=choose_reason");
+        }
+
+        var result = await api.PutNoContentAsync(
+            $"/api/auth/admin/tenants/{tenantId}/status", new SetOrganisationStatusRequest(status, reason), opened.Token!, context.RequestAborted);
+        if (result.IsSuccess)
+        {
+            return Results.Redirect($"{page}?notice={(status == "Suspended" ? "suspended" : "reactivated")}&m={tenantId}");
+        }
+
+        var code = result.Problem!.Code is "tenant_not_found"
+            ? result.Problem.Code
+            : result.Problem.Status == StatusCodes.Status403Forbidden ? "forbidden" : "unavailable";
+        return Results.Redirect($"{page}?error={code}&m={tenantId}");
     }
 
     /// <summary>The word the admin must type before an emergency rotation goes ahead.</summary>
