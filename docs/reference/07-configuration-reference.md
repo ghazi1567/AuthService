@@ -113,11 +113,11 @@ Fixed, not settings: the algorithm (ES256 only), the clock skew accepted when va
 |---|---|---|---|---|
 | `Auth:LoginProtection:MaxFailedAttempts` / `Auth__LoginProtection__MaxFailedAttempts` | `5` | No | Wrong passwords in a row after which the account is locked | A very high value removes the lockout; `1` locks on the first typo |
 | `Auth:LoginProtection:LockoutMinutes` | `15` | No | How long a locked account stays locked | `0` makes the lock last no time (lockout ineffective) |
-| `Auth:PasswordReset:TokenMinutes` | `60` | No | How long a reset link works. The email text still says "1 hour" (hard-coded) | Longer means a leaked link works longer |
+| `Auth:PasswordReset:TokenMinutes` | `60` | No | How long a reset link works. The email states this value ("30 minutes", "1 hour", "2 days": the largest unit that divides it exactly) | Longer means a leaked link works longer |
 | `Auth:PasswordReset:RequestCooldownSeconds` | `60` | No | An account sent a reset link less than this long ago is not sent another | `0` allows email flooding of the address owner |
-| `Auth:EmailVerification:TokenHours` | `24` | No | How long a verification link works. The email text still says "24 hours" | |
+| `Auth:EmailVerification:TokenHours` | `24` | No | How long a verification link works. The email states this value | |
 | `Auth:EmailVerification:ResendCooldownSeconds` | `60` | No | A new verification link is not queued for an account sent one less than this long ago | `0` allows flooding (the tests set it to 0) |
-| `Auth:Invitations:TokenDays` | `7` | No | How long an invitation link works. The email text still says "7 days" | |
+| `Auth:Invitations:TokenDays` | `7` | No | How long an invitation link works. The email states this value | |
 | `Auth:Invitations:ResendCooldownSeconds` | `60` | No | After a link is emailed it cannot be emailed again for this long (`429 resend_too_soon` meanwhile) | |
 
 The password length rule (8 to 128 characters, `PasswordPolicy`) is a constant, not a setting. The per-IP login limit is under "Rate limits".
@@ -134,7 +134,7 @@ Bound to `Email` (`EmailOptions`). Note the section is `Email`, not `Auth:Email`
 | `Email:BrevoApiKey` / `Email__BrevoApiKey` | none | **Required with `Brevo`.** Missing: `Email:BrevoApiKey is not configured.` (startup). Compose: `BREVO_API_KEY` | The API key sent in the `api-key` header to `https://api.brevo.com/v3/smtp/email` | **Secret.** Never logged or stored by the service. Rotate by creating a new key, redeploying, then deleting the old one |
 | `Email:FromAddress` / `Email__FromAddress` | `no-reply@localhost` | **Required with `Brevo`**, and must not be blank or the default: `Email:FromAddress must be set to a verified sender for Brevo.` Compose: `EMAIL_FROM_ADDRESS` (default empty) | Sender address of every email | Must be a sender on a domain authenticated in Brevo (SPF, DKIM, DMARC); a personal mailbox lands in spam. An unverified sender makes Brevo answer `400`, so every email fails |
 | `Email:FromName` / `Email__FromName` | `Auth Service` | No. Compose: `EMAIL_FROM_NAME` | Display name of the sender | |
-| `Email:PublicBaseUrl` / `Email__PublicBaseUrl` | `http://localhost:5080` | Effectively required in production (compose sets `https://<APP_HOST>`) | The address links in emails point at; the app there must serve `/verify-email`, `/reset-password` and `/accept-invitation`. A trailing slash is trimmed | The default is the API's development port, not the web console's (5090). A wrong value makes every email link dead |
+| `Email:PublicBaseUrl` / `Email__PublicBaseUrl` | `http://localhost:5080` | Required with the Brevo provider: the service refuses to start unless it is an absolute `https` address (compose sets `https://<APP_HOST>`) | The address links in emails point at; the app there must serve `/verify-email`, `/reset-password` and `/accept-invitation`. A trailing slash is trimmed | The default is the API's development port, not the web console's (5090). A wrong value makes every email link dead |
 | `Email:FileDirectory` / `Email__FileDirectory` | `artifacts/emails` under the content root | No. Compose sets `/tmp/emails` | Where the `File` provider writes `.txt` files | Contains live links; development and trial runs only |
 | `Email:DispatcherEnabled` / `Email__DispatcherEnabled` | `true` | No | `false`: the worker logs `The email dispatcher is disabled; queued emails will wait.` and exits | Nothing is sent while disabled; for tools such as migrations |
 | `Email:DispatchIntervalMilliseconds` / `Email__DispatchIntervalMilliseconds` | `2000` | No | How often the worker looks for due emails (minimum 10) | Very small values poll the database hard |
@@ -315,8 +315,7 @@ Constants in code that look configurable but are not:
 
 - **Assumption (confirm):** `Auth__Proxy__ForwardLimit` and the other `Auth:Proxy` settings behave as the README describes when passed as environment variables; verified from code and tests, not run.
 - **Unknown:** whether the numeric settings without validation (limits, windows, cooldowns, lifetimes) should be validated at startup like `Auth:RateLimit`; today `0` or negative values are accepted.
-- **Unknown:** whether the hard-coded expiry text in emails ("24 hours", "1 hour", "7 days") should follow `Auth:EmailVerification:TokenHours`, `Auth:PasswordReset:TokenMinutes` and `Auth:Invitations:TokenDays`.
-- **Assumption (confirm):** the default `Email:PublicBaseUrl` (`http://localhost:5080`) is intended for tests only; production sets it (compose does).
+- **Settled (AUTH-266):** the expiry text in emails follows `Auth:EmailVerification:TokenHours`, `Auth:PasswordReset:TokenMinutes` and `Auth:Invitations:TokenDays`; and the Brevo provider refuses to start with a missing, relative or plain-http `Email:PublicBaseUrl`. The File and InMemory providers still accept the localhost default, which is meant for development and tests.
 - **Assumption (confirm):** `AllowedHosts: "*"` is acceptable because the reverse proxy filters hosts; no host filtering exists in the apps.
 - **Assumption (confirm):** the web console runs as a single instance, because sessions are in memory (`MemorySessionStore`); no setting selects another store.
 - **Unknown:** the effect of a command-line argument form for settings; the repository never uses it, so it is described only as the standard ASP.NET Core behaviour.

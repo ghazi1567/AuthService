@@ -104,18 +104,21 @@ public sealed class MembersService(AuthDbContext db, AuditLog audit)
             .Select(role => role.Id)
             .SingleAsync(cancellationToken);
 
+        // Changing the status of an Owner, in either direction (disable, enable) and from any state (Active, Invited, Disabled), is reserved
+        // to an active Owner, like giving or removing the role itself. Otherwise someone with members.manage who is not an Owner could
+        // bring a disabled Owner back, or switch off an invited one.
+        var targetIsOwner = await db.MembershipRoles.AnyAsync(
+            assignment => assignment.MembershipId == membershipId && assignment.RoleId == ownerRoleId, cancellationToken);
+        if (targetIsOwner && !await IsActiveOwnerAsync(tenantId, ownerRoleId, callerUserId, cancellationToken))
+        {
+            return new SetMemberStatusResult.OwnerRoleRestricted();
+        }
+
         if (status == MembershipStatus.Disabled)
         {
-            var targetIsOwner = await db.MembershipRoles.AnyAsync(
-                assignment => assignment.MembershipId == membershipId && assignment.RoleId == ownerRoleId, cancellationToken);
             if (targetIsOwner && membership.Status == MembershipStatus.Active)
             {
-                // Disabling an Owner is reserved to Owners, like giving or removing the role, and the tenant must keep an active one.
-                if (!await IsActiveOwnerAsync(tenantId, ownerRoleId, callerUserId, cancellationToken))
-                {
-                    return new SetMemberStatusResult.OwnerRoleRestricted();
-                }
-
+                // The tenant must keep an active Owner.
                 var otherActiveOwners = await (
                     from assignment in db.MembershipRoles
                     join other in db.TenantMemberships on new { assignment.TenantId, assignment.MembershipId } equals new { other.TenantId, MembershipId = other.Id }

@@ -44,7 +44,7 @@ public sealed class EmailVerificationService(
             ExpiresAt = now.AddHours(options.Value.TokenHours),
         });
 
-        outbox.Enqueue(EmailTemplate.Verification, email, new Dictionary<string, string> { ["token"] = token });
+        outbox.Enqueue(EmailTemplate.Verification, email, new Dictionary<string, string> { ["token"] = token, [EmailLifetime.DataKey] = EmailLifetime.Describe(TimeSpan.FromHours(options.Value.TokenHours)) });
     }
 
     public async Task<VerifyEmailResult> VerifyAsync(string token, CancellationToken cancellationToken)

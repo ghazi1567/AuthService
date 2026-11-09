@@ -193,8 +193,9 @@ Rules:
 - **Enabling re-checks seats.** For every product the member has access to, the subscription row is locked and, if the subscription
   has a `max_seats` limit and the seats used already equal or exceed it, the answer is `409` `no_seat_available` naming the products,
   and the member stays Disabled. A subscription that is missing or unlimited is skipped.
-- **A tenant keeps an Owner.** Disabling an *Active* Owner needs the caller to be an Active Owner (`403` `owner_role_restricted`), and
-  there must be another Active Owner (`409` `last_owner`). Disabled and Invited Owners do not count as Owners for this.
+- **A tenant keeps an Owner.** Changing the status of an Owner, in either direction and from any state (Active, Invited, Disabled), needs
+  the caller to be an Active Owner (`403` `owner_role_restricted`). Disabling an *Active* Owner also needs another Active Owner (`409`
+  `last_owner`). Disabled and Invited Owners do not count as Owners for this.
 - **A disabled member cannot get a token for this tenant**: the next exchange is refused. Tokens already issued run until they expire.
 - **Person-level effect:** a person all of whose memberships are Disabled counts as a disabled account (`AccountAccess.IsDisabled`)
   and cannot log in or refresh a session (part 1).
@@ -232,8 +233,9 @@ Flow of `SetStatusAsync`:
 3. Load the membership by (`id`, `tenant_id`). Not found: `NotFound` (`404` `not_found`, "No such member in this tenant.").
 4. Same status: return `Unchanged`. Target is `Invited` and wanted `Active`: `StillInvited`.
 5. Find the tenant's Owner role id (`roles.is_built_in AND name = 'Owner'`).
-6. To `Disabled`: if the member holds the Owner role *and is currently Active*, require the caller to be an Active Owner
-   (`IsActiveOwnerAsync`), then require another Active Owner (`WouldLeaveNoOwner` otherwise).
+6. If the member holds the Owner role, whatever their current state and whichever direction, require the caller to be an Active Owner
+   (`IsActiveOwnerAsync`; `OwnerRoleRestricted` otherwise). Then, to `Disabled` an *Active* Owner, require another Active Owner
+   (`WouldLeaveNoOwner` otherwise).
 7. To `Active`: lock each of the member's products' subscription rows in `application_id` order (`FOR UPDATE`, so two re-enablements
    cannot deadlock) and compare `SeatsUsedAsync` with `max_seats`; collect full products into `NoSeatAvailable`.
 8. Set `membership.Status`, `audit.Record(MemberDisabled | MemberEnabled, AuditActor.User(caller), tenantId, membershipId)`, save, commit.
@@ -272,7 +274,7 @@ No other setting.
 | Membership of another tenant, or unknown id | `404` `not_found` |
 | `Status` blank, numeric, `Invited`, or unknown | `400` validation problem, field `Status` |
 | Invited person enabled | `409` `membership_invited` |
-| Non-Owner disables an Active Owner | `403` `owner_role_restricted` |
+| Non-Owner changes the status of an Owner (disables an Active or Invited one, enables a Disabled one) | `403` `owner_role_restricted` |
 | Disabling the last Active Owner | `409` `last_owner` |
 | Enabling when a product is full | `409` `no_seat_available` ("...no free seat in: <keys>.") |
 | Bad `limit`, half a cursor | `400` validation problem, fields `limit` or `after` |
@@ -324,10 +326,9 @@ WHERE tenant_id = '<tenant>' AND action IN ('auth.membership.disabled','auth.mem
 - `404`, never `403`, for a membership outside the tenant, so ids cannot be probed (comment on `SetMemberStatusResult.NotFound`).
 - A tenant-row lock serialises member status changes, role assignment and role deletion per tenant. This is a deliberate trade of throughput for the
   "always an Owner" rule.
-- **Inconsistent (finding):** enabling has no Owner check. The branch that protects Owners runs only when disabling. A caller with
-  `members.manage` at `Full` who is **not** an Owner can therefore re-enable a Disabled Owner, bringing an Owner back to Active. The
-  same applies to disabling an *Invited* Owner (the check requires the target to be Active). **Assumption (confirm):** the rule
-  "only an Owner changes Owners" was meant to cover enabling too.
+- **Fixed (AUTH-266):** the Owner check used to run only when disabling an Active Owner, so a caller with `members.manage` at `Full` who
+  was **not** an Owner could re-enable a Disabled Owner or disable an Invited one. It now runs for every status change of an Owner (test
+  `TEN07_OnlyAnActiveOwnerCanBringADisabledOwnerBackOrSwitchOffAnInvitedOne`).
 - **Inconsistent (finding):** a membership that was Invited, then disabled, can be enabled to `Active` without the person ever
   accepting. For a person who is new to the platform this creates an Active membership for a user with no password. They can still
   reach a password through password reset, which does not look at memberships (`PasswordResetService.RequestAsync`). **Unknown:** whether
@@ -451,7 +452,7 @@ nothing expires or deletes them.
 
 | Setting | Default | Defined in | What changes if it differs |
 |---|---|---|---|
-| `Auth:Invitations:TokenDays` / `Auth__Invitations__TokenDays` | 7 | `InvitationOptions` | Length of every new or resent link. The email text still says "7 days" (hard-coded in `EmailTemplates`). |
+| `Auth:Invitations:TokenDays` / `Auth__Invitations__TokenDays` | 7 | `InvitationOptions` | Length of every new or resent link. The email states this value (`EmailLifetime.Describe`). |
 | `Auth:Invitations:ResendCooldownSeconds` / `Auth__Invitations__ResendCooldownSeconds` | 60 | `InvitationOptions` | Minimum gap between sends of one invitation. |
 | `Email:PublicBaseUrl` / `Email__PublicBaseUrl` | `http://localhost:5080` | `EmailOptions` | The address in the link. Left at the default, links point at localhost. Must be the public web address. |
 | `Email:Provider` / `Email__Provider` | unset (Development uses File, Testing InMemory; other environments **must** set it) | `EmailOptions` | Startup fails if unsupported/incomplete (`app.Services.GetRequiredService<IEmailSender>()`). |
@@ -541,7 +542,6 @@ SELECT email, password_hash IS NULL AS no_password, email_verified_at FROM users
 - Resend reuses the invitation row, so the list keeps its original `invitedAt` (`created_at`) and shows the new `lastSentAt`.
 - **Risk:** an Invited member with access consumes a seat indefinitely. There is no expiry job, no "revoke invitation" endpoint
   (the only way is to disable the membership), and the list marks expired rows but does nothing.
-- **Inconsistent:** the email footer says "This invitation expires in 7 days" regardless of `Auth:Invitations:TokenDays`.
 - **Inconsistent:** the invitation `ApplicationIds` limit (20) and role limit (10) are code constants with no setting.
 - **Unknown:** what happens to a seat, role and invitation when the invited person is later disabled and the tenant re-enables them
   (see Memberships section). No test covers it.
@@ -782,7 +782,7 @@ WHERE tenant_id = '<tenant>' AND action = 'auth.membership.roles_changed' ORDER 
 - "Only an Owner can give or take the Owner role" exists because anyone allowed to assign roles could otherwise make themselves an Owner.
 - Removing the Owner role from a *Disabled* Owner still needs another Active Owner (the check only looks at other Active Owners, test
   `ROL05_ADisabledOwnerDoesNotCountAsAnOwnerWhenTheLastActiveOneStepsDown`).
-- **Inconsistent:** see the Memberships section. Role assignment protects the Owner role but enabling a Disabled Owner does not.
+- Role assignment and status changes now both protect Owners (see the Memberships section).
 
 ---
 
@@ -1063,12 +1063,11 @@ WHERE x.tenant_id = '<tenant>' AND x.application_id = '<application>' ORDER BY u
 1. **Tenant suspension is manual and leaky.** It can only be set in the database, is not audited, and does not stop already-issued
    tenant-admin tokens or invitation acceptance. Review `TokenExchangeService`, `SubscribeTenantService`, `ApiKeyValidationService`, and decide
    whether suspension needs an endpoint, an audit entry, and a check in tenant endpoints.
-2. **The "tenant keeps an Owner" rule is code-only and has gaps.** Enabling a Disabled Owner (or disabling an Invited Owner) has no Owner
-   check; there is no database constraint. Review `MembersService.SetStatusAsync` and `AssignRolesService.AssignAsync`.
+2. **The "tenant keeps an Owner" rule is code-only.** There is no database constraint. Review `MembersService.SetStatusAsync` and `AssignRolesService.AssignAsync`.
 3. **Unaccepted invitations hold seats forever.** There is no expiry job or revoke endpoint, and Invited members count toward
    `max_seats`, so stale invites can block real invitations and grants. Review `SeatsUsedAsync` and consider a revoke or sweep.
-4. **Email delivery is the single path to a working invitation.** A dispatcher that is off, a `Failed` row (token cleared), a default
-   `Email:PublicBaseUrl`, or a hard-coded "7 days" in the template all produce "the invitation does not work". Review `EmailTemplates`,
+4. **Email delivery is the single path to a working invitation.** A dispatcher that is off, a `Failed` row (token cleared), or a wrong
+   `Email:PublicBaseUrl` all produce "the invitation does not work". Review `EmailTemplates`,
    `EmailDeliveryService`, and the deployment settings.
 5. **Permission changes lag by the token lifetime plus the console cache.** Disabling a person or lowering a role does not take effect for up
    to 15 minutes (`Auth:Tokens:ProductTokenMinutes`) and about 14 minutes more in the console cache. Review whether that is acceptable for

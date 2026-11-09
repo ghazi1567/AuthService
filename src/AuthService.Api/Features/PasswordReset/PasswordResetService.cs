@@ -63,7 +63,7 @@ public sealed class PasswordResetService(
         });
 
         // Queued in the same save, so the email exists only if its token does.
-        outbox.Enqueue(EmailTemplate.PasswordReset, user.Email, new Dictionary<string, string> { ["token"] = token });
+        outbox.Enqueue(EmailTemplate.PasswordReset, user.Email, new Dictionary<string, string> { ["token"] = token, [EmailLifetime.DataKey] = EmailLifetime.Describe(TimeSpan.FromMinutes(options.Value.TokenMinutes)) });
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -103,6 +103,11 @@ public sealed class PasswordResetService(
         // A reset ends any run of wrong passwords and any lockout (TEN-12).
         user.FailedLoginCount = 0;
         user.LockedUntil = null;
+
+        // The link only reached the inbox of the address on the account, so completing the reset proves the person controls it. That is
+        // the same proof email verification asks for, so an account that never verified is verified now rather than being refused at
+        // login with email_not_verified straight after a successful reset. An address already verified keeps its original time.
+        user.EmailVerifiedAt ??= now;
 
         // In the same transaction as the reset: recorded if and only if the password really changed.
         audit.Record(AuditActions.PasswordResetCompleted, AuditActor.User(user.Id));

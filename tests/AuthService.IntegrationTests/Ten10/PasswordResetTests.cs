@@ -45,6 +45,38 @@ public sealed class PasswordResetTests(PostgresContainerFixture postgres) : Auth
     }
 
     [Fact]
+    public async Task TEN10_ResettingThePasswordOfAnUnverifiedAccountVerifiesItsEmailSoLoginWorksAtOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        (await SignUpAsync("Acme Ltd", Email, DefaultPassword, ct)).StatusCode.ShouldBe(HttpStatusCode.Created);
+        var refused = await LoginAsync(Email, DefaultPassword, ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await ReadProblemAsync(refused, ct)).Code.ShouldBe("email_not_verified");
+
+        (await ForgotPasswordAsync(Email, ct)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        var reset = await ResetPasswordAsync(await WaitForResetTokenAsync(Email), NewPassword, ct);
+
+        reset.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await LoginAsync(Email, NewPassword, ct)).StatusCode.ShouldBe(HttpStatusCode.OK, "the reset proved control of the inbox");
+        await WithDbAsync(async db => (await db.Users.AsNoTracking().SingleAsync(user => user.Email == Email, ct)).EmailVerifiedAt.ShouldNotBeNull());
+    }
+
+    [Fact]
+    public async Task TEN10_ResettingThePasswordOfAVerifiedAccountKeepsTheTimeItWasVerified()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await SignUpVerifiedAsync("Acme Ltd", Email, ct);
+        DateTimeOffset? verifiedAt = null;
+        await WithDbAsync(async db => verifiedAt = (await db.Users.AsNoTracking().SingleAsync(user => user.Email == Email, ct)).EmailVerifiedAt);
+        verifiedAt.ShouldNotBeNull();
+
+        (await ForgotPasswordAsync(Email, ct)).StatusCode.ShouldBe(HttpStatusCode.Accepted);
+        (await ResetPasswordAsync(await WaitForResetTokenAsync(Email), NewPassword, ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await WithDbAsync(async db => (await db.Users.AsNoTracking().SingleAsync(user => user.Email == Email, ct)).EmailVerifiedAt.ShouldBe(verifiedAt));
+    }
+
+    [Fact]
     public async Task AUTH_TC36_ForgotPasswordForAnUnknownEmailGetsTheSameResponseAndSendsNoEmail()
     {
         var ct = TestContext.Current.CancellationToken;

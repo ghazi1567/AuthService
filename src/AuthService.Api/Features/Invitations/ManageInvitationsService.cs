@@ -153,7 +153,7 @@ public sealed class ManageInvitationsService(
         var tenantName = await db.Tenants.AsNoTracking().Where(tenant => tenant.Id == tenantId).Select(tenant => tenant.Name).SingleAsync(cancellationToken);
 
         // Queued in the same save, so the email exists only if the new link does.
-        outbox.Enqueue(EmailTemplate.Invitation, email, new Dictionary<string, string> { ["token"] = token, ["tenantName"] = tenantName });
+        outbox.Enqueue(EmailTemplate.Invitation, email, new Dictionary<string, string> { ["token"] = token, ["tenantName"] = tenantName, [EmailLifetime.DataKey] = EmailLifetime.Describe(TimeSpan.FromDays(options.Value.TokenDays)) });
         audit.Record(AuditActions.InvitationResent, AuditActor.User(callerUserId), tenantId, membershipId.ToString());
 
         await db.SaveChangesAsync(cancellationToken);
