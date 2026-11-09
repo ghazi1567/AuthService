@@ -2016,3 +2016,26 @@ a.org-row:hover {
         padding-inline: 20px;
     }
 }
+
+/* A product's roles (ONB-04): the actions beside the title, and each role's grants as a tidy list */
+.page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.grant-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+}
+
+    .grant-list li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 8px;
+    }
