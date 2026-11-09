@@ -24,6 +24,7 @@ tests/AuthService.Web.Tests/       Tests of the web console (no database needed)
 ```
 
 Deploying it (images, settings, first run, releases): [docs/deployment.md](docs/deployment.md).
+Connecting another app to it (registration, sign-in patterns, token checks, webhooks, API keys): [docs/integration-guide.md](docs/integration-guide.md).
 
 ## Prerequisites
 
