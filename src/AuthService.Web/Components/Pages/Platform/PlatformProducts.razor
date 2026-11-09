@@ -101,6 +101,7 @@ else
                                 }
 
                                 <a class="btn btn-secondary btn-sm" href="/platform/products/@product.Id/permissions">Permissions</a>
+                                <a class="btn btn-secondary btn-sm" href="/platform/products?rename=@product.Id">Rename</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?launch=@product.Id">Opens at</a>
                                 <a class="btn btn-secondary btn-sm" href="/platform/products?rotate=@product.Id">Replace secret</a>
                             </td>
@@ -120,8 +121,19 @@ else
                     <h2 id="secret-title" class="modal-title">@(Registered == "1" ? "Product registered" : "New client secret")</h2>
                     @if (Registered == "1")
                     {
-                        <AlertBanner Kind="AlertKind.Success" Title="@($"{RegisteredName} is registered")" Class="dialog-alert">
-                            <p class="alert-body">It isn't available yet. Next, give it its permissions, then make it available. Give its team the client id and the secret below.</p>
+                        <AlertBanner Kind="AlertKind.Success" Title="@(Live == "1" ? $"{RegisteredName} is registered and available" : $"{RegisteredName} is registered")" Class="dialog-alert">
+                            @if (Live == "1")
+                            {
+                                <p class="alert-body">Organisations can subscribe to it and people with a seat can open it. Give its team the details below.</p>
+                            }
+                            else if (PermissionTotal > 0)
+                            {
+                                <p class="alert-body">It isn't available yet. Make it available when it is ready. Give its team the details below.</p>
+                            }
+                            else
+                            {
+                                <p class="alert-body">It isn't available yet. Next, give it its permissions, then make it available. Give its team the client id and the secret below.</p>
+                            }
                         </AlertBanner>
                     }
                     else
@@ -134,9 +146,21 @@ else
                     <AlertBanner Kind="AlertKind.Warning" Title="You won't see this again" Class="dialog-alert">
                         <p class="alert-body">Copy the secret now and give it to the product's team. It is never shown again. If it is lost, replace the secret.</p>
                     </AlertBanner>
+                    @if (Registered == "1" && !string.IsNullOrWhiteSpace(Audience))
+                    {
+                        <p class="modal-text">Token audience: <code class="mono">@Audience</code></p>
+                    }
                     @if (!string.IsNullOrWhiteSpace(ClientId))
                     {
                         <p class="modal-text">Client id: <code class="mono">@ClientId</code></p>
+                    }
+                    @if (Registered == "1" && !string.IsNullOrWhiteSpace(OpensAt))
+                    {
+                        <p class="modal-text">Opens at: <code class="mono">@OpensAt</code></p>
+                    }
+                    @if (Registered == "1" && PermissionTotal > 0)
+                    {
+                        <p class="modal-text">Permissions: @PermissionTotal @(PermissionTotal == 1 ? "permission" : "permissions") registered</p>
                     }
 
                     <label class="visually-hidden" for="raw-secret">Client secret</label>
@@ -145,7 +169,7 @@ else
                     <button type="button" class="btn btn-secondary" data-needs-script hidden data-copy-from="raw-secret"><Icon Name="copy" />Copy secret</button>
                 </div>
                 <div class="modal-foot">
-                    @if (Registered == "1" && AppId is { } registeredId)
+                    @if (Registered == "1" && PermissionTotal == 0 && AppId is { } registeredId)
                     {
                         <a class="btn btn-secondary" href="/platform/products/@registeredId/permissions">Add its permissions</a>
                     }
@@ -163,7 +187,7 @@ else
                     <AntiforgeryToken />
                     <div class="modal-body">
                         <h2 id="register-title" class="modal-title">Register a product</h2>
-                        <p class="modal-text">A product gets a client id and a client secret to prove who it is to Auth Service. The secret is shown once.</p>
+                        <p class="modal-text">A product gets a client id and a client secret to prove who it is to Auth Service. The secret is shown once. Fill in everything here and it is ready in one step, or leave the optional parts for later.</p>
                         @if (errors.Count > 0)
                         {
                             <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
@@ -189,8 +213,25 @@ else
                         <div class="field">
                             <label for="product-audience">Token audience</label>
                             <input id="product-audience" name="audience" class="input mono" value="@enteredAudience" maxlength="200" autocomplete="off" spellcheck="false" />
-                            <p class="field-message">The value the product's tokens carry and check for, like "helpdesk-api". No two products can share one.</p>
+                            <p class="field-message">The value the product's tokens carry and check for, like "helpdesk-api". No two products can share one. Leave it empty to use the key plus -api. It can't be changed later.</p>
                         </div>
+                        <div class="field">
+                            <label for="product-launch">Where it opens (optional)</label>
+                            <input id="product-launch" name="launchUrl" class="input mono" value="@enteredLaunchUrl" maxlength="2000" autocomplete="off" spellcheck="false" placeholder="https://helpdesk.example.com/api/session/launch" />
+                            <p class="field-message">Where people are sent when they choose it in the picker: a full https address, or http for localhost while developing. You can set it later.</p>
+                        </div>
+                        <div class="field">
+                            <label for="permissions-text">Permissions (optional)</label>
+                            <textarea id="permissions-text" name="permissions" class="input mono permissions-text" rows="7" spellcheck="false" autocomplete="off" placeholder="ticket.reply | Answer tickets | Reply to a customer&#10;ticket.close | Close tickets">@enteredPermissions</textarea>
+                            <p class="field-message">One per line as key | label | description, or paste the permission JSON the product's team keeps. Permissions can be added later, but never removed.</p>
+                            <label class="btn btn-secondary btn-sm" data-needs-script hidden for="permissions-file"><Icon Name="plus" />Load from a file</label>
+                            <input id="permissions-file" type="file" hidden accept=".json,.txt,application/json,text/plain" data-load-into="permissions-text" />
+                        </div>
+                        <label class="check">
+                            <input type="checkbox" name="activate" checked="@activateChecked" />
+                            <span>Make it available now</span>
+                            <span class="muted">Organisations can then subscribe. Needs at least one permission.</span>
+                        </label>
                     </div>
                     <div class="modal-foot">
                         <a class="btn btn-secondary" href="/platform/products">Cancel</a>
@@ -231,6 +272,41 @@ else
                     <div class="modal-foot">
                         <a class="btn btn-secondary" href="/platform/products">Cancel</a>
                         <button type="submit" class="btn btn-primary" data-busy-label="Saving…">Save address</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+    else if (renaming is { } toRename)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="rename-title">
+                <form method="post" @onsubmit="RenameAsync" @formname="rename" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <input type="hidden" name="id" value="@toRename.Id" />
+                    <div class="modal-body">
+                        <h2 id="rename-title" class="modal-title">Rename '@toRename.Name'</h2>
+                        <p class="modal-text">This is the name people see. Its key, <code class="mono">@toRename.Key</code>, and its token audience stay as they are, so the product keeps working.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="rename-name">Name</label>
+                            <input id="rename-name" name="name" class="input" value="@enteredNewName" maxlength="200" autocomplete="off" />
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="/platform/products">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Saving…">Save name</button>
                     </div>
                 </form>
             </div>
@@ -305,6 +381,11 @@ else
     private string enteredKey = "";
     private string enteredAudience = "";
     private string enteredUrl = "";
+    private string enteredLaunchUrl = "";
+    private string enteredPermissions = "";
+    private string enteredNewName = "";
+    private bool activateChecked = true;
+    private AdminProductItem? renaming;
     private AdminProductItem? rotating;
     private AdminProductItem? withdrawing;
     private AdminProductItem? launching;
@@ -320,6 +401,20 @@ else
     [SupplyParameterFromQuery(Name = "withdraw")] private Guid? WithdrawId { get; set; }
 
     [SupplyParameterFromQuery(Name = "launch")] private Guid? LaunchId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "rename")] private Guid? RenameId { get; set; }
+
+    // What a registration did, carried in the address after it (none of it is secret): the audience, whether it went live, where it
+    // opens and how many permissions were saved with it.
+    [SupplyParameterFromQuery(Name = "aud")] private string? Audience { get; set; }
+
+    [SupplyParameterFromQuery(Name = "live")] private string? Live { get; set; }
+
+    [SupplyParameterFromQuery(Name = "opens")] private string? OpensAt { get; set; }
+
+    [SupplyParameterFromQuery(Name = "perms")] private int? Permissions { get; set; }
+
+    private int PermissionTotal => Math.Max(0, Permissions ?? 0);
 
     [SupplyParameterFromQuery(Name = "reveal")] private string? Reveal { get; set; }
 
@@ -361,6 +456,9 @@ else
                 break;
             case ("withdrawn", _):
                 Banner(builder, AlertKind.Success, $"{name} is withdrawn", "Nobody can open it and organisations can't subscribe until it is made available again.");
+                break;
+            case ("renamed", _):
+                Banner(builder, AlertKind.Success, $"{name} is renamed", "Its key and token audience are unchanged, so the product keeps working.");
                 break;
             case ("launch_saved", _):
                 Banner(builder, AlertKind.Success, $"{name}'s address is saved", "People who choose it in the picker are sent there.");
@@ -467,6 +565,19 @@ else
 
         if (!registering && launching is null)
         {
+            if (Posted("rename") && Guid.TryParse(HttpContext.Request.Form["id"].ToString(), out var postedRename))
+            {
+                renaming = products.FirstOrDefault(product => product.Id == postedRename);
+            }
+            else if (RenameId is { } renameId)
+            {
+                renaming = products.FirstOrDefault(product => product.Id == renameId);
+                enteredNewName = renaming?.Name ?? "";
+            }
+        }
+
+        if (!registering && launching is null && renaming is null)
+        {
             withdrawing = WithdrawId is { } withdrawId ? products.FirstOrDefault(product => product.Id == withdrawId && product.IsActive) : null;
             rotating = withdrawing is null && RotateId is { } id ? products.FirstOrDefault(product => product.Id == id) : null;
         }
@@ -478,6 +589,9 @@ else
         enteredName = form["name"].ToString().Trim();
         enteredKey = form["key"].ToString().Trim();
         enteredAudience = form["audience"].ToString().Trim();
+        enteredLaunchUrl = form["launchUrl"].ToString().Trim();
+        enteredPermissions = form["permissions"].ToString();
+        activateChecked = form.ContainsKey("activate");
 
         errors.Clear();
         if (enteredName.Length == 0)
@@ -490,25 +604,41 @@ else
             errors.Add("Enter a key for the product.");
         }
 
-        if (enteredAudience.Length == 0)
+        // Left empty, the audience follows the key ("helpdesk" gives "helpdesk-api"); with no key either there is nothing to follow.
+        if (enteredAudience.Length == 0 && enteredKey.Length == 0)
         {
             errors.Add("Enter the token audience for the product.");
         }
+
+        var (permissions, permissionErrors) = PermissionText.Parse(enteredPermissions);
+        errors.AddRange(permissionErrors.Take(5));
 
         if (errors.Count > 0)
         {
             return;
         }
 
+        // The product goes live in the same step only when it has permissions to make it available with.
+        var request = new RegisterProductRequest(
+            enteredKey,
+            enteredName,
+            enteredAudience.Length == 0 ? $"{enteredKey}-api" : enteredAudience,
+            enteredLaunchUrl.Length == 0 ? null : enteredLaunchUrl,
+            permissions.Count == 0 ? null : permissions,
+            activateChecked && permissions.Count > 0 ? true : null);
+
         var access = await Platform.LoadAsync(HttpContext);
         var result = await Api.PostAsync<RegisterProductRequest, RegisteredProduct>(
-            "/api/auth/admin/applications", new RegisterProductRequest(enteredKey, enteredName, enteredAudience), HttpContext.RequestAborted, access.Token);
+            "/api/auth/admin/applications", request, HttpContext.RequestAborted, access.Token);
         if (result.IsSuccess && HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
         {
-            // The secret waits on the server; the address carries only a reference, the product's name and its (public) client id.
-            var reference_ = Secrets.Put(sid.Value, result.Value!.ClientSecret);
+            // The secret waits on the server; the address carries only a reference and what is not secret: the product's name, its audience,
+            // its (public) client id, where it opens, how many permissions it has and whether it is available.
+            var product = result.Value!;
+            var reference_ = Secrets.Put(sid.Value, product.ClientSecret);
             leaving = true;
-            Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&app={result.Value.Id}&name={Uri.EscapeDataString(result.Value.Name)}&client={Uri.EscapeDataString(result.Value.ClientId)}");
+            var opens = product.LaunchUrl is { Length: > 0 } address ? $"&opens={Uri.EscapeDataString(address)}" : "";
+            Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&app={product.Id}&name={Uri.EscapeDataString(product.Name)}&client={Uri.EscapeDataString(product.ClientId)}&aud={Uri.EscapeDataString(product.JwtAudience)}&perms={product.PermissionCount}&live={(product.IsActive ? 1 : 0)}{opens}");
             return;
         }
 
@@ -540,6 +670,56 @@ else
             errors.Add(problem?.Status == StatusCodes.Status403Forbidden
                 ? "You don't have permission to register products."
                 : "Auth Service isn't responding right now. Nothing was registered. Try again in a moment.");
+        }
+    }
+
+    private async Task RenameAsync()
+    {
+        enteredNewName = HttpContext!.Request.Form["name"].ToString().Trim();
+        errors.Clear();
+        if (renaming is null)
+        {
+            return;
+        }
+
+        if (enteredNewName.Length == 0)
+        {
+            errors.Add("Enter a name for the product.");
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PutNoContentAsync(
+            $"/api/auth/admin/applications/{renaming.Id}/name", new RenameProductRequest(enteredNewName), access.Token!, HttpContext.RequestAborted);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/platform/products?notice=renamed&app={renaming.Id}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo("/login?returnUrl=%2Fplatform%2Fproducts&reason=expired");
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(3))
+            {
+                errors.Add(reason);
+            }
+        }
+        else
+        {
+            errors.Add(problem?.Status == StatusCodes.Status403Forbidden
+                ? "You don't have permission to change products."
+                : problem?.Code == "application_not_found"
+                    ? "That product isn't here any more."
+                    : "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
         }
     }
 

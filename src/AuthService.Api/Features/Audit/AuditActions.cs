@@ -50,6 +50,9 @@ public static class AuditActions
     /// <summary>A platform admin set or cleared the address a product is opened at from the console (APP-08). The detail is the product's key.</summary>
     public const string ApplicationLaunchUrlSet = "auth.application.launch_url_set";
 
+    /// <summary>A platform admin changed a product's display name (ONB-01). The detail is the product's key, which never changes.</summary>
+    public const string ApplicationRenamed = "auth.application.renamed";
+
     /// <summary>A platform admin sent a failed webhook again (SUB-06). The detail is the webhook id.</summary>
     public const string WebhookResent = "auth.webhook.resent";
 

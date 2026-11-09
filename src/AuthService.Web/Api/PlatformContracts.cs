@@ -75,14 +75,36 @@ public sealed record RotatedSecret(Guid ApplicationId, string ClientId, string C
 /// <summary>A product as the platform admin's list shows it: where it stands, and nothing it keeps private.</summary>
 public sealed record AdminProductItem(Guid Id, string Key, string Name, bool IsActive, int PermissionCount, string? LaunchUrl, DateTimeOffset CreatedAt);
 
-/// <summary>Body of <c>POST /api/auth/admin/applications</c>.</summary>
-public sealed record RegisterProductRequest(string Key, string Name, string JwtAudience);
+/// <summary>
+/// Body of <c>POST /api/auth/admin/applications</c>. The launch address, the permissions and the wish to make the product available are
+/// optional (ONB-01): sent together the API saves them with the product, all or nothing.
+/// </summary>
+public sealed record RegisterProductRequest(
+    string Key,
+    string Name,
+    string JwtAudience,
+    string? LaunchUrl = null,
+    IReadOnlyList<PermissionToAdd>? Permissions = null,
+    bool? Activate = null);
+
+/// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/name</c>.</summary>
+public sealed record RenameProductRequest(string Name);
 
 /// <summary>
 /// A newly registered product with its client credentials. The secret is in this response and nowhere else; printing it shows only the
 /// client id, so it can't reach a log by being printed.
 /// </summary>
-public sealed record RegisteredProduct(Guid Id, string Key, string Name, string JwtAudience, bool IsActive, string ClientId, string ClientSecret, DateTimeOffset CreatedAt)
+public sealed record RegisteredProduct(
+    Guid Id,
+    string Key,
+    string Name,
+    string JwtAudience,
+    bool IsActive,
+    string ClientId,
+    string ClientSecret,
+    DateTimeOffset CreatedAt,
+    string? LaunchUrl = null,
+    int PermissionCount = 0)
 {
     private bool PrintMembers(System.Text.StringBuilder builder)
     {

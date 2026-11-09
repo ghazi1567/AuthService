@@ -12,8 +12,17 @@ using Npgsql;
 
 namespace AuthService.Api.Features.Applications;
 
-/// <summary>A registration request that passed validation, with the key normalised.</summary>
-public sealed record ValidApplication(string Key, string Name, string JwtAudience);
+/// <summary>
+/// A registration request that passed validation, with the key normalised. <see cref="Permissions"/> and <see cref="LaunchUrl"/> are
+/// null when the request did not send them; <see cref="Activate"/> is only true together with at least one permission.
+/// </summary>
+public sealed record ValidApplication(
+    string Key,
+    string Name,
+    string JwtAudience,
+    string? LaunchUrl = null,
+    IReadOnlyList<ValidPermission>? Permissions = null,
+    bool Activate = false);
 
 public abstract record RegisterApplicationResult
 {
@@ -50,14 +59,9 @@ public static partial class ApplicationValidator
                 [$"Key must be 1 to {MaxKeyLength} lowercase letters, digits or hyphens, and start and end with a letter or digit."];
         }
 
-        var name = request.Name?.Trim();
-        if (string.IsNullOrEmpty(name))
+        if (!TryValidateName(request.Name, out var name, out var nameError))
         {
-            errors[nameof(RegisterApplicationRequest.Name)] = ["Name is required."];
-        }
-        else if (name.Length > MaxNameLength)
-        {
-            errors[nameof(RegisterApplicationRequest.Name)] = [$"Name must be at most {MaxNameLength} characters."];
+            errors[nameof(RegisterApplicationRequest.Name)] = [nameError];
         }
 
         var audience = request.JwtAudience?.Trim();
@@ -76,12 +80,60 @@ public static partial class ApplicationValidator
             errors[nameof(RegisterApplicationRequest.JwtAudience)] = [$"JWT audience '{IdentityTokenService.ServiceAudience}' is reserved."];
         }
 
+        string? launchUrl = null;
+        if (!string.IsNullOrWhiteSpace(request.LaunchUrl) && !LaunchUrlValidator.TryValidate(request.LaunchUrl, out launchUrl, out var launchError))
+        {
+            errors[nameof(RegisterApplicationRequest.LaunchUrl)] = [launchError];
+        }
+
+        // An empty list is the same as none, so a form that sends an empty catalogue registers only the product.
+        List<ValidPermission>? permissions = null;
+        if (request.Permissions is { Count: > 0 })
+        {
+            if (PermissionCatalogValidator.TryValidate(new RegisterPermissionsRequest(request.Permissions), out var checkedPermissions, out var permissionErrors))
+            {
+                permissions = checkedPermissions;
+            }
+            else
+            {
+                foreach (var (field, messages) in permissionErrors)
+                {
+                    errors[field] = messages;
+                }
+            }
+        }
+
+        if (request.Activate == true && request.Permissions is not { Count: > 0 })
+        {
+            errors[nameof(RegisterApplicationRequest.Activate)] = ["Activate needs at least one permission, so a tenant has something to grant."];
+        }
+
         if (errors.Count > 0)
         {
             return false;
         }
 
-        valid = new ValidApplication(key!, name!, audience!);
+        valid = new ValidApplication(key!, name, audience!, launchUrl, permissions, request.Activate == true);
+        return true;
+    }
+
+    /// <summary>The rules for a product's display name, used when it is registered and when it is renamed.</summary>
+    public static bool TryValidateName(string? text, out string name, out string error)
+    {
+        name = text?.Trim() ?? "";
+        error = "";
+        if (name.Length == 0)
+        {
+            error = "Name is required.";
+            return false;
+        }
+
+        if (name.Length > MaxNameLength)
+        {
+            error = $"Name must be at most {MaxNameLength} characters.";
+            return false;
+        }
+
         return true;
     }
 
@@ -119,12 +171,27 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
             JwtAudience = input.JwtAudience,
             ClientId = "cl_" + Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(16)),
 
-            // Inactive until the permission catalog is registered (APP-02).
-            IsActive = false,
+            // Inactive until the permission catalog is registered (APP-02), unless this same request sent one and asked to activate.
+            IsActive = input.Activate,
+            LaunchUrl = input.LaunchUrl,
             CreatedAt = now,
         };
 
         db.Applications.Add(application);
+        foreach (var permission in input.Permissions ?? [])
+        {
+            db.Permissions.Add(new Permission
+            {
+                Id = Guid.CreateVersion7(),
+                ApplicationId = application.Id,
+                Key = permission.Key,
+                Label = permission.Label,
+                Description = permission.Description,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+        }
+
         db.ApplicationSecrets.Add(new ApplicationSecret
         {
             Id = Guid.CreateVersion7(),
@@ -135,6 +202,22 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
 
         // The product's key is a safe, readable detail; the secret never goes near the audit log.
         audit.Record(AuditActions.ApplicationRegistered, AuditActor.User(adminId), detail: application.Key);
+
+        // The same entries the separate calls write, so the audit log reads the same however the product was set up.
+        if (input.Permissions is { Count: > 0 })
+        {
+            audit.Record(AuditActions.PermissionsRegistered, AuditActor.User(adminId), detail: application.Key);
+        }
+
+        if (input.LaunchUrl is not null)
+        {
+            audit.Record(AuditActions.ApplicationLaunchUrlSet, AuditActor.User(adminId), detail: application.Key);
+        }
+
+        if (input.Activate)
+        {
+            audit.Record(AuditActions.ApplicationActivated, AuditActor.User(adminId), detail: application.Key);
+        }
 
         try
         {
@@ -151,7 +234,7 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
 
         return new RegisterApplicationResult.Created(new RegisterApplicationResponse(
             application.Id, application.Key, application.Name, application.JwtAudience, application.IsActive,
-            application.ClientId, clientSecret, now));
+            application.ClientId, clientSecret, now, application.LaunchUrl, input.Permissions?.Count ?? 0));
     }
 
     private static bool BrokeUniqueRule(DbUpdateException exception, string indexName) =>

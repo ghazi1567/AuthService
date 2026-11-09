@@ -246,6 +246,11 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> RegisterProductCalls { get; } = [];
 
+    /// <summary>Answers a product being renamed (given the request body); null (the default) does it.</summary>
+    public Func<string, HttpResponseMessage?>? RenameResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> RenameCalls { get; } = [];
+
     /// <summary>Answers a product being made available or withdrawn; null (the default) does it.</summary>
     public Func<string, HttpResponseMessage?>? SetActiveResponse { get; set; }
 
@@ -370,12 +375,34 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 var key = json.RootElement.TryGetProperty("key", out var keyElement) ? keyElement.GetString() : "new-product";
                 var productName = json.RootElement.TryGetProperty("name", out var nameElement) ? nameElement.GetString() : "New product";
                 var audience = json.RootElement.TryGetProperty("jwtAudience", out var audienceElement) ? audienceElement.GetString() : "new-api";
+
+                // As the real API answers: what was saved with the product comes back (ONB-01).
+                var launch = json.RootElement.TryGetProperty("launchUrl", out var launchElement) && launchElement.ValueKind == JsonValueKind.String
+                    ? JsonSerializer.Serialize(launchElement.GetString())
+                    : "null";
+                var permissionCount = json.RootElement.TryGetProperty("permissions", out var permissionsElement) && permissionsElement.ValueKind == JsonValueKind.Array
+                    ? permissionsElement.GetArrayLength()
+                    : 0;
+                var live = json.RootElement.TryGetProperty("activate", out var activateElement) && activateElement.ValueKind == JsonValueKind.True ? "true" : "false";
                 return new HttpResponseMessage(HttpStatusCode.Created)
                 {
                     Content = new StringContent(
-                        $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":false,"clientId":"new-client","clientSecret":"{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z"}""",
+                        $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":{{live}},"clientId":"new-client","clientSecret":"{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z","launchUrl":{{launch}},"permissionCount":{{permissionCount}}}""",
                         Encoding.UTF8,
                         "application/json"),
+                };
+            }
+
+            if (path.EndsWith("/name", StringComparison.Ordinal) && request.Method == HttpMethod.Put)
+            {
+                lock (_gate)
+                {
+                    RenameCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                return RenameResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"20000000-0000-4000-8000-000000000001","key":"helpdesk","name":"Renamed"}""", Encoding.UTF8, "application/json"),
                 };
             }
 

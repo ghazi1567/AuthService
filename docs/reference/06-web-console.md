@@ -820,7 +820,7 @@ Rules:
 | `POST /platform/products/{id}/rotate-secret` (`graceHours` 0 to 720) | session + probe | `RotateProductSecretAsync` | `POST /api/auth/admin/applications/{id}/secret/rotate` | Replaces the client secret; shown once. |
 | `POST /platform/signing-keys/rotate` (`confirm` = `ROTATE`) | session + probe | `RotateSigningKeyAsync` | `POST /api/auth/admin/signing-keys/rotate` | Emergency signing-key rotation. |
 | `POST /platform/webhooks/{id}/resend` | session + probe | `ResendWebhookAsync` | `POST /api/auth/admin/webhooks/{id}/resend` | Re-queues a failed event. |
-| Forms on the pages (`@formname`) | session + probe | `PlatformProducts.razor` `RegisterAsync`, `SaveLaunchAsync`; `PlatformPermissions.razor` `AddAsync` | `POST /api/auth/admin/applications`, `PUT .../{id}/launch-url`, `POST .../{id}/permissions` | Register a product, set its launch address, add permissions. |
+| Forms on the pages (`@formname`) | session + probe | `PlatformProducts.razor` `RegisterAsync`, `RenameAsync`, `SaveLaunchAsync`; `PlatformPermissions.razor` `AddAsync` | `POST /api/auth/admin/applications`, `PUT .../{id}/name`, `PUT .../{id}/launch-url`, `POST .../{id}/permissions` | Register a product, rename it, set its launch address, add permissions. |
 
 Flow of any platform page:
 
@@ -837,12 +837,15 @@ Flow of any platform page:
 Details by part:
 
 - **Products.** Lists name, key, status ("Available" or "Not available" with what to do next), permission count and launch address
-  ("Opens at"). Actions: Register a product (name up to 200, key up to 63 characters, token audience up to 200; the secret is shown
-  once through `OneTimeSecrets`), Make available (offered only when the product has permissions), Withdraw (asks first; existing
+  ("Opens at"). Actions: Register a product (name up to 200, key up to 63 characters, token audience up to 200, left empty it becomes the
+  key plus `-api`; optionally the address it opens at, the permissions as lines or pasted JSON read by `PermissionText`, with a "Load from
+  a file" button that needs the script, and a "Make it available now" box that is only sent when permissions were given; one API call saves
+  it all or nothing; the secret is shown once through `OneTimeSecrets`, with the audience, client id, address and permission count beside
+  it), Rename (the display name only; the dialog says the key and audience stay), Make available (offered only when the product has permissions), Withdraw (asks first; existing
   subscriptions and seats are not changed), Opens at (an https address, no user name, password or fragment, at most 2000 characters;
   the API's reasons are shown in the dialog), Replace secret (grace 0 to 720 hours, same choices as API keys), Permissions. A product
   becomes available only after it has permissions (`no_permissions_registered`).
-- **Permissions.** Lists a product's catalog by key. "Add permissions" takes one per line as `key | label | optional description`.
+- **Permissions.** Lists a product's catalog by key. "Add permissions" takes one per line as `key | label | optional description`, or pasted JSON (`PermissionText`).
   The list only grows; adding an existing key changes its label and description. The page says "Up to 200 at a time"
   (`MaxPerPost`) but does not enforce it; the API does.
 - **Webhook events.** Newest first; filter by status (`Pending`, `Delivered`, `Failed`) and product; "Load more" up to 200. A
