@@ -604,6 +604,8 @@ subscription itself. A **suspended tenant** (not subscription) is blocked at tok
 | Verb and route | Auth required | Handler | Service/method | What it does |
 |---|---|---|---|---|
 | `POST /api/auth/tenants/{tenantId}/subscriptions` | service token | `SubscriptionEndpoints.SubscribeAsync` | `SubscribeTenantService.SubscribeAsync` | Subscribes or re-activates; queues `ApplicationSubscribed`. |
+| `POST /api/auth/admin/applications/{applicationId}/subscriptions` | platform admin | `ApplicationSubscriptionAdminEndpoints.SubscribeAsync` | `SubscribeTenantService.SubscribeAsync` (actor = the admin) | Body `{tenantId, maxSeats?}`. Same results and event as the product's own call (ONB-02). The built-in product and an unknown id are `404 application_not_found`. |
+| `POST /api/auth/admin/applications/{applicationId}/test-organisations` | platform admin | `ApplicationSubscriptionAdminEndpoints.CreateTestOrganisationAsync` | `TenantProvisioning.AddTenantWithOwner`, then `SubscribeTenantService.SubscribeAsync` | Body `{name, ownerEmail, maxSeats?}`. Creates an organisation owned by an existing verified person and subscribes it; `201` with `tenantId`, `tenantName`, `ownerEmail`, `subscription`. |
 | `PATCH /api/auth/tenants/{tenantId}/subscriptions/{applicationId}` | service token | `SubscriptionEndpoints.SetStatusAsync` | `SubscriptionStatusService.SetAsync` | Suspend or cancel; queues `ApplicationUnsubscribed`. |
 | `PATCH /api/auth/tenants/{tenantId}/subscriptions/{applicationId}/seats` | service token | `SubscriptionEndpoints.SetSeatLimitAsync` | `SeatLimitService.SetAsync` | Sets `max_seats`. |
 | `GET /api/auth/tenants/me/subscriptions` | tenant-admin token with `subscriptions.read` at ReadOnly | `ListSubscriptionsEndpoints.ListAsync` | one query | The caller's tenant's subscriptions, all statuses, by product name. |
@@ -616,7 +618,14 @@ Flow of subscribe (`SubscribeTenantService.SubscribeAsync`):
 3. Load the existing row. `Active`: return `AlreadySubscribed` (nothing written). Otherwise create or reuse the row, set `Status = Active`, `MaxSeats`, `UpdatedAt`.
 4. `GrantOwnersAccessAsync` adds `application_access` rows for Owner memberships that lack one. This step does **not** check the seat limit.
 5. Adds the `webhook_outbox` row via `WebhookEvents.Create(... "ApplicationSubscribed" ...)` in the **same transaction**, so the event exists if and only if the change does.
-6. Audit `auth.subscription.subscribed` (`AuditActor.Product(applicationId)`, tenant id, detail = product key). Save, commit, answer `201` (new) or `200`.
+6. Audit `auth.subscription.subscribed` (`AuditActor.Product(applicationId)` by default, or the admin when a platform admin subscribes the tenant, tenant id, detail = product key). Save, commit, answer `201` (new) or `200`.
+
+Flow of a test organisation (`CreateTestOrganisationAsync`, ONB-02): validate `Name` (trimmed, at most `SignupValidator.MaxTenantNameLength`), `OwnerEmail`
+(normalised like signup) and `MaxSeats` (at least 1) with `400` on `Name`, `OwnerEmail` or `MaxSeats`; the product must exist, not be built in and be active
+(`application_not_found`, `application_not_active`); the owner must exist (`owner_not_found`), have a verified email (`owner_email_not_verified`) and not be
+disabled in every membership (`owner_disabled`, `AccountAccess.IsDisabled`). Then `AddTenantWithOwner` and the audit entry `auth.tenant.created` (actor = the admin)
+are saved, and `SubscribeAsync` runs as above. The two saves are separate: if the product were withdrawn between the check and the subscribe, the organisation exists
+without a subscription and the answer is `409 organisation_not_subscribed`.
 
 Flow of status change (`SubscriptionStatusService.SetAsync`): lock as above; not found, `404 subscription_not_found`; same status, `Unchanged`; current `Cancelled`, `AlreadyCancelled`;
 otherwise update the status, add the `ApplicationUnsubscribed` outbox row (payload has `status`), audit `auth.subscription.suspended` or `auth.subscription.cancelled`, commit.

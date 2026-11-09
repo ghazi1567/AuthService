@@ -90,6 +90,18 @@ public sealed record RegisterProductRequest(
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/name</c>.</summary>
 public sealed record RenameProductRequest(string Name);
 
+/// <summary>Body of <c>POST /api/auth/admin/applications/{id}/subscriptions</c>: an existing organisation to subscribe, with an optional seat limit.</summary>
+public sealed record SubscribeOrganisationRequest(Guid TenantId, int? MaxSeats);
+
+/// <summary>Body of <c>POST /api/auth/admin/applications/{id}/test-organisations</c>.</summary>
+public sealed record CreateTestOrganisationRequest(string Name, string OwnerEmail, int? MaxSeats);
+
+/// <summary>An organisation's subscription to a product, as the API answers when an admin subscribes it.</summary>
+public sealed record AdminSubscription(Guid TenantId, Guid ApplicationId, string Status, int? MaxSeats, int SeatsUsed);
+
+/// <summary>The test organisation that was created, with its owner and its subscription.</summary>
+public sealed record TestOrganisationCreated(Guid TenantId, string TenantName, string OwnerEmail, AdminSubscription Subscription);
+
 /// <summary>
 /// A newly registered product with its client credentials. The secret is in this response and nowhere else; printing it shows only the
 /// client id, so it can't reach a log by being printed.

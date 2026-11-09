@@ -92,7 +92,7 @@ column holds the value shown, or nothing where the cell says "none".
 | Webhooks | `WebhookConfigured` | `auth.application.webhook_configured` | Product | no | product key |
 | Webhooks | `WebhookSecretRotated` | `auth.webhook.secret_rotated` | Product | no | `overlap_hours_<n>` |
 | Webhooks | `WebhookResent` | `auth.webhook.resent` | User (platform admin) | no | webhook id |
-| Subscriptions | `TenantSubscribed` | `auth.subscription.subscribed` | Product | yes | product key |
+| Subscriptions | `TenantSubscribed` | `auth.subscription.subscribed` | Product (a User when a platform admin subscribes the tenant, ONB-02) | yes | product key |
 | Subscriptions | `SubscriptionSuspended` / `SubscriptionCancelled` | `auth.subscription.suspended` / `auth.subscription.cancelled` | Product | yes | product key |
 | Subscriptions | `SeatLimitChanged` | `auth.subscription.seat_limit_changed` | Product | yes | product key |
 | Roles | `RoleCreated` / `RoleUpdated` / `RoleDeleted` | `auth.role.created` / `.updated` / `.deleted` | User | yes | role id |

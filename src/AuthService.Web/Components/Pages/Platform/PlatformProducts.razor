@@ -89,6 +89,8 @@ else
                             <td data-label="Actions" class="row-actions">
                                 @if (product.IsActive)
                                 {
+                                    <a class="btn btn-primary btn-sm" href="/platform/products?testorg=@product.Id">Test organisation</a>
+                                    <a class="btn btn-secondary btn-sm" href="/platform/products?subscribe=@product.Id">Subscribe organisation</a>
                                     <a class="btn btn-secondary btn-sm" href="/platform/products?withdraw=@product.Id">Withdraw</a>
                                 }
                                 else if (product.PermissionCount > 0)
@@ -312,6 +314,92 @@ else
             </div>
         </div>
     }
+    else if (testing is { } toTest)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="testorg-title">
+                <form method="post" @onsubmit="CreateTestOrganisationAsync" @formname="testorg" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <input type="hidden" name="id" value="@toTest.Id" />
+                    <div class="modal-body">
+                        <h2 id="testorg-title" class="modal-title">Create a test organisation for '@toTest.Name'</h2>
+                        <p class="modal-text">We'll create an organisation owned by someone who already has a verified account, and subscribe it to @toTest.Name, so they can sign in and open it straight away.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="testorg-name">Organisation name</label>
+                            <input id="testorg-name" name="name" class="input" value="@enteredOrgName" maxlength="200" autocomplete="off" />
+                        </div>
+                        <div class="field">
+                            <label for="testorg-owner">Owner's email</label>
+                            <input id="testorg-owner" name="ownerEmail" type="email" class="input" value="@enteredOwnerEmail" maxlength="254" autocomplete="off" spellcheck="false" />
+                            <p class="field-message">They need an account with a verified email. Ask them to sign up first if they don't have one. You can use your own.</p>
+                        </div>
+                        <div class="field">
+                            <label for="testorg-seats">Seats (optional)</label>
+                            <input id="testorg-seats" name="seats" class="input" inputmode="numeric" value="@enteredSeats" maxlength="6" autocomplete="off" />
+                            <p class="field-message">How many people can have a seat. Leave it empty for no limit. The owner takes the first seat.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="/platform/products">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Creating…">Create organisation</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+    else if (subscribing is { } toSubscribe)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="subscribe-title">
+                <form method="post" @onsubmit="SubscribeOrganisationAsync" @formname="subscribe" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <input type="hidden" name="id" value="@toSubscribe.Id" />
+                    <div class="modal-body">
+                        <h2 id="subscribe-title" class="modal-title">Subscribe an organisation to '@toSubscribe.Name'</h2>
+                        <p class="modal-text">This brings an existing organisation onto @toSubscribe.Name, or makes a suspended or cancelled subscription active again. The product is told, as it is when it subscribes someone itself.</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="subscribe-org">Organisation id</label>
+                            <input id="subscribe-org" name="tenantId" class="input mono" value="@enteredTenantId" maxlength="36" autocomplete="off" spellcheck="false" placeholder="00000000-0000-0000-0000-000000000000" />
+                            <p class="field-message">Shown in the organisation's own console, under its profile.</p>
+                        </div>
+                        <div class="field">
+                            <label for="subscribe-seats">Seats (optional)</label>
+                            <input id="subscribe-seats" name="seats" class="input" inputmode="numeric" value="@enteredSeats" maxlength="6" autocomplete="off" />
+                            <p class="field-message">Leave it empty for no limit. An active subscription keeps the limit it has.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="/platform/products">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Subscribing…">Subscribe organisation</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
     else if (withdrawing is { } toWithdraw)
     {
         <div class="modal-backdrop">
@@ -385,6 +473,12 @@ else
     private string enteredPermissions = "";
     private string enteredNewName = "";
     private bool activateChecked = true;
+    private string enteredOrgName = "";
+    private string enteredOwnerEmail = "";
+    private string enteredSeats = "";
+    private string enteredTenantId = "";
+    private AdminProductItem? testing;
+    private AdminProductItem? subscribing;
     private AdminProductItem? renaming;
     private AdminProductItem? rotating;
     private AdminProductItem? withdrawing;
@@ -403,6 +497,17 @@ else
     [SupplyParameterFromQuery(Name = "launch")] private Guid? LaunchId { get; set; }
 
     [SupplyParameterFromQuery(Name = "rename")] private Guid? RenameId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "testorg")] private Guid? TestOrgId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "subscribe")] private Guid? SubscribeId { get; set; }
+
+    // What an admin just did with an organisation, carried in the address after it (an id and a name, nothing secret).
+    [SupplyParameterFromQuery(Name = "org")] private string? OrgName { get; set; }
+
+    [SupplyParameterFromQuery(Name = "owner")] private string? OwnerEmail { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tid")] private string? OrgId { get; set; }
 
     // What a registration did, carried in the address after it (none of it is secret): the audience, whether it went live, where it
     // opens and how many permissions were saved with it.
@@ -456,6 +561,12 @@ else
                 break;
             case ("withdrawn", _):
                 Banner(builder, AlertKind.Success, $"{name} is withdrawn", "Nobody can open it and organisations can't subscribe until it is made available again.");
+                break;
+            case ("testorg", _):
+                Banner(builder, AlertKind.Success, $"{OrgName ?? "The organisation"} is ready", $"{OwnerEmail ?? "Its owner"} owns it and can open {name} in it. Organisation id: {OrgId}");
+                break;
+            case ("subscribed", _):
+                Banner(builder, AlertKind.Success, $"The organisation is subscribed to {name}", $"Organisation id: {OrgId}. Its owners have a seat and anyone it gives a seat to can open {name}.");
                 break;
             case ("renamed", _):
                 Banner(builder, AlertKind.Success, $"{name} is renamed", "Its key and token audience are unchanged, so the product keeps working.");
@@ -577,6 +688,28 @@ else
         }
 
         if (!registering && launching is null && renaming is null)
+        {
+            if (Posted("testorg") && Guid.TryParse(HttpContext.Request.Form["id"].ToString(), out var postedTest))
+            {
+                testing = products.FirstOrDefault(product => product.Id == postedTest && product.IsActive);
+            }
+            else if (TestOrgId is { } testId)
+            {
+                testing = products.FirstOrDefault(product => product.Id == testId && product.IsActive);
+                enteredOrgName = testing is null ? "" : $"{testing.Name} test";
+            }
+
+            if (testing is null && Posted("subscribe") && Guid.TryParse(HttpContext.Request.Form["id"].ToString(), out var postedSubscribe))
+            {
+                subscribing = products.FirstOrDefault(product => product.Id == postedSubscribe && product.IsActive);
+            }
+            else if (testing is null && SubscribeId is { } subscribeId)
+            {
+                subscribing = products.FirstOrDefault(product => product.Id == subscribeId && product.IsActive);
+            }
+        }
+
+        if (!registering && launching is null && renaming is null && testing is null && subscribing is null)
         {
             withdrawing = WithdrawId is { } withdrawId ? products.FirstOrDefault(product => product.Id == withdrawId && product.IsActive) : null;
             rotating = withdrawing is null && RotateId is { } id ? products.FirstOrDefault(product => product.Id == id) : null;
@@ -721,6 +854,156 @@ else
                     ? "That product isn't here any more."
                     : "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.");
         }
+    }
+
+    // Seats are optional: empty means no limit, otherwise a whole number of at least 1.
+    private bool TryReadSeats(out int? seats)
+    {
+        seats = null;
+        enteredSeats = HttpContext!.Request.Form["seats"].ToString().Trim();
+        if (enteredSeats.Length == 0)
+        {
+            return true;
+        }
+
+        if (int.TryParse(enteredSeats, NumberStyles.None, CultureInfo.InvariantCulture, out var count) && count >= 1)
+        {
+            seats = count;
+            return true;
+        }
+
+        errors.Add("Seats must be a whole number of at least 1, or left empty for no limit.");
+        return false;
+    }
+
+    private async Task CreateTestOrganisationAsync()
+    {
+        var form = HttpContext!.Request.Form;
+        enteredOrgName = form["name"].ToString().Trim();
+        enteredOwnerEmail = form["ownerEmail"].ToString().Trim();
+        errors.Clear();
+        if (testing is null)
+        {
+            return;
+        }
+
+        if (enteredOrgName.Length == 0)
+        {
+            errors.Add("Enter a name for the organisation.");
+        }
+
+        if (enteredOwnerEmail.Length == 0)
+        {
+            errors.Add("Enter the owner's email.");
+        }
+
+        TryReadSeats(out var seats);
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PostAsync<CreateTestOrganisationRequest, TestOrganisationCreated>(
+            $"/api/auth/admin/applications/{testing.Id}/test-organisations",
+            new CreateTestOrganisationRequest(enteredOrgName, enteredOwnerEmail, seats),
+            HttpContext.RequestAborted,
+            access.Token);
+        if (result.IsSuccess)
+        {
+            var created = result.Value!;
+            leaving = true;
+            Navigation.NavigateTo($"/platform/products?notice=testorg&app={testing.Id}&org={Uri.EscapeDataString(created.TenantName)}&owner={Uri.EscapeDataString(created.OwnerEmail)}&tid={created.TenantId}");
+            return;
+        }
+
+        ExplainOrganisationProblem(result.Problem, "Nothing was created.");
+    }
+
+    private async Task SubscribeOrganisationAsync()
+    {
+        enteredTenantId = HttpContext!.Request.Form["tenantId"].ToString().Trim();
+        errors.Clear();
+        if (subscribing is null)
+        {
+            return;
+        }
+
+        if (!Guid.TryParse(enteredTenantId, out var tenantId) || tenantId == Guid.Empty)
+        {
+            errors.Add("Enter the organisation's id, the long code with dashes.");
+        }
+
+        TryReadSeats(out var seats);
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PostAsync<SubscribeOrganisationRequest, AdminSubscription>(
+            $"/api/auth/admin/applications/{subscribing.Id}/subscriptions",
+            new SubscribeOrganisationRequest(tenantId, seats),
+            HttpContext.RequestAborted,
+            access.Token);
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/platform/products?notice=subscribed&app={subscribing.Id}&tid={tenantId}");
+            return;
+        }
+
+        ExplainOrganisationProblem(result.Problem, "Nothing was changed.");
+    }
+
+    // The API's reasons for refusing an organisation to be created or subscribed, in plain words.
+    private void ExplainOrganisationProblem(ApiProblem? problem, string nothingDone)
+    {
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo("/login?returnUrl=%2Fplatform%2Fproducts&reason=expired");
+            return;
+        }
+
+        switch (problem?.Code)
+        {
+            case "owner_not_found":
+                errors.Add("No account has that email. Ask them to sign up first, then try again.");
+                return;
+            case "owner_email_not_verified":
+                errors.Add("They haven't verified their email yet, so they can't sign in. Ask them to open the link we emailed them, then try again.");
+                return;
+            case "owner_disabled":
+                errors.Add("That person's access has been removed, so they can't own a new organisation.");
+                return;
+            case "tenant_not_found":
+                errors.Add("No organisation has that id. Check it and try again.");
+                return;
+            case "tenant_suspended":
+                errors.Add("That organisation is suspended, so it can't subscribe to anything.");
+                return;
+            case "application_not_active":
+                errors.Add("This product isn't available any more. Make it available first.");
+                return;
+            case "application_not_found":
+                errors.Add("That product isn't here any more.");
+                return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            foreach (var reason in apiErrors.Values.SelectMany(reasons => reasons).Take(3))
+            {
+                errors.Add(reason);
+            }
+
+            return;
+        }
+
+        errors.Add(problem?.Status == StatusCodes.Status403Forbidden
+            ? "You don't have permission to do that."
+            : $"Auth Service isn't responding right now. {nothingDone} Try again in a moment.");
     }
 
     private async Task SaveLaunchAsync()
