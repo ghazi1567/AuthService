@@ -4,6 +4,10 @@ For the team that owns an app (a "product") and wants its people to sign in thro
 (tenant) and permissions arriving in a signed token. Written from the code and the reference in [`docs/reference/`](reference/README.md);
 where this guide and the reference differ, the reference and the code win.
 
+**In a hurry?** The [quickstart](quickstart.md) is the short path: the platform admin registers the product in the console, the product team
+sets two values (the Auth Service address and one client secret) and adds `AddAuthServiceProduct`. This guide is the long version, with
+every option and every call.
+
 `<auth-host>` below is the address the Auth Service API is served on (`AUTH_HOST` in [deployment.md](deployment.md)). Ask the
 platform admin for the real dev, staging and production values.
 
@@ -64,19 +68,27 @@ login API followed by a token exchange. Do not point an OIDC library at it.
 A **platform admin** (a user whose `is_platform_admin` flag was set in the database) does this once per app and per environment. Hand
 them the values on the left; they hand back what is on the right.
 
+**In the console this is one dialog** (**Products → Register a product**): name, key, audience (empty means `<key>-api`), launch address,
+and the permissions and roles as pasted JSON, with a "Make it available now" box. It saves everything or nothing, and ends on a panel with
+the client secret and a **Settings for the product** box. Over the API it is one call too: `POST /api/auth/admin/applications` takes
+`launchUrl`, `permissions`, `roles` and `activate` beside the key, name and audience. The steps below are what that does, and what to do
+when you want them one at a time.
+
 | You provide | Platform admin does | You get back |
 |---|---|---|
 | `key` (lowercase, digits, hyphens, at most 63), display `name` | `POST /api/auth/admin/applications` with `key`, `name`, `jwtAudience` | `id`, `clientId`, **`clientSecret` (shown once)** |
 | `jwtAudience`, for example `marketing-api` (letters, digits, `. _ : / -`; unique; not `auth-service`) | (same call) | |
 | The permission catalogue (below) | `POST /api/auth/admin/applications/{id}/permissions` | the stored catalogue |
-| Your launch URL, https (only if you use the console hand-off) | `PUT /api/auth/admin/applications/{id}/launch-url` with `{"url": "..."}` | |
+| Your launch URL, https (plain `http` only for `localhost`; only if you use the console hand-off) | `PUT /api/auth/admin/applications/{id}/launch-url` with `{"url": "..."}` | |
 | | `PUT /api/auth/admin/applications/{id}/active` with `{"isActive": true}` (needs at least one permission) | the app is now offered to tenants |
 
 Notes:
 
 - The **audience is permanent**: there is no route to edit it, and tokens already issued for a wrong value stop matching. Choose it
   carefully.
-- The **client secret** is shown once and only its hash is stored. Keep it in your secret store, never in the front end. A lost secret
+- The client secret is shown once as **one string with the client id in it** (`cl_….<secret>`, the response's `credential`). That one string is
+  all a product needs: the token endpoint accepts it as `client_secret` on its own, and `AddAuthServiceProduct` takes it as `ClientSecret`. The
+  older client id plus bare secret pair still works. The **client secret** is shown once and only its hash is stored. Keep it in your secret store, never in the front end. A lost secret
   is replaced by rotation (`POST .../secret/rotate`, platform admin), and the old one keeps working for a grace period (24 hours by
   default) so you can switch without downtime.
 - A new app is **inactive** until activated. It can already get a service token while inactive.
@@ -97,6 +109,9 @@ List the things your app controls, with a label, for example:
   `_`, `-`. Use exactly the stored key in your code.
 - Registering again is an **upsert**: new keys are added, changed labels update in place, a key you stop sending **stays** (roles may
   hold it). Keys can never be deleted. Resend the description on every call, or it is cleared.
+- The product can also ship **roles** (a name, what it is for, and key-and-level grants of this catalogue; the `roles` list of the same JSON).
+  The first time an organisation subscribes, each becomes an ordinary role there, a copy its admins edit freely and that is never
+  overwritten; **Roles → Copy to organisations** gives them to organisations that subscribed earlier.
 - Tenant admins build their own **custom roles** from this catalogue in the Auth Service console. Each grant has a level:
   `ReadOnly` < `CreateRead` < `Full`. The tenant's **Owner** role automatically has every permission at `Full`, including ones added
   later.
@@ -202,8 +217,19 @@ is unreachable after your first successful fetch, keep using the last good keys.
 ### .NET: use the package
 
 ```bash
-dotnet add package AuthService.Authorization
+dotnet add package AuthService.Authorization     # 1.1.0 or later for AddAuthServiceProduct
 ```
+
+Give it the Auth Service address and your client secret and it learns the issuer, your audience and where the keys are by itself:
+
+```csharp
+builder.Services.AddAuthServiceProduct(o => builder.Configuration.GetSection("AuthService").Bind(o));
+// AuthService__Url=https://<auth-host>     AuthService__ClientSecret=cl_….the-secret
+```
+
+It also registers `IAuthServiceClient` (`SubscribeTenantAsync`, `GetProductAsync`, `GetServiceTokenAsync`) for the calls in section 6, and
+keeps the service token for you. To say the three things yourself instead, which reads nothing from the Auth Service at start, use
+`AddAuthServiceAuthorization` (one of the two, not both); the checks are the same:
 
 ```csharp
 builder.Services.AddAuthServiceAuthorization(o =>
@@ -295,7 +321,8 @@ grant_type=client_credentials&client_id=<cl_...>&client_secret=<secret>
  -> 200 { "access_token": "...", "token_type": "Bearer", "expires_in": 600 }
 ```
 
-Cache it for a little less than 10 minutes and ask again when it expires. The endpoint is limited to 60 requests per IP address per
+`client_secret` can be the one string you were given (`cl_….<secret>`) with no `client_id` at all. On .NET, `IAuthServiceClient` does this and
+the next step for you. Cache it for a little less than 10 minutes and ask again when it expires. The endpoint is limited to 60 requests per IP address per
 minute across all apps, so do not request one per call. `401 invalid_client` is one answer for an unknown client, a wrong secret and an
 expired secret.
 
@@ -430,9 +457,10 @@ Be aware of these before you design around them:
 
 ## 11. Go-live checklist
 
-- [ ] App registered in the target environment; `clientId` and `clientSecret` in your secret store (not in the repo or the front end).
-- [ ] Permission catalogue registered; app **activated**; launch URL set (pattern A).
-- [ ] `Issuer`, `Audience` and `JwksUrl` set per environment; `JwksUrl` is https and reachable from your servers.
+- [ ] App registered in the target environment; the client secret in your secret store (not in the repo or the front end).
+- [ ] Permission catalogue (and roles) registered; app **activated**; launch URL set to an `https` address (pattern A), not `http://localhost`.
+- [ ] The Auth Service address (`AuthService__Url`) and client secret set per environment; with `AddAuthServiceAuthorization` instead, `Issuer`,
+      `Audience` and `JwksUrl` set per environment, `JwksUrl` https and reachable from your servers.
 - [ ] Every endpoint checks the token and the permission; the tenant comes from `tid` only; a test asserts no endpoint is left open.
 - [ ] A token for another app, an identity token, a service token, an expired token and a forged one are all refused (the sample
       product's tests show how).
