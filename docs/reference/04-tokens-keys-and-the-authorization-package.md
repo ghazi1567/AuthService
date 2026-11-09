@@ -755,8 +755,8 @@ the product's own logs.
   contract is the only coupling. A rename of `tid`, `sub`, `aud` or the `key:Level` format is a breaking change (new major version).
 - Package validation against the previous version is not enabled (decision 0009, "Alternatives considered"), so a breaking public API
   change is caught only in review.
-- From 1.0.1 the package is MIT licensed and also pushed to nuget.org (decision 0010). Version 1.0.0 exists only on GitHub Packages, under
-  the earlier restrictive licence text.
+- From 1.0.2 the package is MIT licensed and also pushed to nuget.org (decision 0010). Versions 1.0.0 (earlier restrictive licence text)
+  and 1.0.1 exist only on GitHub Packages: their releases stopped at the verify job, before the nuget.org step.
 - **Unknown:** the currently released package version. The project file has no fixed version (it comes from the tag). Check the
   GitHub Packages feed and nuget.org.
 - The package reads only the `Authorization` header (the JWT bearer default). It has no helper for the form-post hand-off (next section).

@@ -28,8 +28,11 @@ without being handed a token. The owner wants the package to be downloadable by 
   reviewers to the `nuget` environment turns every public release into a manual approval.
 - **Private repository:** nuget.org keeps a policy for a private repository only "temporarily active" for seven days, and makes it
   permanent after the first successful publish, so the first release should follow the policy soon after it is created.
-- **The first public version is 1.0.1.** Version 1.0.0 went to GitHub Packages under the old licence text, and a version cannot be
-  replaced, so the same number must not mean two different packages.
+- **The first public version is 1.0.2.** Version 1.0.0 went to GitHub Packages under the old licence text, and a version cannot be
+  replaced, so the same number must not mean two different packages. 1.0.1 was meant to be the first public one, but its release
+  stopped at the verify job (the sample's restore needed package source mapping once the GitHub feed was added) before the nuget.org
+  step ran, so 1.0.1 exists on GitHub Packages only and the next release, 1.0.2, is the first on nuget.org. Both feeds hold the same
+  package for 1.0.2 onwards.
 
 ## Consequences
 
