@@ -565,10 +565,32 @@ A platform admin adds or changes limits with `POST /api/auth/admin/applications/
 - **`defaultValue` is required:** a whole number of at least 0, or `null` for unlimited. It is what a tenant gets when its plan says nothing. Leaving it
   out is **400**, so a forgotten field can never mean "unlimited".
 - **`unit`** is display text only (`contacts`, `MB`). The unit **`flag`** marks an on/off feature, whose default must be `0` or `1`.
+- **`seats`** is special: it will become the subscription's seat limit, so its value is at least 1 or `null`, never 0 (in limits and plans).
 - Like permissions, the call is an upsert: a key is updated in place and **never removed or renamed**. Send the whole limit each time, because a left-out
   description or unit is cleared. **201** when something was added, **200** otherwise; only a real change is audited
   (`auth.application.limits_registered`).
 - The product reads its own limits with its service token: `GET /api/auth/applications/me/limits`.
+
+#### Plans
+
+A **plan** is a named template of limit values for one product, such as Growth or Scale (ENT-02). A tenant's subscription will point at a plan
+(ENT-03); each limit the plan sets applies to the tenant unless it has an override, and a limit the plan leaves out takes the limit's default.
+
+| Call | What it does |
+|---|---|
+| `POST /api/auth/admin/applications/{id}/plans` | Creates a plan: `{"key", "name", "description", "isActive", "values": {"contacts.reachable": 50000, "journeys.live": null}}`. **201**. |
+| `GET .../plans`, `GET .../plans/{planKey}` | Lists the product's plans by key (paged) or reads one. |
+| `PUT .../plans/{planKey}` | Replaces the name, description and the **whole** set of values; a limit no longer listed falls back to its default. |
+| `PUT .../plans/{planKey}/active` | `{"isActive": false}` stops the plan being newly assigned; tenants that have it keep it. |
+| `DELETE .../plans/{planKey}` | **204**, but only for a plan that was never assigned; otherwise **409** `plan_in_use` (deactivate it instead). |
+| `GET /api/auth/applications/me/plans` | The product reads its own plans with its service token. |
+
+- Plan keys follow the limit-key rules and are unique within the product (**409** `plan_key_taken`). At most **20** plans per product (**409** `too_many_plans`).
+- `values` must be sent, even as `{}`, so forgetting it never wipes a plan. Each value is a whole number of at least 0 or `null` (unlimited). A key that
+  is not a limit of the product is **400** `limit_unknown`; an on/off (`flag`) limit only takes 0 or 1 (**400** `value_invalid`).
+- Each answer has `canDelete`, false once the plan has ever been assigned. Creating, changing, activating, deactivating and deleting are audited
+  (`auth.plan.*`, detail `<product key>.<plan key>`); a repeat with no change is not.
+
 
 ### Working on a tenant (the built-in Auth Service product)
 

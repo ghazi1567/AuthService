@@ -50,6 +50,10 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<LimitDefinition> LimitDefinitions => Set<LimitDefinition>();
 
+    public DbSet<Plan> Plans => Set<Plan>();
+
+    public DbSet<PlanValue> PlanValues => Set<PlanValue>();
+
     public DbSet<ApplicationRoleTemplate> RoleTemplates => Set<ApplicationRoleTemplate>();
 
     public DbSet<ApplicationRoleTemplatePermission> RoleTemplatePermissions => Set<ApplicationRoleTemplatePermission>();

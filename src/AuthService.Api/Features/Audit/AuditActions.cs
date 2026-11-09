@@ -41,6 +41,13 @@ public static class AuditActions
     /// <summary>A platform admin added or changed limit definitions of a product (ENT-01). The detail is the product's key.</summary>
     public const string LimitsRegistered = "auth.application.limits_registered";
 
+    /// <summary>A platform admin created, changed, activated, deactivated or deleted a plan (ENT-02). The detail is the product's key, a dot and the plan's key, as <c>marketing.growth</c>.</summary>
+    public const string PlanCreated = "auth.plan.created";
+    public const string PlanUpdated = "auth.plan.updated";
+    public const string PlanActivated = "auth.plan.activated";
+    public const string PlanDeactivated = "auth.plan.deactivated";
+    public const string PlanDeleted = "auth.plan.deleted";
+
     /// <summary>A platform admin made a product available to subscribe to, or withdrew it. The detail is the product's key.</summary>
     public const string ApplicationActivated = "auth.application.activated";
     public const string ApplicationDeactivated = "auth.application.deactivated";

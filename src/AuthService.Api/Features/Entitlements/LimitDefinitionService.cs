@@ -32,6 +32,14 @@ public static partial class LimitDefinitionValidator
     /// <summary>The unit that marks an on/off feature: its values can only be 0 (off) or 1 (on).</summary>
     public const string FlagUnit = "flag";
 
+    /// <summary>
+    /// The one key the Auth Service itself acts on: its effective value is the subscription's seat limit (<c>maxSeats</c>, checked at token
+    /// exchange), which is at least 1 or unlimited. So a <c>seats</c> value of 0 is refused everywhere a value is set.
+    /// </summary>
+    public const string SeatsKey = "seats";
+
+    public const string SeatsRule = "'seats' is the number of people who can have access: at least 1, or null for unlimited.";
+
     public static bool TryValidate(RegisterLimitsRequest request, out List<ValidLimit> valid, out Dictionary<string, string[]> errors)
     {
         errors = [];
@@ -58,7 +66,7 @@ public static partial class LimitDefinitionValidator
 
             // Keys are not case-sensitive: "Contacts.Reachable" and "contacts.reachable" are the same limit. Spaces inside a key are an error.
             var key = input?.Key?.Trim().ToLowerInvariant();
-            if (string.IsNullOrEmpty(key) || key.Length > MaxKeyLength || !KeyPattern().IsMatch(key))
+            if (!IsValidKey(key))
             {
                 errors[$"{field}.Key"] =
                     [$"Key must be 1 to {MaxKeyLength} lowercase letters, digits and . _ - characters, such as contacts.reachable."];
@@ -103,6 +111,11 @@ public static partial class LimitDefinitionValidator
                 errors[$"{field}.DefaultValue"] = ["A limit with the unit 'flag' is an on/off feature: its default must be 0 (off) or 1 (on)."];
                 ok = false;
             }
+            else if (key == SeatsKey && defaultValue == 0)
+            {
+                errors[$"{field}.DefaultValue"] = [SeatsRule];
+                ok = false;
+            }
 
             if (ok)
             {
@@ -114,6 +127,9 @@ public static partial class LimitDefinitionValidator
     }
 
     public static bool IsFlag(string? unit) => string.Equals(unit, FlagUnit, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Whether an already lowercased key follows the key rules; plan keys use the same rules.</summary>
+    public static bool IsValidKey([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? key) => !string.IsNullOrEmpty(key) && key.Length <= MaxKeyLength && KeyPattern().IsMatch(key);
 
     /// <summary>
     /// Reads a limit value: a whole number of at least 0, or <c>null</c> for unlimited. It must be given outright, because leaving it out

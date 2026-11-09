@@ -39,6 +39,7 @@ public static class ApplicationAdminEndpoints
         admin.MapApplicationSubscriptionsAdmin();
         admin.MapRoleTemplatesAdmin();
         admin.MapLimitDefinitionsAdmin();
+        admin.MapPlansAdmin();
         return admin;
     }
 

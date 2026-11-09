@@ -13,6 +13,7 @@ from, how a tenant subscribes to it, and how the Auth Service tells the product 
 - [Product registration and the admin product list](#product-registration-and-the-admin-product-list)
 - [Product permission catalogs and activation](#product-permission-catalogs-and-activation)
 - [Product limit definitions](#product-limit-definitions)
+- [Plans](#plans)
 - [Product credentials and the service token](#product-credentials-and-the-service-token)
 - [Launch URL and the "my products" read](#launch-url-and-the-my-products-read)
 - [Subscriptions](#subscriptions)
@@ -361,6 +362,7 @@ Rules (`LimitDefinitionValidator`, `LimitDefinitionService`):
   must never quietly mean "unlimited". A decimal, a string or a negative number is `400`. The column also has a check constraint
   (`ck_limit_definitions_default_value_not_negative`).
 - **On/off features:** a limit whose unit is `flag` (any case, `FlagUnit`) can only default to `0` (off) or `1` (on).
+- **Seats:** the key `seats` (`SeatsKey`) becomes the subscription's seat limit in ENT-03, which is at least 1, so a `seats` value of 0 is refused here and in plans (`SeatsRule`).
 - **Upsert, never delete or rename.** A new key is created; an existing key with any difference (label, description, unit, default) is updated in place;
   an identical entry is left alone. A field left out (description, unit) is cleared, so send the whole limit each time. `201` when something was added,
   otherwise `200`. The body is `applicationId`, `created`, `updated`, `unchanged` and every limit of the product by key.
@@ -401,6 +403,66 @@ None.
 
 - Same shape as the permission catalog on purpose: upsert by key, never removed, so plans and overrides can refer to keys safely.
 - The default must be sent outright (decision in the epic AUTH-277). Changing a default will change tenants' effective limits once ENT-03 exists.
+
+---
+
+## Plans
+
+### What it does
+
+ENT-02 (epic AUTH-277). A plan is a named template of limit values for one product. A platform admin creates, replaces, activates or deactivates
+and deletes plans; the product reads its own. Plans only exist in the catalogue until ENT-03 lets a subscription point at one.
+
+Rules (`PlanValidator`, `PlanService`):
+
+- **Key:** the limit-key rules (`LimitDefinitionValidator.IsValidKey`), lowercased, unique within the product (index `ux_plans_application_id_key`,
+  `409 plan_key_taken`). Never renamed. At most 20 plans per product (`MaxPlansPerProduct`, `409 too_many_plans`).
+- **Name:** required, at most 200 characters. **Description:** optional, at most 1000; left out on a replace means cleared.
+- **Values:** an object of limit key to a whole number of at least 0 or `null` (unlimited), read with `LimitDefinitionValidator.TryReadValue`. The object is
+  required (send `{}` for none). A limit left out takes the limit's default. A key that is not a limit of this product is `400 limit_unknown` naming
+  the keys; a `flag` limit only takes 0 or 1 (`400 value_invalid`).
+- **Replace** (`PUT .../plans/{planKey}`) sets the name, description and the whole set of values; a key no longer listed loses its row in `plan_values`.
+- **Active:** a deactivated plan cannot be newly assigned (ENT-03); tenants that have it keep it. Repeating a state is not audited.
+- **Delete:** only while `plans.ever_assigned` is false (set by ENT-03 on first assignment, never cleared); otherwise `409 plan_in_use`. The plan's
+  values are deleted with it (cascade).
+- Audit: `auth.plan.created`, `auth.plan.updated` (only when something changed), `auth.plan.activated`, `auth.plan.deactivated`, `auth.plan.deleted`,
+  detail `<product key>.<plan key>`.
+- All changes of one product run behind its row lock (`db.LockApplicationAsync`), so the cap and key uniqueness hold under concurrent calls.
+
+### How it is implemented
+
+| Verb and route | Auth required | Handler | What it does |
+|---|---|---|---|
+| `POST /api/auth/admin/applications/{applicationId}/plans` | platform admin | `PlanEndpoints.CreateAsync` → `PlanService.CreateAsync` | `201` with the plan; `400`, `404`, `409`. |
+| `GET /api/auth/admin/applications/{applicationId}/plans` | platform admin | `PlanEndpoints.ListAsync` | Paged by key. |
+| `GET /api/auth/admin/applications/{applicationId}/plans/{planKey}` | platform admin | `PlanEndpoints.GetAsync` | One plan; `404 plan_not_found`. |
+| `PUT /api/auth/admin/applications/{applicationId}/plans/{planKey}` | platform admin | `PlanEndpoints.ReplaceAsync` → `PlanService.ReplaceAsync` | `200` with the plan. |
+| `PUT /api/auth/admin/applications/{applicationId}/plans/{planKey}/active` | platform admin | `PlanEndpoints.SetActiveAsync` → `PlanService.SetActiveAsync` | `200` with the plan. |
+| `DELETE /api/auth/admin/applications/{applicationId}/plans/{planKey}` | platform admin | `PlanEndpoints.DeleteAsync` → `PlanService.DeleteAsync` | `204`, `409 plan_in_use`. |
+| `GET /api/auth/applications/me/plans` | service token | `PlanEndpoints.ListOwnAsync` | The token's own product only, paged. |
+
+A plan is returned as `PlanDto`: `key`, `name`, `description`, `isActive`, `canDelete` (= not `ever_assigned`), `values` (only the limits it sets, by key),
+`createdAt`, `updatedAt`.
+
+Data: `plans` (entity `Plan`): `id`, `application_id`, `key`, `name`, `description`, `is_active`, `ever_assigned`, `created_at`, `updated_at`.
+`plan_values` (entity `PlanValue`): `id`, `plan_id` (cascade), `limit_definition_id` (restrict), `value` (bigint, null = unlimited, check
+`ck_plan_values_value_not_negative`), unique on (`plan_id`, `limit_definition_id`). Migration `AddPlans`.
+
+### Failure modes and production debugging
+
+| Caller sees | When |
+|---|---|
+| `400` validation problem (`Key`, `Name`, `Description`, `Values`, `Values.<key>`) | Bad key, missing name or values, a negative, decimal or text value. |
+| `400` `limit_unknown` / `value_invalid` | A key that is not a limit of the product / a `flag` value other than 0 or 1. |
+| `404` `application_not_found` / `plan_not_found` | Unknown or built-in product / no plan with that key. |
+| `409` `plan_key_taken` / `too_many_plans` / `plan_in_use` | Duplicate key / 21st plan / deleting a plan that was ever assigned. |
+
+- "What does Growth set?": `SELECT l.key, v.value FROM plan_values v JOIN limit_definitions l ON l.id = v.limit_definition_id JOIN plans p ON p.id = v.plan_id WHERE p.key = 'growth';`
+
+### Decisions and open questions
+
+- Delete only if never assigned, deactivate otherwise (decision 4 in the epic AUTH-277), so history always names a plan that exists.
+- Replacing a plan's values does not yet change any tenant: ENT-03 adds versions and ENT-04 the events a plan edit sends.
 
 ---
 
