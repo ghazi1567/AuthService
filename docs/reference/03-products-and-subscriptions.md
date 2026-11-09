@@ -14,6 +14,7 @@ from, how a tenant subscribes to it, and how the Auth Service tells the product 
 - [Product permission catalogs and activation](#product-permission-catalogs-and-activation)
 - [Product limit definitions](#product-limit-definitions)
 - [Plans](#plans)
+- [Plan assignment, overrides and effective entitlements](#plan-assignment-overrides-and-effective-entitlements)
 - [Product credentials and the service token](#product-credentials-and-the-service-token)
 - [Launch URL and the "my products" read](#launch-url-and-the-my-products-read)
 - [Subscriptions](#subscriptions)
@@ -463,6 +464,68 @@ Data: `plans` (entity `Plan`): `id`, `application_id`, `key`, `name`, `descripti
 
 - Delete only if never assigned, deactivate otherwise (decision 4 in the epic AUTH-277), so history always names a plan that exists.
 - Replacing a plan's values does not yet change any tenant: ENT-03 adds versions and ENT-04 the events a plan edit sends.
+
+---
+
+## Plan assignment, overrides and effective entitlements
+
+### What it does
+
+ENT-03 (epic AUTH-277, decision 0014). A platform admin puts a tenant's subscription on a plan and sets per-tenant overrides. The Auth Service
+computes the tenant's **effective** limits (override, else plan value, else the limit's default; every limit always present), raises the
+subscription's version when they change, keeps `maxSeats` equal to the effective `seats`, and records every change in an entitlement history.
+
+Rules (`EffectiveEntitlements`, `EntitlementState`, `SubscriptionEntitlementService`):
+
+- **Assign** (`PUT .../plan`): an existing plan of the product (`404 plan_not_found`) that is active (`409 plan_inactive`), unless the
+  subscription already has it; `{"planKey": null}` removes the plan. Assigning sets `plans.ever_assigned` for good. The same plan again is a no-op.
+- **Override** (`PUT .../overrides/{limitKey}`): `value` must be present (null = unlimited, else a whole number ≥ 0, `flag` 0 or 1, `seats` ≥ 1);
+  `reason` 1 to 200 characters (`MaxReasonLength`); the limit must exist (`404 limit_unknown`); at most 100 per subscription
+  (`MaxOverridesPerSubscription`, `409 too_many_overrides`). The same value and reason again is a no-op. **Clear** (`DELETE`) is `404 override_not_found` when absent.
+- **Versions** (`EntitlementState.CommitAsync`): callers snapshot the subscriptions a change can reach, save, then commit. A subscription whose set
+  differs (`EffectiveEntitlements.Differ`: a value, or whether a limit is overridden), or that had no snapshot (a new subscription), gets
+  `entitlements_version + 1` and `entitlements_change_seq = nextval('entitlement_change_seq')` in one `UPDATE ... RETURNING`.
+- **Who triggers a recompute:** plan assignment and overrides (one subscription); `PlanService.ReplaceAsync` when values change (every subscription
+  on the plan); `LimitDefinitionService.RegisterAsync` when a limit is added or a default changes (every subscription of the product);
+  `SubscribeTenantService` for a new subscription; `SeatLimitService` through a `seats` override.
+- **Seats** (`EntitlementState.SyncSeatsAsync`): only when the product defines `seats`. The effective value is written to `subscriptions.max_seats`
+  (null stays null). `PATCH .../seats` and `maxSeats` on subscribe become a `seats` override with `SeatLimitService.SeatsOverrideReason`, set by
+  the product.
+- **History** (`EntitlementHistory.Record`, table `entitlement_changes`): codes in `EntitlementChanges` (`limit_added`, `limit_changed`,
+  `plan_created`, `plan_updated`, `plan_activated`, `plan_deactivated`, `plan_deleted`, `plan_assigned`, `override_set`, `override_cleared`), old and
+  new values as JSON, reason, actor. Written in the same transaction as the change. No foreign keys, never deleted (yet).
+- Audit: `auth.subscription.plan_assigned`, `auth.subscription.override_set`, `auth.subscription.override_cleared` (tenant = the tenant, detail =
+  product key). Reasons never go to the audit log.
+
+### How it is implemented
+
+| Verb and route | Auth required | Handler | What it does |
+|---|---|---|---|
+| `GET /api/auth/admin/tenants/{tenantId}/subscriptions/{applicationId}/entitlements` | platform admin | `SubscriptionEntitlementEndpoints.GetAsync` → `SubscriptionEntitlementService.ReadAsync` | `SubscriptionEntitlementsResponse`; `404 subscription_not_found`. |
+| `PUT .../plan` | platform admin | `AssignPlanAsync` | `200` with the entitlements. |
+| `PUT .../overrides/{limitKey}` | platform admin | `SetOverrideAsync` → `SubscriptionEntitlementService.SetOverrideAsync` / `ApplyOverrideAsync` | `200`, `400`, `404`, `409`. |
+| `DELETE .../overrides/{limitKey}` | platform admin | `ClearOverrideAsync` | `200`, `404 override_not_found`. |
+| `GET /api/auth/admin/entitlement-history` | platform admin | `HistoryAsync` | `PageQuery.NewestFirstAsync`; filters `applicationId`, `tenantId`, `planKey`. |
+
+Changes to one subscription take `LockSubscriptionAsync` (the advisory lock subscribing uses). Data: `subscriptions.plan_id` (FK `plans`,
+restrict), `entitlements_version`, `entitlements_change_seq` (index with `application_id`); `subscription_overrides` (unique per subscription and
+limit, cascade with the subscription, `reason` up to 200); `entitlement_changes` (`old_value`/`new_value` jsonb). Migration `AddSubscriptionEntitlements`.
+
+### Failure modes and production debugging
+
+| Caller sees | When |
+|---|---|
+| `400` validation problem (`Value`, `Reason`) | Missing or negative value, missing or over-long reason. |
+| `400 value_invalid` | `flag` value other than 0 or 1, or `seats` 0. |
+| `404 subscription_not_found` / `plan_not_found` / `limit_unknown` / `override_not_found` | As named. |
+| `409 plan_inactive` / `too_many_overrides` | Assigning a deactivated plan / the 101st override. |
+
+- "Why does Acme have 75,000?": `GET .../entitlements` shows the source; `GET /api/auth/admin/entitlement-history?tenantId=<id>` shows who and why.
+- "maxSeats and seats disagree": only possible for a product without a `seats` limit, where `maxSeats` is the product's own number.
+
+### Decisions and open questions
+
+- See decision 0014. **Open:** a plan edit with thousands of tenants recomputes them all inside the request; the history has no retention job.
 
 ---
 

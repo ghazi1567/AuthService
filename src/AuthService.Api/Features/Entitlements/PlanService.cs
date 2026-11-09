@@ -109,7 +109,7 @@ public static class PlanValidator
 /// ENT-02: plans, a product's named templates of limit values. Assigning a plan to a tenant and what a plan edit does to tenants already on
 /// it come with ENT-03; until then a plan only exists in the catalogue.
 /// </summary>
-public sealed class PlanService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
+public sealed class PlanService(AuthDbContext db, AuditLog audit, EntitlementHistory history, EntitlementState state, TimeProvider timeProvider)
 {
     public async Task<PlanResult> CreateAsync(
         Guid adminId, Guid applicationId, string key, bool isActive, ValidPlanFields fields, CancellationToken cancellationToken)
@@ -154,6 +154,7 @@ public sealed class PlanService(AuthDbContext db, AuditLog audit, TimeProvider t
         db.Plans.Add(created);
         AddValues(created.Id, fields.Values, limits);
 
+        history.Record(AuditActor.User(adminId), applicationId, EntitlementChanges.PlanCreated, planKey: key, newValue: Describe(created, fields.Values));
         audit.Record(AuditActions.PlanCreated, AuditActor.User(adminId), detail: Detail(application, key));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -190,6 +191,13 @@ public sealed class PlanService(AuthDbContext db, AuditLog audit, TimeProvider t
 
         if (valuesChanged || plan.Name != fields.Name || plan.Description != fields.Description)
         {
+            // Every tenant on this plan may get new numbers, so take their state before anything is written (the delete below runs at once).
+            var subscriptionIds = valuesChanged
+                ? await db.Subscriptions.Where(subscription => subscription.PlanId == plan.Id).Select(subscription => subscription.Id).ToListAsync(cancellationToken)
+                : [];
+            var tenantsBefore = await state.SnapshotAsync(applicationId, subscriptionIds, cancellationToken);
+            var old = Describe(plan, before);
+
             plan.Name = fields.Name;
             plan.Description = fields.Description;
             plan.UpdatedAt = timeProvider.GetUtcNow();
@@ -200,8 +208,12 @@ public sealed class PlanService(AuthDbContext db, AuditLog audit, TimeProvider t
                 AddValues(plan.Id, fields.Values, limits);
             }
 
+            history.Record(AuditActor.User(adminId), applicationId, EntitlementChanges.PlanUpdated, planKey: key, oldValue: old, newValue: Describe(plan, fields.Values));
             audit.Record(AuditActions.PlanUpdated, AuditActor.User(adminId), detail: Detail(application, key));
             await db.SaveChangesAsync(cancellationToken);
+
+            // A tenant with an override on a changed limit keeps its number, so only tenants whose effective set changed get a new version.
+            await state.CommitAsync(applicationId, subscriptionIds, tenantsBefore, cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -228,6 +240,7 @@ public sealed class PlanService(AuthDbContext db, AuditLog audit, TimeProvider t
         {
             plan.IsActive = isActive;
             plan.UpdatedAt = timeProvider.GetUtcNow();
+            history.Record(AuditActor.User(adminId), applicationId, isActive ? EntitlementChanges.PlanActivated : EntitlementChanges.PlanDeactivated, planKey: key);
             audit.Record(isActive ? AuditActions.PlanActivated : AuditActions.PlanDeactivated, AuditActor.User(adminId), detail: Detail(application, key));
             await db.SaveChangesAsync(cancellationToken);
         }
@@ -257,7 +270,10 @@ public sealed class PlanService(AuthDbContext db, AuditLog audit, TimeProvider t
             return new PlanResult.InUse();
         }
 
+        var values = await ValuesAsync([plan.Id], cancellationToken);
         db.Plans.Remove(plan);
+        history.Record(AuditActor.User(adminId), applicationId, EntitlementChanges.PlanDeleted, planKey: key,
+            oldValue: Describe(plan, values.GetValueOrDefault(plan.Id) ?? new Dictionary<string, long?>()));
         audit.Record(AuditActions.PlanDeleted, AuditActor.User(adminId), detail: Detail(application, key));
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -318,4 +334,7 @@ public sealed class PlanService(AuthDbContext db, AuditLog audit, TimeProvider t
     }
 
     private static string Detail(Application application, string planKey) => $"{application.Key}.{planKey}";
+
+    private static object Describe(Plan plan, IReadOnlyDictionary<string, long?> values) =>
+        new { plan.Name, Values = new SortedDictionary<string, long?>(values.ToDictionary(), StringComparer.Ordinal) };
 }

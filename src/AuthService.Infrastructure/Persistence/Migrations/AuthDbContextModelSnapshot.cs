@@ -23,6 +23,8 @@ namespace AuthService.Infrastructure.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "citext");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence("entitlement_change_seq");
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.ApiKey", b =>
                 {
                     b.Property<Guid>("Id")
@@ -486,6 +488,75 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_email_verification_tokens_user_id_created_at");
 
                     b.ToTable("email_verification_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.EntitlementChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("actor_type");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<string>("Change")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("change");
+
+                    b.Property<string>("LimitKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("limit_key");
+
+                    b.Property<string>("NewValue")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("new_value");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("OldValue")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("PlanKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("plan_key");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_entitlement_changes");
+
+                    b.HasIndex("ApplicationId", "OccurredAt")
+                        .HasDatabaseName("ix_entitlement_changes_application_id_occurred_at");
+
+                    b.HasIndex("TenantId", "OccurredAt")
+                        .HasDatabaseName("ix_entitlement_changes_tenant_id_occurred_at");
+
+                    b.ToTable("entitlement_changes", (string)null);
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Invitation", b =>
@@ -1064,6 +1135,60 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("signing_keys", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.SubscriptionOverride", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("LimitDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("limit_definition_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("SetAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("set_at");
+
+                    b.Property<Guid?>("SetById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("set_by_id");
+
+                    b.Property<string>("SetByType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("set_by_type");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("subscription_id");
+
+                    b.Property<long?>("Value")
+                        .HasColumnType("bigint")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_subscription_overrides");
+
+                    b.HasIndex("LimitDefinitionId")
+                        .HasDatabaseName("ix_subscription_overrides_limit_definition_id");
+
+                    b.HasIndex("SubscriptionId", "LimitDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_subscription_overrides_subscription_id_limit_definition_id");
+
+                    b.ToTable("subscription_overrides", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_subscription_overrides_value_not_negative", "value IS NULL OR value >= 0");
+                        });
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Tenant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1106,9 +1231,25 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<long>("EntitlementsChangeSeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("entitlements_change_seq");
+
+                    b.Property<long>("EntitlementsVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("entitlements_version");
+
                     b.Property<int?>("MaxSeats")
                         .HasColumnType("integer")
                         .HasColumnName("max_seats");
+
+                    b.Property<Guid?>("PlanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plan_id");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1127,8 +1268,11 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_subscriptions");
 
-                    b.HasIndex("ApplicationId")
-                        .HasDatabaseName("ix_subscriptions_application_id");
+                    b.HasIndex("PlanId")
+                        .HasDatabaseName("ix_subscriptions_plan_id");
+
+                    b.HasIndex("ApplicationId", "EntitlementsChangeSeq")
+                        .HasDatabaseName("ix_subscriptions_application_id_entitlements_change_seq");
 
                     b.HasIndex("TenantId", "ApplicationId")
                         .IsUnique()
@@ -1536,6 +1680,23 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_role_permissions_roles_tenant_id_role_id");
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.SubscriptionOverride", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.LimitDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("LimitDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_subscription_overrides_limit_definitions_limit_definition_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.TenantApplicationSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_subscription_overrides_subscriptions_subscription_id");
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.TenantApplicationSubscription", b =>
                 {
                     b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
@@ -1544,6 +1705,12 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_subscriptions_applications_application_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_subscriptions_plans_plan_id");
 
                     b.HasOne("AuthService.Infrastructure.Persistence.Entities.Tenant", null)
                         .WithMany()

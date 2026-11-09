@@ -25,6 +25,11 @@ public sealed class TenantApplicationSubscriptionConfiguration : IEntityTypeConf
         builder.Property(subscription => subscription.MaxSeats);
         builder.ToTable(table => table.HasCheckConstraint("ck_tenant_application_subscriptions_max_seats", "max_seats IS NULL OR max_seats >= 1"));
 
+        builder.HasOne<Plan>().WithMany().HasForeignKey(subscription => subscription.PlanId).OnDelete(DeleteBehavior.Restrict);
+        builder.Property(subscription => subscription.EntitlementsVersion).HasDefaultValue(0L);
+        builder.Property(subscription => subscription.EntitlementsChangeSeq).HasDefaultValue(0L);
+        builder.HasIndex(subscription => new { subscription.ApplicationId, subscription.EntitlementsChangeSeq });
+
         builder.Property(subscription => subscription.CreatedAt).IsRequired();
         builder.Property(subscription => subscription.UpdatedAt).IsRequired();
     }

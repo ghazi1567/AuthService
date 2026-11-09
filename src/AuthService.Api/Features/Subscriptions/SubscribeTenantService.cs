@@ -1,5 +1,6 @@
 using AuthService.Api.Features.Applications;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.Entitlements;
 using AuthService.Api.Features.Webhooks;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Configurations;
@@ -37,7 +38,9 @@ public abstract record SubscribeResult
 }
 
 /// <summary>SUB-01: subscribes a tenant to the product that is calling, and tells that product about it.</summary>
-public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider, IOptions<WebhookOptions> webhookOptions)
+public sealed class SubscribeTenantService(
+    AuthDbContext db, AuditLog audit, TimeProvider timeProvider, IOptions<WebhookOptions> webhookOptions,
+    EntitlementState entitlements, SubscriptionEntitlementService overrides)
 {
     public const string ApplicationSubscribedEvent = WebhookEvents.ApplicationSubscribed;
 
@@ -133,9 +136,39 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
         audit.Record(AuditActions.TenantSubscribed, actor ?? AuditActor.Product(applicationId), tenantId, application.Key);
 
         await db.SaveChangesAsync(cancellationToken);
+        await ApplyEntitlementsAsync(subscription, isNew, maxSeats, actor ?? AuditActor.Product(applicationId), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         return new SubscribeResult.Subscribed(await db.ToResponseAsync(subscription, now, cancellationToken), isNew);
+    }
+
+    /// <summary>
+    /// ENT-03: a new subscription gets its first entitlements (version 1). When the product has a <c>seats</c> limit, a seat limit asked for
+    /// while subscribing becomes a <c>seats</c> override, and <c>maxSeats</c> follows the effective <c>seats</c> so the two never disagree.
+    /// </summary>
+    private async Task ApplyEntitlementsAsync(
+        TenantApplicationSubscription subscription, bool isNew, int? maxSeats, AuditActor actor, CancellationToken cancellationToken)
+    {
+        if (isNew)
+        {
+            await entitlements.CommitAsync(subscription.ApplicationId, [subscription.Id], new Dictionary<Guid, EntitlementSnapshot>(), cancellationToken);
+        }
+
+        var hasSeatsLimit = await db.LimitDefinitions.AnyAsync(
+            limit => limit.ApplicationId == subscription.ApplicationId && limit.Key == LimitDefinitionValidator.SeatsKey, cancellationToken);
+        if (!hasSeatsLimit)
+        {
+            return;
+        }
+
+        if (maxSeats is not null)
+        {
+            await overrides.ApplyOverrideAsync(actor, subscription, LimitDefinitionValidator.SeatsKey, maxSeats, SeatLimitService.SeatsOverrideReason, cancellationToken);
+        }
+
+        var snapshot = await entitlements.SnapshotAsync(subscription.ApplicationId, [subscription.Id], cancellationToken);
+        await entitlements.SyncSeatsAsync(snapshot[subscription.Id], cancellationToken);
+        await db.Entry(subscription).ReloadAsync(cancellationToken);
     }
 
     /// <summary>The tenant's Owner counts as the first seat: they get access to the product the moment the tenant subscribes.</summary>

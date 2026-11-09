@@ -125,6 +125,9 @@ builder.Services.AddScoped<RegisterApplicationService>();
 builder.Services.AddScoped<PermissionCatalogService>();
 builder.Services.AddScoped<LimitDefinitionService>();
 builder.Services.AddScoped<PlanService>();
+builder.Services.AddScoped<EntitlementState>();
+builder.Services.AddScoped<EntitlementHistory>();
+builder.Services.AddScoped<SubscriptionEntitlementService>();
 builder.Services.AddScoped<RoleTemplateService>();
 builder.Services.Configure<ApplicationCredentialOptions>(builder.Configuration.GetSection(ApplicationCredentialOptions.SectionName));
 builder.Services.AddScoped<ServiceTokenService>();
@@ -242,6 +245,7 @@ admin.MapSigningKeyAdmin();
 admin.MapAuditAdmin();
 admin.MapApplicationsAdmin();
 admin.MapTenantsAdmin();
+admin.MapSubscriptionEntitlementsAdmin();
 admin.MapWebhooksAdmin();
 
 app.Run();
