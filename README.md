@@ -463,7 +463,8 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
 | `GET /api/auth/admin/audit` | The whole audit log, newest first, across all tenants. Filters: `action`, `tenantId`, `actorId`. Paging: `limit` (1 to 200, default 50), then pass the returned `next` values back as `before` and `beforeId`. Reading it is itself audited. |
 | `GET /api/auth/users/me/applications?tenantId={id}` | (Identity token, not admin.) The products the signed-in person can open in one organisation (APP-09): every active product by name with `state` (`Available`, `NoAccess`, `NotSubscribed`, `SubscriptionSuspended`, `SubscriptionCancelled`) and `launchUrl`, which is only given when `Available`. Needs an active membership in an organisation that is not suspended, else `403 tenant_access_denied`. `Cache-Control: no-store`. |
 | `GET /api/auth/admin/applications` | List every product, active or not (APP-06): `id`, `key`, `name`, `isActive`, `permissionCount`, `launchUrl`, `createdAt`, by name. The built-in product is left out, and no secret, audience, client id or webhook address is returned. |
-| `POST /api/auth/admin/applications` | Register a product (see "Applications" below). |
+| `POST /api/auth/admin/applications` | Register a product (see "Applications" below). It can carry the product's `launchUrl`, its `permissions` and `activate: true` too, so it is ready in one call, saved all or nothing (ONB-01). |
+| `PUT /api/auth/admin/applications/{id}/name` | Change a product's display name (`{"name": "…"}`; ONB-01). Its key and audience never change. Recorded in the audit log. |
 | `PUT /api/auth/admin/applications/{id}/launch-url` | Set (`{"url": "https://…"}`) or clear (`{"url": null}`) where the web console sends a person who chooses the product (APP-08). Absolute `https` only (plain `http` for localhost), no user name or password, no `#` fragment, at most 2000 characters. Recorded in the audit log. Also shown in the admin product list. |
 | `GET /api/auth/admin/applications/{id}/permissions` | Read a product's permission catalog (APP-07): `key`, `label`, `description`, `createdAt`, `updatedAt`, by key, whether or not the product is active. Unknown and built-in products are `404 application_not_found`. |
 | `POST /api/auth/admin/applications/{id}/permissions` | Register or update a product's permission catalog. |
@@ -485,6 +486,11 @@ A **product** (for example WhatsApp SaaS) is registered by a platform admin with
   **nowhere else, ever**: only its hash is stored (in its own table, so rotation can keep an old secret alive for a grace period),
   it is never logged or audited, and the response is sent with `Cache-Control: no-store`. A lost secret is replaced by rotation, not
   recovered (see "Product client credentials" below).
+- The same registration call can also send `launchUrl`, `permissions` (the catalog entries below) and `activate: true`: it then saves
+  the product, its catalog and its launch address and makes it available in one step, all or nothing (`activate` needs at least one
+  permission). Callers that send only the three fields get what they always got. The console's Register a product dialog does this, and
+  also takes the permissions as pasted JSON or from a file.
+- A product's display name can be changed afterwards with `PUT /api/auth/admin/applications/{id}/name`; its key and audience can't.
 - Registration is audit-logged under the admin, with the product's key as the detail.
 
 #### Permission catalog

@@ -172,6 +172,27 @@
         });
     });
 
+    // Load a text file into the box named by data-load-into (the permission list when registering a product). Without this script the
+    // person pastes the text instead; the file never leaves the browser until the form is sent.
+    document.addEventListener("change", function (event) {
+        var input = event.target.closest("[data-load-into]");
+        if (!input || !input.files || input.files.length === 0) {
+            return;
+        }
+
+        var target = document.getElementById(input.getAttribute("data-load-into"));
+        if (!target) {
+            return;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function () {
+            target.value = String(reader.result || "");
+            target.dispatchEvent(new Event("input", { bubbles: true }));
+        };
+        reader.readAsText(input.files[0]);
+    });
+
     function init() {
         revealToggles();
         startCountdowns();

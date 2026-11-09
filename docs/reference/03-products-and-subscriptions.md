@@ -134,8 +134,9 @@ There is no setting for the flag, for a list of admins or for turning the admin 
 ### What it does
 
 A platform admin registers a new product by giving it a key, a display name and the audience its tokens will carry. The Auth Service
-creates the product **inactive** and returns its client id and client secret **once**. The admin can then list every product to see where
-it stands.
+creates the product **inactive** and returns its client id and client secret **once**. The same call may also carry the product's launch
+address, its permission catalogue and a request to make it available (ONB-01), so a product can be ready in one step. The admin can then
+list every product to see where it stands, and rename one.
 
 Rules (all in `ApplicationValidator`, `RegisterApplicationService.cs`):
 
@@ -147,33 +148,46 @@ Rules (all in `ApplicationValidator`, `RegisterApplicationService.cs`):
   tokens carry it.
 - The built-in product's key `auth-service` and audience `auth-service-tenant` (`BuiltInApplication.Key`, `BuiltInApplication.Audience`) are
   already stored, so registering them gives `409`.
-- A new product is `is_active = false` until it has a permission catalog and an admin activates it (next section).
+- A new product is `is_active = false` until it has a permission catalog and an admin activates it (next section), unless the registration
+  itself sent a catalogue and `activate: true`.
+- **Optional parts of the registration body (ONB-01):** `launchUrl` (the rules of the launch URL section), `permissions` (the same entries and
+  rules as the catalogue registration, so up to 200; an empty list counts as none) and `activate` (true needs at least one permission, else
+  `400` on `Activate`). They are validated with the product's fields and saved with it in one `SaveChangesAsync`: if anything is invalid or
+  the key or audience is taken, nothing is created. The audit log gets the same entries the separate calls write: `registered`,
+  `permissions_registered` (only with permissions), `launch_url_set` (only with an address) and `activated` (only when activated).
+- **Rename (ONB-01):** `PUT /api/auth/admin/applications/{id}/name` with `{"name": "…"}` changes the display name only, under the name rules
+  above. The key and the audience never change. Saying the current name again is `200` and leaves no audit entry. The built-in product and
+  an unknown id are `404 application_not_found`.
 - The client secret is shown in the registration response **only**. Only its SHA-256 hash is stored (`application_secrets.secret_hash`).
   The response is sent with `Cache-Control: no-store`. A lost secret is replaced by rotation, never recovered.
 - The admin product list shows every product that is not built in, active or not, ordered by name: `id`, `key`, `name`, `isActive`,
   `permissionCount`, `launchUrl`, `createdAt`. It never returns the audience, client id, client secret or webhook address.
-- There is **no route** to rename, delete or change the key/audience of a product. `MapApplicationsAdmin` has seven routes and none edits
-  those fields.
+- There is **no route** to delete a product or change its key or audience. `MapApplicationsAdmin` has eight routes; the only one that edits
+  a product's own fields is the rename of its display name.
 
 ### How it is implemented
 
 | Verb and route | Auth required | Handler | Service/method | What it does |
 |---|---|---|---|---|
-| `POST /api/auth/admin/applications` | platform admin | `ApplicationAdminEndpoints.RegisterAsync` | `ApplicationValidator.TryValidate`, `RegisterApplicationService.RegisterAsync` | Validates, creates the product and its first secret, audits. `201` with the credentials. |
+| `POST /api/auth/admin/applications` | platform admin | `ApplicationAdminEndpoints.RegisterAsync` | `ApplicationValidator.TryValidate`, `RegisterApplicationService.RegisterAsync` | Validates, creates the product, its first secret and (when sent) its permissions, launch address and activation, audits. `201` with the credentials. |
+| `PUT /api/auth/admin/applications/{id}/name` | platform admin | `ApplicationAdminEndpoints.RenameAsync` | `ApplicationValidator.TryValidateName` | Changes the display name, audits (`auth.application.renamed`, detail = key). `200` with `id`, `key`, `name`. |
 | `GET /api/auth/admin/applications` | platform admin | `ApplicationAdminEndpoints.ListAsync` | `PageQuery.ByNameAsync` | Pages every non-built-in product by name. Query `limit` (1 to 200, default 50), `after` and `afterId` together. |
 
 Flow of registration:
 
-1. `RegisterAsync` validates the body. Failure: `Results.ValidationProblem` (400) keyed by `Key`, `Name`, `JwtAudience`; nothing is created.
+1. `RegisterAsync` validates the body. Failure: `Results.ValidationProblem` (400) keyed by `Key`, `Name`, `JwtAudience`, `LaunchUrl`,
+   `Permissions[n].Key` / `.Label` / `.Description` and `Activate`; nothing is created.
 2. `RegisterApplicationService.RegisterAsync` does a friendly pre-check for an existing key, then for an existing audience.
 3. It builds the entity: `Id = Guid.CreateVersion7()`, `ClientId = "cl_" + base64url(16 random bytes)`, `IsActive = false`, and a client secret
    `SecretToken.NewValue()` (base64url of 32 random bytes). It adds an `ApplicationSecret` with `SecretToken.Hash(secret)` (SHA-256, 64
    uppercase hex characters) and `ExpiresAt = null`.
-4. It records the audit entry `AuditActions.ApplicationRegistered` (`auth.application.registered`), actor = the admin, detail = the key.
+   When the request sent them it also sets `IsActive` and `LaunchUrl` and adds one `Permission` row per entry.
+4. It records the audit entry `AuditActions.ApplicationRegistered` (`auth.application.registered`), actor = the admin, detail = the key, and
+   the entries for the permissions, launch address and activation that were sent.
 5. `SaveChangesAsync`. If two registrations race, the unique indexes decide: a `UniqueViolation` on `ux_applications_key` becomes
    `KeyTaken`, on `ux_applications_jwt_audience` becomes `AudienceTaken` (`BrokeUniqueRule`), so the same 409 is returned.
 6. The handler sets `Cache-Control: no-store` and answers `201` with `RegisterApplicationResponse`
-   (`id`, `key`, `name`, `jwtAudience`, `isActive`, `clientId`, `clientSecret`, `createdAt`).
+   (`id`, `key`, `name`, `jwtAudience`, `isActive`, `clientId`, `clientSecret`, `createdAt`, `launchUrl`, `permissionCount`).
 
 Data (entity `Application`, table `applications`; `ApplicationSecret`, table `application_secrets`):
 
@@ -195,7 +209,7 @@ None. There is no setting for registration, and no limit on how many products ex
 
 | Caller sees | When |
 |---|---|
-| `400` validation problem (field names `Key`, `Name`, `JwtAudience`) | Missing or invalid value, over-long value, or reserved audience `auth-service`. |
+| `400` validation problem (field names `Key`, `Name`, `JwtAudience`, `LaunchUrl`, `Permissions[n].…`, `Activate`) | Missing or invalid value, over-long value, reserved audience `auth-service`, a bad launch address or permission, or `activate: true` without permissions. Nothing is created. |
 | `409` `application_key_taken` ("Application key already registered") | Key already used, including `auth-service` and a key differing only by case. |
 | `409` `audience_taken` ("JWT audience already registered") | Audience already used, including `auth-service-tenant`. |
 | `401` / `403` | See the platform admin section. |
@@ -214,7 +228,9 @@ None. There is no setting for registration, and no limit on how many products ex
 
 - Unique audience per product so that no two products can accept each other's tokens (comment on `Application.JwtAudience`).
 - The secret is hashed with plain SHA-256 because it is 256 bits of randomness (comment on `ApplicationSecret.SecretHash`).
-- **Open:** no edit or delete of a product. A mistake in name, key or audience needs SQL. I found no ticket that says this is intended.
+- **Open:** no delete of a product, and no edit of its key or audience. A mistake in those needs SQL; the display name can be renamed
+  (ONB-01, because branding changes while the key and audience are what a product's code and tokens depend on). I found no ticket that says
+  the rest is intended.
 - **Assumption (confirm):** audience and key uniqueness are case-sensitive for the audience (the key is lowercased in code; the audience is
   not) because the pre-check is an equality comparison and the unique index uses PostgreSQL's default collation. I did not see the database
   collation set anywhere; if it were case-insensitive, `Acme-API` and `acme-api` would collide.

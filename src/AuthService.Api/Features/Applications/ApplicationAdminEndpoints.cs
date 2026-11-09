@@ -30,6 +30,7 @@ public static class ApplicationAdminEndpoints
         admin.MapGet("/applications", ListAsync);
         admin.MapPost("/applications", RegisterAsync);
         admin.MapGet("/applications/{applicationId:guid}/permissions", ListPermissionsAsync);
+        admin.MapPut("/applications/{applicationId:guid}/name", RenameAsync);
         admin.MapPut("/applications/{applicationId:guid}/launch-url", SetLaunchUrlAsync);
         admin.MapPost("/applications/{applicationId:guid}/permissions", RegisterPermissionsAsync);
         admin.MapPut("/applications/{applicationId:guid}/active", SetActiveAsync);
@@ -68,6 +69,41 @@ public static class ApplicationAdminEndpoints
 
         return Results.Ok(rows.Map(items => items.Select(item => new AdminApplicationItem(
             item.Id, item.Key, item.Name, item.IsActive, item.PermissionCount, item.LaunchUrl, item.CreatedAt)).ToList()));
+    }
+
+    /// <summary>
+    /// A platform admin changes a product's display name (ONB-01). Only the name: the key and the JWT audience are what a product's
+    /// code and tokens depend on, so they stay as registered. The Auth Service's own built-in product cannot be renamed.
+    /// </summary>
+    private static async Task<IResult> RenameAsync(
+        Guid applicationId,
+        RenameApplicationRequest request,
+        ClaimsPrincipal caller,
+        AuthDbContext db,
+        AuditLog audit,
+        CancellationToken cancellationToken)
+    {
+        if (!ApplicationValidator.TryValidateName(request.Name, out var name, out var error))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]> { [nameof(RenameApplicationRequest.Name)] = [error] });
+        }
+
+        var application = await db.Applications.SingleOrDefaultAsync(candidate => candidate.Id == applicationId && !candidate.IsBuiltIn, cancellationToken);
+        if (application is null)
+        {
+            return ApplicationNotFound();
+        }
+
+        // Saying the same name again is not a change, so it leaves no audit entry.
+        if (application.Name != name)
+        {
+            var adminId = caller.GetUserId() ?? throw new InvalidOperationException("The platform-admin policy guarantees a user id.");
+            application.Name = name;
+            audit.Record(AuditActions.ApplicationRenamed, AuditActor.User(adminId), detail: application.Key);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Ok(new RenameApplicationResponse(application.Id, application.Key, application.Name));
     }
 
     /// <summary>

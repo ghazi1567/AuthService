@@ -99,7 +99,7 @@ else
                     <AntiforgeryToken />
                     <div class="modal-body">
                         <h2 id="add-title" class="modal-title">Add permissions to @product.Name</h2>
-                        <p class="modal-text">Write one permission per line, with its key, its label and, if you like, a description, separated by a | sign.</p>
+                        <p class="modal-text">Write one permission per line, with its key, its label and, if you like, a description, separated by a | sign. Or paste the permission JSON the product's team keeps.</p>
                         @if (errors.Count > 0)
                         {
                             <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
@@ -259,26 +259,9 @@ else
         enteredLines = HttpContext!.Request.Form["lines"].ToString();
         errors.Clear();
 
-        var toAdd = new List<PermissionToAdd>();
-        var lineNumber = 0;
-        foreach (var line in enteredLines.Split('\n'))
-        {
-            lineNumber++;
-            var text = line.Trim();
-            if (text.Length == 0)
-            {
-                continue;
-            }
-
-            var parts = text.Split('|', 3, StringSplitOptions.TrimEntries);
-            if (parts.Length < 2 || parts[0].Length == 0 || parts[1].Length == 0)
-            {
-                errors.Add($"Line {lineNumber}: write a key and a label separated by a | sign.");
-                continue;
-            }
-
-            toAdd.Add(new PermissionToAdd(parts[0], parts[1], parts.Length == 3 && parts[2].Length > 0 ? parts[2] : null));
-        }
+        // One permission per line, or the permission JSON a product's team keeps (ONB-01): the same reading as the register dialog.
+        var (toAdd, readErrors) = PermissionText.Parse(enteredLines);
+        errors.AddRange(readErrors);
 
         if (errors.Count == 0 && toAdd.Count == 0)
         {

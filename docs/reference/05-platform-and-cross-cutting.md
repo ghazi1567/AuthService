@@ -88,6 +88,7 @@ column holds the value shown, or nothing where the cell says "none".
 | Products | `PermissionsRegistered` | `auth.application.permissions_registered` | User | no | product key |
 | Products | `ApplicationActivated` / `ApplicationDeactivated` | `auth.application.activated` / `auth.application.deactivated` | User | no | product key |
 | Products | `ApplicationLaunchUrlSet` | `auth.application.launch_url_set` | User | no | product key |
+| Products | `ApplicationRenamed` | `auth.application.renamed` | User | no | product key |
 | Webhooks | `WebhookConfigured` | `auth.application.webhook_configured` | Product | no | product key |
 | Webhooks | `WebhookSecretRotated` | `auth.webhook.secret_rotated` | Product | no | `overlap_hours_<n>` |
 | Webhooks | `WebhookResent` | `auth.webhook.resent` | User (platform admin) | no | webhook id |

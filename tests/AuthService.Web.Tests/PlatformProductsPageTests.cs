@@ -108,7 +108,7 @@ public sealed class PlatformProductsPageTests
         call.Body.ShouldContain("\"name\":\"Inventory\"");
         call.Body.ShouldContain("\"jwtAudience\":\"inventory-api\"");
         var revealUrl = Where(posted);
-        revealUrl.ShouldMatch($@"^{Regex.Escape(PagePath)}\?reveal=[0-9a-f]{{32}}&registered=1&app=[0-9a-f-]{{36}}&name=Inventory&client=new-client$");
+        revealUrl.ShouldMatch($@"^{Regex.Escape(PagePath)}\?reveal=[0-9a-f]{{32}}&registered=1&app=[0-9a-f-]{{36}}&name=Inventory&client=new-client&aud=inventory-api&perms=0&live=0$");
         revealUrl.ShouldNotContain(api.ProductSecret, customMessage: "the secret is never in an address");
 
         var first = WebUtility.HtmlDecode(await client.GetStringAsync(revealUrl, Token));
@@ -172,6 +172,214 @@ public sealed class PlatformProductsPageTests
             html.ShouldContain("value=\"inventory-api\"");
             html.ShouldNotContain("connection refused");
             html.ShouldNotContain(api.ProductSecret);
+        }
+    }
+
+    [Fact]
+    public async Task EverythingFilledInRegistersTheProductItsPermissionsAndItsAddressInOneCallAndSaysItIsAvailable()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var dialog = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?register=1", Token));
+        dialog.ShouldContain("Where it opens (optional)");
+        dialog.ShouldContain("Permissions (optional)");
+        dialog.ShouldContain("Make it available now");
+        dialog.ShouldContain("Leave it empty to use the key plus -api.");
+
+        var posted = await PostPageFormAsync(client, "?register=1", "register", new()
+        {
+            ["name"] = "Marketing",
+            ["key"] = "marketing",
+            ["audience"] = "",
+            ["launchUrl"] = " http://localhost:5080/api/session/launch ",
+            ["permissions"] = "campaign.view | View campaigns | See campaigns\ncampaign.send | Send campaigns",
+            ["activate"] = "on",
+        });
+
+        var call = api.RegisterProductCalls.ShouldHaveSingleItem();
+        call.Body.ShouldContain("\"jwtAudience\":\"marketing-api\"", customMessage: "an empty audience follows the key");
+        call.Body.ShouldContain("\"launchUrl\":\"http://localhost:5080/api/session/launch\"");
+        call.Body.ShouldContain("\"key\":\"campaign.view\"");
+        call.Body.ShouldContain("\"description\":\"See campaigns\"");
+        call.Body.ShouldContain("\"key\":\"campaign.send\"");
+        call.Body.ShouldContain("\"activate\":true");
+        var revealUrl = Where(posted);
+        revealUrl.ShouldMatch($@"^{Regex.Escape(PagePath)}\?reveal=[0-9a-f]{{32}}&registered=1&app=[0-9a-f-]{{36}}&name=Marketing&client=new-client&aud=marketing-api&perms=2&live=1&opens=http%3A%2F%2Flocalhost%3A5080%2Fapi%2Fsession%2Flaunch$");
+        revealUrl.ShouldNotContain(api.ProductSecret);
+
+        var panel = WebUtility.HtmlDecode(await client.GetStringAsync(revealUrl, Token));
+        panel.ShouldContain("Marketing is registered and available");
+        panel.ShouldContain("Token audience: <code class=\"mono\">marketing-api</code>");
+        panel.ShouldContain("Client id: <code class=\"mono\">new-client</code>");
+        panel.ShouldContain("Opens at: <code class=\"mono\">http://localhost:5080/api/session/launch</code>");
+        panel.ShouldContain("Permissions: 2 permissions registered");
+        panel.ShouldContain($"value=\"{api.ProductSecret}\"");
+        panel.ShouldNotContain("Add its permissions", customMessage: "the permissions are already in");
+    }
+
+    [Fact]
+    public async Task PermissionsPastedAsJsonAreReadAndSent()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        await PostPageFormAsync(client, "?register=1", "register", new()
+        {
+            ["name"] = "Marketing",
+            ["key"] = "marketing",
+            ["audience"] = "marketing-api",
+            ["permissions"] = """{"permissions":[{"key":"contact.view","label":"View contacts","description":"See contacts"},{"key":"user.manage","label":"Manage users"}],"roles":[]}""",
+            ["activate"] = "on",
+        });
+
+        var body = api.RegisterProductCalls.ShouldHaveSingleItem().Body;
+        body.ShouldContain("\"key\":\"contact.view\"");
+        body.ShouldContain("\"label\":\"View contacts\"");
+        body.ShouldContain("\"key\":\"user.manage\"");
+        body.ShouldContain("\"activate\":true");
+    }
+
+    [Fact]
+    public async Task WithoutTheAvailableBoxTheProductIsRegisteredButNotMadeAvailable()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostPageFormAsync(client, "?register=1", "register", new()
+        {
+            ["name"] = "Marketing",
+            ["key"] = "marketing",
+            ["audience"] = "marketing-api",
+            ["permissions"] = "campaign.view | View campaigns",
+        });
+
+        api.RegisterProductCalls.ShouldHaveSingleItem().Body.ShouldNotContain("\"activate\":true");
+        var panel = WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token));
+        panel.ShouldContain("Marketing is registered");
+        panel.ShouldNotContain("registered and available");
+        panel.ShouldContain("It isn't available yet. Make it available when it is ready.");
+        panel.ShouldContain("Permissions: 1 permission registered");
+    }
+
+    [Fact]
+    public async Task TheAvailableBoxWithNoPermissionsIsNotSentSoTheApiDoesNotRefuseTheRegistration()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostPageFormAsync(client, "?register=1", "register", new() { ["name"] = "Marketing", ["key"] = "marketing", ["audience"] = "", ["activate"] = "on" });
+
+        api.RegisterProductCalls.ShouldHaveSingleItem().Body.ShouldNotContain("\"activate\":true");
+        var panel = WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token));
+        panel.ShouldContain("It isn't available yet. Next, give it its permissions, then make it available.");
+        panel.ShouldContain("Add its permissions");
+    }
+
+    [Fact]
+    public async Task APermissionListThatCannotBeReadNeverReachesTheApiAndWhatWasTypedIsKept()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var response = await PostPageFormAsync(client, "?register=1", "register", new()
+        {
+            ["name"] = "Marketing",
+            ["key"] = "marketing",
+            ["audience"] = "marketing-api",
+            ["permissions"] = "campaign.view | View campaigns\nthis line has no label",
+        });
+        var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+        html.ShouldContain("Fix 1 problem");
+        html.ShouldContain("Line 2: write a key and a label separated by a | sign.");
+        html.ShouldContain("this line has no label");
+        html.ShouldContain("value=\"marketing-api\"");
+        api.RegisterProductCalls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task EveryProductOffersARenameAndTheDialogSaysTheKeyAndAudienceStay()
+    {
+        await using var factory = new WebAppFactory(Api());
+        using var client = await SignedInAsync(factory);
+
+        var list = await client.GetStringAsync(PagePath, Token);
+        foreach (var id in new[] { Helpdesk, Billing, Draft })
+        {
+            list.ShouldContain($"?rename={id}");
+        }
+
+        var dialog = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?rename={Helpdesk}", Token));
+        dialog.ShouldContain("Rename 'Helpdesk'");
+        dialog.ShouldContain("value=\"Helpdesk\"");
+        dialog.ShouldContain("Its key, <code class=\"mono\">helpdesk</code>, and its token audience stay as they are");
+    }
+
+    [Fact]
+    public async Task RenamingAsksTheApiAsTheAdminThenSaysSo()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostPageFormAsync(client, $"?rename={Helpdesk}", "rename", new() { ["id"] = Helpdesk.ToString(), ["name"] = "  Staff Link Helpdesk  " });
+
+        var call = api.RenameCalls.ShouldHaveSingleItem();
+        call.Path.ShouldBe($"/api/auth/admin/applications/{Helpdesk}/name");
+        call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
+        call.Body.ShouldContain("\"name\":\"Staff Link Helpdesk\"");
+        Where(posted).ShouldBe($"{PagePath}?notice=renamed&app={Helpdesk}");
+        WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token)).ShouldContain("is renamed");
+    }
+
+    [Fact]
+    public async Task ABlankNameNeverReachesTheApi()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var response = await PostPageFormAsync(client, $"?rename={Helpdesk}", "rename", new() { ["id"] = Helpdesk.ToString(), ["name"] = "   " });
+        var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+        html.ShouldContain("Enter a name for the product.");
+        html.ShouldContain("role=\"dialog\"");
+        api.RenameCalls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task TheApisReasonsForRefusingARenameAreExplainedInTheDialog()
+    {
+        var cases = new (Func<string, HttpResponseMessage?> Respond, string Expect)[]
+        {
+            (_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("""{"status":400,"title":"x","errors":{"Name":["Name must be at most 200 characters."]}}""", Encoding.UTF8, "application/problem+json"),
+            }, "Name must be at most 200 characters."),
+            (_ => Problem(HttpStatusCode.NotFound, "application_not_found"), "That product isn't here any more."),
+            (_ => new HttpResponseMessage(HttpStatusCode.Forbidden), "You don't have permission to change products."),
+            (_ => throw new HttpRequestException("connection refused"), "Nothing was changed."),
+        };
+
+        foreach (var (respond, expect) in cases)
+        {
+            var api = Api();
+            api.RenameResponse = respond;
+            await using var factory = new WebAppFactory(api);
+            using var client = await SignedInAsync(factory);
+
+            var response = await PostPageFormAsync(client, $"?rename={Helpdesk}", "rename", new() { ["id"] = Helpdesk.ToString(), ["name"] = "New name" });
+            var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+            html.ShouldContain(expect);
+            html.ShouldContain("value=\"New name\"");
+            html.ShouldNotContain("connection refused");
         }
     }
 
