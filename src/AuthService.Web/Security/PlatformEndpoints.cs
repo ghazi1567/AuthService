@@ -108,7 +108,8 @@ public static class PlatformEndpoints
         if (result.IsSuccess && context.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
         {
             // The new secret waits on the server; the address carries only a reference, the (public) client id and when the old secret stops.
-            var reference = secrets.Put(sid.Value, result.Value!.ClientSecret);
+            // What the product team is given is the one string with the client id in it (ONB-03); an older API gives only the secret.
+            var reference = secrets.Put(sid.Value, result.Value!.Credential.Length > 0 ? result.Value.Credential : result.Value.ClientSecret);
             var oldEnds = grace == 0 ? "now" : result.Value.PreviousSecretsExpireAt.UtcDateTime.ToString("O");
             return Results.Redirect($"{page}?reveal={reference}&app={applicationId}&client={Uri.EscapeDataString(result.Value.ClientId)}&oldEnds={Uri.EscapeDataString(oldEnds)}");
         }

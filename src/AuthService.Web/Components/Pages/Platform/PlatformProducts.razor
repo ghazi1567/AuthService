@@ -169,6 +169,16 @@ else
                     <input id="raw-secret" class="input mono secret-value" readonly value="@revealed" autocomplete="off" spellcheck="false" />
                     <p class="field-message" aria-live="polite" data-copy-status></p>
                     <button type="button" class="btn btn-secondary" data-needs-script hidden data-copy-from="raw-secret"><Icon Name="copy" />Copy secret</button>
+
+                    @if (discovery is not null)
+                    {
+                        <div class="field">
+                            <label for="connect-settings">Settings for the product</label>
+                            <textarea id="connect-settings" class="input mono permissions-text" rows="3" readonly spellcheck="false" autocomplete="off">@SettingsBlock</textarea>
+                            <p class="field-message">A product's team needs only these two. The client secret already includes the client id.</p>
+                            <button type="button" class="btn btn-secondary btn-sm" data-needs-script hidden data-copy-from="connect-settings"><Icon Name="copy" />Copy settings</button>
+                        </div>
+                    }
                 </div>
                 <div class="modal-foot">
                     @if (Registered == "1" && PermissionTotal == 0 && AppId is { } registeredId)
@@ -465,6 +475,7 @@ else
     private bool registering;
     private string? reference;
     private string? revealed;
+    private DiscoveryDocument? discovery;
     private string enteredName = "";
     private string enteredKey = "";
     private string enteredAudience = "";
@@ -520,6 +531,9 @@ else
     [SupplyParameterFromQuery(Name = "perms")] private int? Permissions { get; set; }
 
     private int PermissionTotal => Math.Max(0, Permissions ?? 0);
+
+    // The two settings a product needs, as environment variables its host can read as AuthService:Url and AuthService:ClientSecret.
+    private string SettingsBlock => $"AuthService__Url={discovery?.ApiBaseUrl}{Environment.NewLine}AuthService__ClientSecret={revealed}";
 
     [SupplyParameterFromQuery(Name = "reveal")] private string? Reveal { get; set; }
 
@@ -659,6 +673,10 @@ else
 
         if (revealed is not null)
         {
+            // The Auth Service's own public address, so the product's team is told it beside the secret (ONB-03). If it can't be read,
+            // the page simply doesn't offer the settings block.
+            var found = await Api.GetAsync<DiscoveryDocument>("/.well-known/auth-service-configuration", null, HttpContext.RequestAborted);
+            discovery = found.IsSuccess ? found.Value : null;
             return;
         }
 
@@ -768,7 +786,7 @@ else
             // The secret waits on the server; the address carries only a reference and what is not secret: the product's name, its audience,
             // its (public) client id, where it opens, how many permissions it has and whether it is available.
             var product = result.Value!;
-            var reference_ = Secrets.Put(sid.Value, product.ClientSecret);
+            var reference_ = Secrets.Put(sid.Value, product.Credential.Length > 0 ? product.Credential : product.ClientSecret);
             leaving = true;
             var opens = product.LaunchUrl is { Length: > 0 } address ? $"&opens={Uri.EscapeDataString(address)}" : "";
             Navigation.NavigateTo($"/platform/products?reveal={reference_}&registered=1&app={product.Id}&name={Uri.EscapeDataString(product.Name)}&client={Uri.EscapeDataString(product.ClientId)}&aud={Uri.EscapeDataString(product.JwtAudience)}&perms={product.PermissionCount}&live={(product.IsActive ? 1 : 0)}{opens}");

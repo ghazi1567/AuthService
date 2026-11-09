@@ -19,6 +19,7 @@ public sealed class EndpointInventoryTests(PostgresContainerFixture postgres) : 
     private static readonly string[] AnonymousEndpoints =
     [
         "GET /",
+        "GET /.well-known/auth-service-configuration",
         "GET /.well-known/jwks.json",
         "GET /health/live",
         "GET /health/ready",

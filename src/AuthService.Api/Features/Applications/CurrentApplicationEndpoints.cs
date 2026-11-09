@@ -5,7 +5,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AuthService.Api.Features.Applications;
 
-public sealed record CurrentApplicationResponse(Guid Id, string Key, string Name, string JwtAudience, string ClientId, bool IsActive);
+/// <param name="PermissionKeys">The keys of the product's permission catalogue, in order (ONB-03), so a product can check that the keys its code
+/// asks for are all registered.</param>
+public sealed record CurrentApplicationResponse(
+    Guid Id,
+    string Key,
+    string Name,
+    string JwtAudience,
+    string ClientId,
+    bool IsActive,
+    IReadOnlyList<string> PermissionKeys);
 
 /// <summary>
 /// What a product can ask about itself with its service token. Which product it is comes only from the verified token, never
@@ -28,12 +37,20 @@ public static class CurrentApplicationEndpoints
 
         var application = await db.Applications.AsNoTracking()
             .Where(candidate => candidate.Id == applicationId)
-            .Select(candidate => new CurrentApplicationResponse(
-                candidate.Id, candidate.Key, candidate.Name, candidate.JwtAudience, candidate.ClientId, candidate.IsActive))
+            .Select(candidate => new { candidate.Id, candidate.Key, candidate.Name, candidate.JwtAudience, candidate.ClientId, candidate.IsActive })
             .SingleOrDefaultAsync(cancellationToken);
+        if (application is null)
+        {
+            return ApiProblem.Create(StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized", "A valid access token is required.");
+        }
 
-        return application is null
-            ? ApiProblem.Create(StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized", "A valid access token is required.")
-            : Results.Ok(application);
+        var keys = await db.Permissions.AsNoTracking()
+            .Where(permission => permission.ApplicationId == applicationId)
+            .Select(permission => permission.Key)
+            .ToListAsync(cancellationToken);
+        keys.Sort(StringComparer.Ordinal);
+
+        return Results.Ok(new CurrentApplicationResponse(
+            application.Id, application.Key, application.Name, application.JwtAudience, application.ClientId, application.IsActive, keys));
     }
 }

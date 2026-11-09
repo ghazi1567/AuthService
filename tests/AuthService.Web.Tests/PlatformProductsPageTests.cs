@@ -115,7 +115,7 @@ public sealed class PlatformProductsPageTests
         first.ShouldContain("Product registered");
         first.ShouldContain("Inventory is registered");
         first.ShouldContain("It isn't available yet. Next, give it its permissions, then make it available.");
-        first.ShouldContain($"value=\"{api.ProductSecret}\"");
+        first.ShouldContain($"value=\"new-client.{api.ProductSecret}\"");
         first.ShouldContain("You won't see this again");
         first.ShouldContain("Client id: <code class=\"mono\">new-client</code>");
         first.ShouldContain("Add its permissions");
@@ -215,7 +215,7 @@ public sealed class PlatformProductsPageTests
         panel.ShouldContain("Client id: <code class=\"mono\">new-client</code>");
         panel.ShouldContain("Opens at: <code class=\"mono\">http://localhost:5080/api/session/launch</code>");
         panel.ShouldContain("Permissions: 2 permissions registered");
-        panel.ShouldContain($"value=\"{api.ProductSecret}\"");
+        panel.ShouldContain($"value=\"new-client.{api.ProductSecret}\"");
         panel.ShouldNotContain("Add its permissions", customMessage: "the permissions are already in");
     }
 
@@ -538,6 +538,67 @@ public sealed class PlatformProductsPageTests
     }
 
     [Fact]
+    public async Task TheSecretPanelOffersTheTwoSettingsAProductNeedsWithTheAuthServicesOwnAddress()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostPageFormAsync(client, "?register=1", "register", new() { ["name"] = "Marketing", ["key"] = "marketing", ["audience"] = "" });
+        var panel = WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token));
+
+        panel.ShouldContain("Settings for the product");
+        panel.ShouldContain("AuthService__Url=https://auth.example.com");
+        panel.ShouldContain($"AuthService__ClientSecret=new-client.{api.ProductSecret}");
+        panel.ShouldContain("The client secret already includes the client id.");
+        panel.ShouldContain("data-copy-from=\"connect-settings\"");
+        api.DiscoveryCalls.ShouldHaveSingleItem().ShouldBeNull("the document is public, so it is read without anyone's token");
+    }
+
+    [Fact]
+    public async Task ReplacingTheSecretShowsTheSettingsWithTheNewOneToo()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api, time: new FakeClock(Now));
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostRotateAsync(client, Helpdesk, "24");
+        var panel = WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token));
+
+        panel.ShouldContain("AuthService__Url=https://auth.example.com");
+        panel.ShouldContain($"AuthService__ClientSecret=helpdesk-client.{api.ProductSecret}");
+    }
+
+    [Fact]
+    public async Task IfTheAddressCannotBeReadTheSecretIsStillShownWithoutTheSettingsBlock()
+    {
+        var api = Api();
+        api.DiscoveryResponse = () => throw new HttpRequestException("connection refused");
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostPageFormAsync(client, "?register=1", "register", new() { ["name"] = "Marketing", ["key"] = "marketing", ["audience"] = "" });
+        var panel = WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token));
+
+        panel.ShouldContain($"value=\"new-client.{api.ProductSecret}\"");
+        panel.ShouldNotContain("Settings for the product");
+        panel.ShouldNotContain("connection refused");
+    }
+
+    [Fact]
+    public async Task TheSettingsBlockIsNotOnTheListOrWithoutASecret()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var list = await client.GetStringAsync(PagePath, Token);
+
+        list.ShouldNotContain("Settings for the product");
+        api.DiscoveryCalls.ShouldBeEmpty("the address is only read when a secret is being shown");
+    }
+
+    [Fact]
     public async Task MakingAProductAvailableAsksTheApiAsTheAdminThenSaysSo()
     {
         var api = Api();
@@ -687,7 +748,7 @@ public sealed class PlatformProductsPageTests
 
         var first = WebUtility.HtmlDecode(await client.GetStringAsync(revealUrl, Token));
         first.ShouldContain("New client secret");
-        first.ShouldContain($"value=\"{api.ProductSecret}\"");
+        first.ShouldContain($"value=\"helpdesk-client.{api.ProductSecret}\"");
         first.ShouldContain("You won't see this again");
         first.ShouldContain("Client id: <code class=\"mono\">helpdesk-client</code>");
         first.ShouldContain("The old secret keeps working for a while");

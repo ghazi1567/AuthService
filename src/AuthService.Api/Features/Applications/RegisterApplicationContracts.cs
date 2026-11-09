@@ -28,7 +28,8 @@ public sealed record RegisterApplicationResponse(
     string ClientSecret,
     DateTimeOffset CreatedAt,
     string? LaunchUrl = null,
-    int PermissionCount = 0);
+    int PermissionCount = 0,
+    string Credential = "");
 
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/name</c>. Nullable so a missing name is a validation error.</summary>
 public sealed record RenameApplicationRequest(string? Name);

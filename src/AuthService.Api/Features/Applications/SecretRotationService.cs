@@ -18,7 +18,8 @@ public sealed record RotateSecretResponse(
     Guid ApplicationId,
     string ClientId,
     string ClientSecret,
-    DateTimeOffset PreviousSecretsExpireAt);
+    DateTimeOffset PreviousSecretsExpireAt,
+    string Credential = "");
 
 public abstract record RotateSecretResult
 {
@@ -74,6 +75,7 @@ public sealed class SecretRotationService(
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new RotateSecretResult.Rotated(new RotateSecretResponse(applicationId, application.ClientId, clientSecret, expiresAt));
+        return new RotateSecretResult.Rotated(new RotateSecretResponse(
+            applicationId, application.ClientId, clientSecret, expiresAt, ClientCredential.Combine(application.ClientId, clientSecret)));
     }
 }

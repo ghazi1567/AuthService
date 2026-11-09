@@ -316,6 +316,12 @@ Rules and numbers (all in `IdentityTokenOptions`):
 - Each instance reloads keys from the database every **60 seconds** (`SigningKeyRefreshSeconds`).
 - The private half is stored encrypted (AES-256-GCM) under `Auth:Tokens:KeyEncryptionKey`. A leaked database alone cannot forge tokens.
 - The JWKS is sent with `Cache-Control: public, max-age=300`.
+- **The discovery document (ONB-03)** at `GET /.well-known/auth-service-configuration`, also with no login and `public, max-age=300`, names
+  what a product needs to start from one address: `issuer` (`Auth:Tokens:Issuer`), `apiBaseUrl`, `jwksUrl`, `tokenUrl` and `consoleUrl`
+  (`Email:PublicBaseUrl`, null when empty). `apiBaseUrl` is `Auth:Discovery:PublicBaseUrl` when that is an absolute http or https address
+  (a trailing slash trimmed), else the scheme and host the request came to; set it when the API is behind a proxy or is called by an
+  internal name, as the web console calls it, so the document never carries an internal address. It holds nothing secret
+  (`DiscoveryEndpoints`, `DiscoveryDocument`).
 
 ### How it is implemented
 
@@ -876,7 +882,7 @@ product would really receive. The product-side checks use `SampleProductApi` (th
 | `RoleDowngradeTests` | With a shared fake clock: a downgraded role gives a lower-level next token; the old token works until its 15 minutes end, then 401; removing the role leaves the next token with no permissions; revoking a seat blocks new exchanges while the old token lives on |
 | `EndpointInventoryTests` | Reads the real endpoint table and classifies every endpoint (Anonymous, Identity, Service, PlatformAdmin, TenantContext, TenantPermission, Unprotected). Fails if: the anonymous set differs from the reviewed list of 15; any endpoint is unprotected; a tenant-scoped endpoint (`/api/auth/tenants/me*`, `/api/auth/tenant/me`, `/api/auth/roles*`, `/api/auth/apikeys*` except `validate`) is not tenant-admin protected or has a `{tenantId` route value; a tenant-admin write needs only a tenant context and no permission; any route with `{tenantId` is not a service-token endpoint; or anything under `/api/auth/admin/` is not platform-admin |
 
-The reviewed anonymous list is the array `AnonymousEndpoints` in `EndpointInventoryTests`: `GET /`, `GET /.well-known/jwks.json`,
+The reviewed anonymous list is the array `AnonymousEndpoints` in `EndpointInventoryTests`: `GET /`, `GET /.well-known/auth-service-configuration`, `GET /.well-known/jwks.json`,
 `GET /health/live`, `GET /health/ready`, `GET /metrics`, `POST /api/auth/email/verify`, `POST /api/auth/email/verify/resend`,
 `POST /api/auth/invitations/accept`, `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/password/forgot`,
 `POST /api/auth/password/reset`, `POST /api/auth/refresh`, `POST /api/auth/signup`, `POST /api/auth/token`. Adding an anonymous endpoint

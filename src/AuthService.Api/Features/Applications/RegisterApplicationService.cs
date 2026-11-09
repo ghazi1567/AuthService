@@ -234,7 +234,8 @@ public sealed class RegisterApplicationService(AuthDbContext db, AuditLog audit,
 
         return new RegisterApplicationResult.Created(new RegisterApplicationResponse(
             application.Id, application.Key, application.Name, application.JwtAudience, application.IsActive,
-            application.ClientId, clientSecret, now, application.LaunchUrl, input.Permissions?.Count ?? 0));
+            application.ClientId, clientSecret, now, application.LaunchUrl, input.Permissions?.Count ?? 0,
+            ClientCredential.Combine(application.ClientId, clientSecret)));
     }
 
     private static bool BrokeUniqueRule(DbUpdateException exception, string indexName) =>
