@@ -7,7 +7,7 @@ request, against the public keys the Auth Service publishes.
 builder.Services.AddAuthServiceAuthorization(options =>
 {
     options.Issuer = "AuthService";                                         // the Auth Service's issuer
-    options.Audience = "whatsapp-saas-api";                                 // YOUR product's own audience, as registered
+    options.Audience = "my-product-api";                                    // YOUR product's own audience, as registered
     options.JwksUrl = new Uri("https://auth.example.com/.well-known/jwks.json");
 });
 
@@ -46,14 +46,15 @@ open.ShouldBeEmpty();
 
 ## Installing
 
-The package is published to this repository's GitHub Packages feed. Add the feed once (a personal access token with `read:packages`, or the
-`GITHUB_TOKEN` in a GitHub Actions workflow of the same organisation):
+The package is on [nuget.org](https://www.nuget.org/packages/AuthService.Authorization) under the MIT licence. No extra feed or token is
+needed:
 
 ```bash
-dotnet nuget add source https://nuget.pkg.github.com/<owner>/index.json --name authservice \
-  --username <your-github-user> --password <token> --store-password-in-clear-text
 dotnet add package AuthService.Authorization
 ```
+
+The same versions are also pushed to the Auth Service's own GitHub Packages feed (a personal access token with `read:packages` is needed
+there); use that only if you work inside the Auth Service organisation.
 
 `samples/SampleProduct` is a small product API that installs the package this way and enforces tokens with it; its tests
 (`samples/SampleProduct.Tests`) are the ones a product team would write.
@@ -68,9 +69,9 @@ A release is made by CI, never from a developer machine, and only from a commit 
 2. Push a tag named `authorization-v<version>` on the merged commit, for example `authorization-v1.3.0` (or `authorization-v2.0.0-rc.1`
    for a pre-release).
 3. The "Publish AuthService.Authorization" workflow checks the tag is a semantic version on `main`, runs the whole test suite, packs the
-   package at the tag's version, pushes it to the feed, and then restores it from the feed into the sample product and runs the sample's
-   tests. A failure at any step publishes nothing further.
-4. A published version is never replaced. If one is wrong, publish the next one.
+   package at the tag's version, pushes it to the GitHub Packages feed, restores it from there into the sample product and runs the
+   sample's tests, and only then pushes the same package to nuget.org. A failure at any step publishes nothing further.
+4. A published version is never replaced. If one is wrong, publish the next one. nuget.org cannot delete a version, only unlist it.
 
 ## Versioning
 

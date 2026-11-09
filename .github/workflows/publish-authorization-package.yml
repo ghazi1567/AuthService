@@ -145,8 +145,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The sample's NuGet.config looks in artifacts/packages, which is empty here, so the only place it can get the package from is
-      # the feed it was just published to.
+      # The sample's NuGet.config lists artifacts/packages as a source, and restore fails (NU1301) when a local source does not exist.
+      # A fresh checkout has no such folder, so make it empty: the only place the package can then come from is the feed it was just
+      # published to.
+      - name: Make the local package folder, empty
+        run: mkdir -p artifacts/packages
+
       - name: Add the feed
         run: >
           dotnet nuget add source "$FEED"
@@ -161,3 +165,50 @@ jobs:
           dotnet test samples/SampleProduct.Tests
           --configuration Release
           -p:AuthorizationPackageVersion=${{ needs.version.outputs.version }}
+
+  # Public release (decision 0010). Runs only after the package has been pushed to GitHub Packages AND installed and tested from there,
+  # and pushes the very same .nupkg that job kept. It signs in to nuget.org with a trusted publishing policy (OIDC): GitHub gives the
+  # run a short-lived identity token, nuget.org checks it against the policy (this repository, this workflow file, the "nuget"
+  # environment) and hands back a temporary API key. No long-lived key is stored anywhere. The only value kept is NUGET_USER, the
+  # nuget.org profile name, in the "nuget" environment; add required reviewers to that environment to make every public release a
+  # manual approval. nuget.org never lets a version be deleted or replaced, only unlisted, so this is the step that cannot be undone.
+  publish-nuget:
+    name: Publish to nuget.org
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: read
+      # Lets this job ask GitHub for the identity token that nuget.org checks. Without it the login step fails with a 403.
+      id-token: write
+
+    steps:
+      - name: Get the package that was verified
+        uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: artifacts/packages
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # The user is the nuget.org profile name (not the email address). The temporary key this returns expires after about an hour,
+      # so the login stays next to the push.
+      - name: Sign in to nuget.org (trusted publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # --skip-duplicate makes a re-run of a half-finished release safe: a version nuget.org already has is left as it is.
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "artifacts/packages/${PACKAGE_ID}.${{ needs.version.outputs.version }}.nupkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_API_KEY" \
+            --skip-duplicate

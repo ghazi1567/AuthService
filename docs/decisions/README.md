@@ -52,3 +52,4 @@ What becomes easier, what becomes harder, and what must be revisited if circumst
 | [0007](0007-hand-the-token-to-a-product-with-a-form-post.md) | Hand a product its token with a form post | Accepted |
 | [0008](0008-rate-limit-counters-in-postgresql.md) | Keep rate-limit counters in PostgreSQL, and fail closed | Accepted |
 | [0009](0009-publish-the-authorization-package-to-github-packages.md) | Publish the authorization package to GitHub Packages from a version tag | Accepted |
+| [0010](0010-publish-the-authorization-package-publicly-on-nuget-org.md) | Also publish the authorization package publicly on nuget.org, under MIT | Accepted |
