@@ -207,7 +207,7 @@ Background workers: `EmailDispatcher` (interval `Email:DispatchIntervalMilliseco
 
 | Setting | Default | Defined in | What changes if it differs |
 |---|---|---|---|
-| `Auth:EmailVerification:TokenHours` (`Auth__EmailVerification__TokenHours`) | 24 | `EmailVerificationOptions` | Link lifetime. The email text still says "24 hours" (hard-coded in `EmailTemplates`). |
+| `Auth:EmailVerification:TokenHours` (`Auth__EmailVerification__TokenHours`) | 24 | `EmailVerificationOptions` | Link lifetime. The email states this value (`EmailLifetime.Describe`). |
 | `Auth:EmailVerification:ResendCooldownSeconds` (`Auth__EmailVerification__ResendCooldownSeconds`) | 60 | `EmailVerificationOptions` | Minimum gap between links for one account. 0 disables it. |
 | `Auth:EmailVerification:ResendIpLimit` (`Auth__EmailVerification__ResendIpLimit`) | 10 | `EmailVerificationOptions` | Resend requests per IP per window before 429. |
 | `Auth:EmailVerification:ResendIpWindowMinutes` (`Auth__EmailVerification__ResendIpWindowMinutes`) | 10 | `EmailVerificationOptions` | Window length. |
@@ -239,7 +239,7 @@ Edge cases and half-states:
 - **Resend does nothing silently** inside 60 seconds of any earlier token for that person. If the first email failed to send (outbox `Failed`), a resend within the cooldown still answers 202 and sends nothing; after the cooldown it works.
 - A person whose link has expired has an unverified account and must resend. Nothing resends automatically.
 - A person verified through another route (accepting an invitation sets `email_verified_at`, in `AcceptInvitationService`) keeps unused verification tokens; harmless.
-- Password reset does **not** verify the email (section 8), so a person can end up with a new password and still be refused with `email_not_verified`.
+- A successful password reset also marks the email verified (section 8), because following the emailed link proves the person controls the inbox.
 - The token travels in the URL query string of the web console page. Access logs of the console host or its proxy will contain it. It is single-use and expires, but treat those logs as sensitive.
 
 Likely production causes and how to confirm:
@@ -257,7 +257,6 @@ Likely production causes and how to confirm:
 - The same 410 is returned for unknown, expired and used links, so it reveals nothing about which it was.
 - Verification is idempotent for verified people, so a person who double-clicks or whose mail scanner opens the link is not shown an error.
 - Old links stay valid after a resend (a delayed first email still works), at the cost of several live tokens per person.
-- **Inconsistent:** the email footer is fixed text, "This link expires in 24 hours", while the real lifetime is configurable. Changing `TokenHours` makes the email wrong.
 - **Unfinished:** no purge of old rows in `email_verification_tokens`.
 - **Assumption (confirm):** an unverified account is meant to stay in the table indefinitely, holding its address. No expiry of unverified accounts exists in the code read.
 
@@ -359,7 +358,7 @@ Likely production causes and how to confirm:
 | "Invalid credentials" for a correct password because the account is locked | `SELECT email, failed_login_count, locked_until FROM users WHERE email = '<email>';` and `SELECT occurred_at, action, detail FROM audit_entries WHERE actor_id = '<user id>' ORDER BY occurred_at DESC LIMIT 20;` Look for `account_locked`. |
 | Person never set a password (invitation not accepted) | `password_hash IS NULL` on the user; audit detail `unknown_account` with the user's id absent (actor is anonymous). |
 | Wrong environment or restored database | Compare `users` with expectations; check which `ConnectionStrings__AuthDb` the instance uses. |
-| 403 `email_not_verified` after a reset | `email_verified_at` is null; the person needs resend (section 2). |
+| 403 `email_not_verified` after a reset | Only if the reset was done before AUTH-266 was deployed: `email_verified_at` is null; the person needs resend (section 2). |
 | 403 `account_disabled` | `SELECT t.name, m.status FROM tenant_memberships m JOIN tenants t ON t.id = m.tenant_id WHERE m.user_id = '<user id>';` All `Disabled`. |
 | Many 429s | Section 4. |
 | 500 on login right after a deploy | Migrations not applied (they are never applied on startup, ADR 0003). Check the application log for a missing-column error. |
@@ -751,7 +750,7 @@ Background workers: `EmailDispatcher` (without it no reset email leaves the syst
 
 | Setting | Default | Defined in | What changes if it differs |
 |---|---|---|---|
-| `Auth:PasswordReset:TokenMinutes` (`Auth__PasswordReset__TokenMinutes`) | 60 | `src/AuthService.Api/Features/PasswordReset/PasswordResetOptions.cs` | Link lifetime. The email still says "1 hour" (hard-coded). |
+| `Auth:PasswordReset:TokenMinutes` (`Auth__PasswordReset__TokenMinutes`) | 60 | `src/AuthService.Api/Features/PasswordReset/PasswordResetOptions.cs` | Link lifetime. The email states this value (`EmailLifetime.Describe`). |
 | `Auth:PasswordReset:RequestCooldownSeconds` (`Auth__PasswordReset__RequestCooldownSeconds`) | 60 | `PasswordResetOptions` | Minimum gap between links per account. |
 | `Auth:PasswordReset:IpLimit` (`Auth__PasswordReset__IpLimit`) | 10 | `PasswordResetOptions` | Forgot plus reset requests per IP per window. |
 | `Auth:PasswordReset:IpWindowMinutes` (`Auth__PasswordReset__IpWindowMinutes`) | 10 | `PasswordResetOptions` | Window length. |
@@ -781,7 +780,7 @@ Edge cases and half-states:
 
 - Silent cooldown: a second `forgot` inside 60 seconds returns 202 and sends nothing. The first link remains valid. If the first email failed to send, the person has no working link until the cooldown ends and they ask again.
 - A newer link does not invalidate an older one until a reset succeeds; then all are retired.
-- **Reset leaves `email_verified_at` null.** A person who signed up, never verified, and uses password reset can set a new password and still be refused with 403 `email_not_verified`. The same applies to a person who was invited and used reset instead of accepting the invitation: they now have a password but are unverified.
+- **Reset verifies the email (AUTH-266).** `PasswordResetService.ResetAsync` sets `email_verified_at` when it is null (an existing time is kept), so a person who signed up, never verified, and uses password reset can log in at once. This also covers a person who was invited and used reset instead of accepting the invitation. Tests `TEN10_ResettingThePasswordOfAnUnverifiedAccountVerifiesItsEmailSoLoginWorksAtOnce` and `TEN10_ResettingThePasswordOfAVerifiedAccountKeepsTheTimeItWasVerified`.
 - Sharing a counter between `forgot` and `reset` means a real person uses two hits per recovery; five people recovering at once behind one NAT address (without proxy configuration, a whole company) exhaust 10 hits in 10 minutes.
 
 Likely production causes and how to confirm:
@@ -985,7 +984,6 @@ Likely production causes and how to confirm:
 | User never received the verification or reset email | Silent 60-second cooldown, outbox `Pending` or `Failed`, dispatcher disabled, provider not configured, sender not verified | `EmailVerificationService.ResendAsync`, `PasswordResetService.RequestAsync`; table `email_outbox`; part 5 | `SELECT status, attempts, last_error FROM email_outbox WHERE to_address = '<email>' ORDER BY created_at DESC;`; `Email__DispatcherEnabled`; token row `created_at`. |
 | A user is locked out and says "invalid credentials" with the right password | Five wrong passwords in a row; `locked_until` in the future | `LoginService.LoginAsync`, `RegisterFailureAsync`; table `users` | `SELECT failed_login_count, locked_until FROM users WHERE email = '<email>';`; audit `auth.account.locked`. A password reset clears it; otherwise wait 15 minutes. |
 | "Invalid credentials" for a correct password and the account is not locked | Person never set a password (invitation pending), different environment, email typo, password typed with or without a space | `LoginService.LoginAsync` (null `password_hash` branch); audit detail `unknown_account` | `password_hash IS NULL`; audit rows; same database as the console uses. |
-| 403 `email_not_verified` for someone who says they reset their password | Reset does not verify the email | `PasswordResetService.ResetAsync`; `users.email_verified_at` | Ask them to use verification resend. |
 | 403 `account_disabled` | All memberships `Disabled` | `AccountAccess.IsDisabled`; `tenant_memberships.status` | Membership query in Login section; re-enable a membership via the member management features. |
 | Users are repeatedly signed out of the console | Concurrent or lost refresh response triggers reuse detection; password reset; refresh token expired; logout elsewhere | `RefreshService.RefreshAsync`; audit `auth.refresh_token.reuse_detected`; table `refresh_tokens` | Bursts of reuse entries for one user; `revoked_at` pattern per family; whether more than one console instance shares a session. |
 | Refresh fails for everyone after a deploy or restore | API now uses another database (hashes unknown) or the migration was not applied | `RefreshService.RefreshAsync`; `ConnectionStrings__AuthDb`; table `refresh_tokens` | Live token count; application log for PostgreSQL errors; migrations (ADR 0003). |
@@ -1008,7 +1006,7 @@ Likely production causes and how to confirm:
 3. **Account lock-out as a denial of service** (`LoginService.RegisterFailureAsync`): anyone who knows an email can keep an account locked, with no unlock path other than waiting or a password reset. Signup, refresh and verify are unthrottled. Review whether to add support tooling and limits on signup.
 4. **Unbounded growth and no absolute session limit** (`refresh_tokens`, `email_verification_tokens`, `password_reset_tokens`, `audit_entries`): nothing purges the three token tables, and refresh renewal is sliding with no maximum age. Review cleanup jobs and a maximum session age.
 5. **Access tokens cannot be revoked** (`IdentityAuthentication`): lock, disable, logout and password reset do not stop an already issued token for up to 15 minutes plus 30 seconds, and refresh does not check lock or verification. Review if that window is acceptable for admin actions.
-6. **Email dependence and hard-coded text** (`EmailTemplates`, `email_outbox`): verification and reset work only if the outbox worker and provider work, the silent cooldown hides failures, and the emails state fixed lifetimes. Review monitoring of `email_outbox` `Failed` rows and make the text follow the settings.
+6. **Email dependence** (`EmailTemplates`, `email_outbox`): verification and reset work only if the outbox worker and provider work, and the silent cooldown hides failures. Review monitoring of `email_outbox` `Failed` rows.
 
 ## Unknowns and assumptions to confirm
 

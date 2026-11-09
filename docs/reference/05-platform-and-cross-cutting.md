@@ -268,7 +268,7 @@ Rules it enforces:
 `src/AuthService.Api/Email/EmailTemplates.cs`. Each has a fixed HTML and text body. The link is
 `{Email:PublicBaseUrl without trailing slash}/{path}?token={url-encoded token}`.
 
-| `EmailTemplate` | Subject | Link path | Text in the email about expiry | Queued by |
+| `EmailTemplate` | Subject | Link path | Text in the email about expiry (default; the queued value replaces the time) | Queued by |
 |---|---|---|---|---|
 | `Verification` | `Verify your email address` | `/verify-email` | "This link expires in 24 hours." | `EmailVerificationService` (signup and resend) |
 | `PasswordReset` | `Reset your password` | `/reset-password` | "This link expires in 1 hour and can be used once." | `PasswordResetService` |
@@ -368,11 +368,12 @@ Likely causes when "emails are not arriving", in the order to check:
 
 - **Outbox rather than inline sending** (NTF-01): provider failures never fail user requests, and the email exists only if the change committed.
 - **Token cleared on completion**, so a database dump or backup after the fact does not hold live links. Cost: no manual re-queue.
-- **Inconsistency: expiry text is hard-coded.** The templates say "24 hours", "1 hour" and "7 days", but the real lifetimes are configurable
-  (`Auth:EmailVerification:TokenHours`, `Auth:PasswordReset:TokenMinutes`, `Auth:Invitations:TokenDays`). If an operator changes a lifetime,
-  the email text becomes wrong. `EmailTemplates.Render` does not receive those options.
-- **Inconsistency: `Email:PublicBaseUrl` default** (`http://localhost:5080`) is the API's development port, while the web console that
-  handles the link paths is on `http://localhost:5090`. Production sets it explicitly.
+- **Expiry text follows the settings (AUTH-266).** Each feature queues the lifetime it used (`EmailLifetime.Describe`, data key `validFor`, for
+  example "30 minutes", "1 hour", "2 days"), and `EmailTemplates.Render` writes it into the footer. An email queued without it (before this
+  change) falls back to the old default sentence. Tests in `EmailLifetimeTests`.
+- **`Email:PublicBaseUrl` default** (`http://localhost:5080`) is the API's development port, while the web console that handles the link
+  paths is on `http://localhost:5090`. `EmailSenderFactory` makes the Brevo provider refuse to start unless the address is absolute `https`;
+  File and InMemory still accept the default.
 - **Risk: the provider call happens inside an open database transaction** holding the row lock (up to the 15 s Brevo timeout). With
   `SKIP LOCKED` other instances are not blocked, but a very slow provider keeps connections busy.
 - **Risk: no automatic requeue or alert for `Failed`.** Only the metric exists.
@@ -1010,7 +1011,7 @@ passes each as an environment variable from `deploy/.env` (for example `Connecti
 | Symptom | Likely cause | First place to look | What to check |
 |---|---|---|---|
 | Emails (verification, reset, invitation) are not arriving | Worker not running, provider refusing, or `Failed` rows | `src/AuthService.Api/Email/EmailDeliveryService.cs`; table `email_outbox` | `SELECT status, count(*), min(created_at) FROM email_outbox GROUP BY 1;` then `last_error`; logs `attempt ... failed, will retry` and `failed for good`; metric `auth_email_outbox_messages` |
-| Email arrives but the link opens a dead page, or the expiry text is wrong | `Email:PublicBaseUrl` wrong; expiry wording is hard-coded | `EmailOptions.PublicBaseUrl`, `EmailTemplates.Render` | Open the link; compare the text with `Auth:EmailVerification:TokenHours` etc. |
+| Email arrives but the link opens a dead page | `Email:PublicBaseUrl` points at the wrong site (with Brevo it must be absolute https) | `EmailOptions.PublicBaseUrl`, `EmailTemplates.Render` | Open the link; check `Email__PublicBaseUrl`. |
 | Everyone gets `429` `rate_limited` on login | Proxy not trusted, all visitors share one address | `Auth:Proxy` in `deploy/docker-compose.yml`, `ClientAddressHandler` | `SELECT source_ip, count(*) FROM audit_entries GROUP BY 1 ORDER BY 2 DESC LIMIT 5;` and the top rows of `rate_limit_counters` |
 | Login (or reset, resend, service token, exchange) answers `503` `rate_limit_unavailable` / "Temporarily unavailable" | Counter store unreachable or `rate_limit_counters` missing (migration not run) | `SharedRateLimitMiddleware`; `/health/ready` | Log `The rate-limit store could not be reached ... ({Policy})`; `\d rate_limit_counters`; pending migrations |
 | `/health/ready` returns `503` | `database: failed` (unreachable or migrations pending) or `signingKey: failed` | `ReadinessService` | Logs `Not ready: ...`; `__EFMigrationsHistory`; `SELECT * FROM signing_keys;` |
@@ -1033,7 +1034,7 @@ passes each as an environment variable from `deploy/.env` (for example `Connecti
 1. **Proxy trust (`Auth:Proxy`, `AuthService:Proxy`).** A wrong range either collapses every visitor into one rate-limit bucket and one audit address, or lets a caller choose their address. Review the trusted network (the whole Docker subnet in the shipped stack) and `ForwardLimit`.
 2. **Key-encryption secret (`Auth:Tokens:KeyEncryptionKey`).** One secret protects the signing keys and webhook secrets; losing or changing it is unrecoverable and rotation is not built. Review backup of the secret apart from database backups.
 3. **Fail-closed rate limiting tied to the database.** A missed migration or a database fault turns login, reset, resend, service token and token exchange into `503`. Review the deployment order (migrate before API) and the readiness probe.
-4. **Email delivery silent failure.** `Failed` rows are final, bounces are invisible, and template expiry text can contradict the configured lifetimes. Review alerts on the failed and oldest-pending gauges and the hard-coded template text.
+4. **Email delivery silent failure.** `Failed` rows are final, and bounces are invisible. Review alerts on the failed and oldest-pending gauges.
 5. **Unbounded table growth.** No cleanup for tokens and finished outbox rows; audit retention can be switched off. Review a retention policy before the tables reach production volume.
 6. **Audit append-only protection relies on triggers the application user can drop.** Review database roles (separate retention role, `INSERT`/`SELECT` only) if the log is a compliance record.
 
@@ -1042,7 +1043,6 @@ passes each as an environment variable from `deploy/.env` (for example `Connecti
 - **Assumption (confirm):** `source_ip` and the rate-limit key use `RemoteIpAddress.ToString()` with no IPv4-mapped normalisation (Audit log, Rate limiting).
 - **Unknown:** whether `AuditActorType.ApiKey` is meant to be recorded for API-key calls later (no `AuditActor` factory exists).
 - **Assumption (confirm):** the 50-message batch and 2-second polling interval of the email dispatcher suit expected volume (Email delivery).
-- **Unknown:** whether the hard-coded expiry text in the email templates ("24 hours", "1 hour", "7 days") should follow the configured lifetimes.
 - **Assumption (confirm):** a malformed GUID or date in a paging parameter is answered `400` by ASP.NET Core's binding; no test I read covers it (Paging).
 - **Unknown:** whether the audit and webhook lists should move onto `PageQuery` so that `before` without `beforeId` is rejected like the other lists.
 - **Assumption (confirm):** no tenant reaches the web console's read cap of 10 000 rows (50 pages of 200).

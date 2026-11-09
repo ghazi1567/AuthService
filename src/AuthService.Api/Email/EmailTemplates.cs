@@ -23,7 +23,7 @@ public static class EmailTemplates
                 "Welcome! Please confirm your email address to finish setting up your account.",
                 "Verify email address",
                 Link(options, "verify-email", data),
-                "This link expires in 24 hours. If you did not sign up, you can ignore this email."),
+                $"This link expires in {ValidFor(data, "24 hours")}. If you did not sign up, you can ignore this email."),
 
             EmailTemplate.PasswordReset => WithLink(
                 to,
@@ -31,7 +31,7 @@ public static class EmailTemplates
                 "We received a request to reset your password.",
                 "Reset password",
                 Link(options, "reset-password", data),
-                "This link expires in 1 hour and can be used once. If you did not ask for this, you can ignore this email."),
+                $"This link expires in {ValidFor(data, "1 hour")} and can be used once. If you did not ask for this, you can ignore this email."),
 
             EmailTemplate.Invitation => WithLink(
                 to,
@@ -39,7 +39,7 @@ public static class EmailTemplates
                 $"You have been invited to join {Required(data, "tenantName")}.",
                 "Accept invitation",
                 Link(options, "accept-invitation", data),
-                "This invitation expires in 7 days. If you were not expecting it, you can ignore this email."),
+                $"This invitation expires in {ValidFor(data, "7 days")}. If you were not expecting it, you can ignore this email."),
 
             _ => throw new ArgumentOutOfRangeException(nameof(template), template, "Unknown email template."),
         };
@@ -47,6 +47,13 @@ public static class EmailTemplates
 
     private static string Link(EmailOptions options, string path, IReadOnlyDictionary<string, string> data) =>
         $"{options.PublicBaseUrl.TrimEnd('/')}/{path}?token={Uri.EscapeDataString(Required(data, "token"))}";
+
+    /// <summary>
+    /// The lifetime the link was made with, as queued by the feature that made it. An email queued before that was recorded falls back
+    /// to the lifetime the setting had by default.
+    /// </summary>
+    private static string ValidFor(IReadOnlyDictionary<string, string> data, string fallback) =>
+        data.TryGetValue(EmailLifetime.DataKey, out var value) && !string.IsNullOrWhiteSpace(value) ? value : fallback;
 
     private static string Required(IReadOnlyDictionary<string, string> data, string key) =>
         data.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value)

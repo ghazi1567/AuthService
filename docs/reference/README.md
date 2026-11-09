@@ -186,10 +186,9 @@ The most common production symptoms, with the part that has the full diagnosis. 
 | `/health/ready` returns 503 | Database unreachable, a migration pending, or no signing key is current (`signingKey: failed`) | [5](05-platform-and-cross-cutting.md), [4](04-tokens-keys-and-the-authorization-package.md) |
 | The API will not start | Missing or wrong `Auth:Tokens:KeyEncryptionKey`, bad database string, or a mistyped proxy, rate-limit or metrics setting | [4](04-tokens-keys-and-the-authorization-package.md), [7](07-configuration-reference.md) |
 | Verification, reset or invitation email never arrives | Dispatcher off, provider misconfigured, a `Failed` row in `email_outbox`, or the Brevo sender is not verified | [5](05-platform-and-cross-cutting.md), [1](01-accounts-and-sign-in.md) |
-| An email link opens a dead page or `localhost` | `Email:PublicBaseUrl` is still its default | [5](05-platform-and-cross-cutting.md), [2](02-organisations-members-and-roles.md) |
-| "Verification link invalid or expired" (410) | Link used or older than the token lifetime; the email text says a fixed time that may not match the setting | [1](01-accounts-and-sign-in.md) |
+| An email link opens a dead page or `localhost` | `Email:PublicBaseUrl` points at the wrong site (with Brevo the service will not start unless it is an absolute https address) | [5](05-platform-and-cross-cutting.md), [2](02-organisations-members-and-roles.md) |
+| "Verification link invalid or expired" (410) | Link used or older than the token lifetime (the email states the configured lifetime) | [1](01-accounts-and-sign-in.md) |
 | A user says "invalid credentials" with the right password | The account is locked (5 wrong passwords, 15 minutes), or the account has no password yet | [1](01-accounts-and-sign-in.md) |
-| 403 `email_not_verified` after a password reset | A reset does not mark the email verified | [1](01-accounts-and-sign-in.md) |
 | Users are repeatedly signed out | A refresh token reuse revokes the whole family; or the console restarted (sessions are in memory) | [1](01-accounts-and-sign-in.md), [6](06-web-console.md) |
 | Everyone is signed out after a deploy | The console's session store is in memory | [6](06-web-console.md) |
 | A product rejects every token (401) | Wrong audience, issuer or JWKS URL in the product's options; keys cannot be fetched | [4](04-tokens-keys-and-the-authorization-package.md) |
@@ -232,15 +231,15 @@ Review these first, most risky first. Each links to the part that explains it. T
 7. **Tenant isolation rests on hand-written `tenant_id` conditions.** There is no global query filter or row-level security, so one new query that
    omits the condition is a data leak. Review every new tenant-scoped endpoint against the isolation tests (`Tok04`). Part [4](04-tokens-keys-and-the-authorization-package.md).
 8. **Email is the only path to a working account, and its failures are silent.** A stopped dispatcher, a `Failed` row, a bounce, the default
-   `Email:PublicBaseUrl`, and email text that states fixed lifetimes (24 hours, 1 hour, 7 days) whatever the settings say. Parts
+   `Email:PublicBaseUrl` pointing at the wrong site. Parts
    [5](05-platform-and-cross-cutting.md), [1](01-accounts-and-sign-in.md), [2](02-organisations-members-and-roles.md).
 9. **Webhooks are the only way a product learns of a subscription change.** One worker per instance, at-least-once, a database transaction held open
    across the HTTP call, no cleanup of old rows, and the webhook address is a server-side-request-forgery surface that depends on
    `Auth:Webhooks:AllowPrivateAddresses` staying off. Part [3](03-products-and-subscriptions.md).
 10. **Refresh-token rotation under concurrency.** A duplicate request or a lost response revokes the whole family, including the newest token, and the
     "reuse detected" audit entry is also written for ordinary logout and reset. Part [1](01-accounts-and-sign-in.md).
-11. **Organisation rules enforced only in code, with gaps.** Enabling a disabled Owner and disabling an invited Owner have no Owner check; stale
-    invitations hold seats forever. Part [2](02-organisations-members-and-roles.md).
+11. **Organisation rules enforced only in code, with gaps.** Stale invitations hold seats forever, and the "tenant keeps an Owner" rule has no
+    database constraint. Part [2](02-organisations-members-and-roles.md).
 12. **Unbounded growth.** No cleanup for refresh, verification and reset tokens, finished email and webhook outbox rows, or expired product secrets;
     audit retention can be switched off. Parts [1](01-accounts-and-sign-in.md), [5](05-platform-and-cross-cutting.md), [3](03-products-and-subscriptions.md).
 13. **The platform admin flag is an unaudited database column** that gates everything, including signing-key rotation. Part [3](03-products-and-subscriptions.md).
@@ -252,12 +251,10 @@ Review these first, most risky first. Each links to the part that explains it. T
 ## Inconsistencies found while documenting
 
 These were found by reading the code. They are not fixed here; each is in its part with the detail. They are listed so the owner can decide.
+Four earlier findings were fixed afterwards (AUTH-266): a password reset now verifies the email; the email text states the configured lifetime;
+the Brevo provider needs an https `Email:PublicBaseUrl`; and only an active Owner can change an Owner's status in either direction.
 
-- The email templates state "24 hours", "1 hour" and "7 days" whatever `Auth:EmailVerification:TokenHours`, `Auth:PasswordReset:TokenMinutes`
-  and `Auth:Invitations:TokenDays` are (parts 1, 2, 5).
-- A password reset does not set `users.email_verified_at`, so someone who verified nothing and reset their password still gets 403 `email_not_verified` (part 1).
-- `Email:PublicBaseUrl` defaults to `http://localhost:5080`, the API's development port (the console is on 5090) (part 5).
-- The Owner protection runs only when disabling an active Owner; a non-Owner with `members.manage` can re-enable a disabled Owner (part 2).
+- `Email:PublicBaseUrl` defaults to `http://localhost:5080`, the API's development port (the console is on 5090); only the Brevo provider checks it (part 5).
 - Admin and tenant authorization failures answer 403 with an empty body and no `code`; the API's other errors use `ApiProblem` (parts 3, 5).
 - On subscribe, the tenant Owners are given access without a seat-limit check, so seats used can exceed `max_seats` (part 3).
 - Token exchange and service-token issue write neither a log line nor an audit entry (parts 3, 4).

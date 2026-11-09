@@ -214,7 +214,7 @@ public sealed class InviteUserService(
         var tenantName = await db.Tenants.AsNoTracking().Where(tenant => tenant.Id == tenantId).Select(tenant => tenant.Name).SingleAsync(cancellationToken);
 
         // Queued in the same save, so the email exists only if the invitation does.
-        outbox.Enqueue(EmailTemplate.Invitation, user.Email, new Dictionary<string, string> { ["token"] = token, ["tenantName"] = tenantName });
+        outbox.Enqueue(EmailTemplate.Invitation, user.Email, new Dictionary<string, string> { ["token"] = token, ["tenantName"] = tenantName, [EmailLifetime.DataKey] = EmailLifetime.Describe(TimeSpan.FromDays(options.Value.TokenDays)) });
         audit.Record(AuditActions.InvitationSent, AuditActor.User(callerUserId), tenantId, membership.Id.ToString());
 
         await db.SaveChangesAsync(cancellationToken);

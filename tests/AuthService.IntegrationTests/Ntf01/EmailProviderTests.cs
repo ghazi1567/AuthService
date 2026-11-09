@@ -113,11 +113,14 @@ public sealed class EmailProviderTests(PostgresContainerFixture postgres)
     }
 
     [Theory]
-    [InlineData("Brevo", null, "no-reply@acme.com", "BrevoApiKey")]
-    [InlineData("Brevo", "key-123", null, "FromAddress")]
-    [InlineData("Nonsense", null, null, "not supported")]
+    [InlineData("Brevo", null, "no-reply@acme.com", "https://app.acme.com", "BrevoApiKey")]
+    [InlineData("Brevo", "key-123", null, "https://app.acme.com", "FromAddress")]
+    [InlineData("Brevo", "key-123", "no-reply@acme.com", null, "PublicBaseUrl")] // the default points at localhost
+    [InlineData("Brevo", "key-123", "no-reply@acme.com", "http://app.acme.com", "PublicBaseUrl")] // a plain-http link carries the token in the clear
+    [InlineData("Brevo", "key-123", "no-reply@acme.com", "app.acme.com", "PublicBaseUrl")] // not an absolute address
+    [InlineData("Nonsense", null, null, null, "not supported")]
     public async Task NTF01_Startup_AnIncompleteOrUnknownProviderSettingStopsTheService(
-        string provider, string? apiKey, string? fromAddress, string expectedInMessage)
+        string provider, string? apiKey, string? fromAddress, string? publicBaseUrl, string expectedInMessage)
     {
         var ct = TestContext.Current.CancellationToken;
         var options = new HarnessOptions
@@ -127,6 +130,7 @@ public sealed class EmailProviderTests(PostgresContainerFixture postgres)
                 ["Email:Provider"] = provider,
                 ["Email:BrevoApiKey"] = apiKey,
                 ["Email:FromAddress"] = fromAddress,
+                ["Email:PublicBaseUrl"] = publicBaseUrl,
             },
         };
 
@@ -146,6 +150,7 @@ public sealed class EmailProviderTests(PostgresContainerFixture postgres)
                 ["Email:Provider"] = "Brevo",
                 ["Email:BrevoApiKey"] = "key-123",
                 ["Email:FromAddress"] = "no-reply@acme.com",
+                ["Email:PublicBaseUrl"] = "https://app.acme.com",
             },
         };
 

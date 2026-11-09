@@ -225,6 +225,40 @@ public sealed class MembersTests(PostgresContainerFixture postgres) : AuthApiTes
     }
 
     [Fact]
+    public async Task TEN07_OnlyAnActiveOwnerCanBringADisabledOwnerBackOrSwitchOffAnInvitedOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await TenantAsync(ct);
+        var ownerRole = await ReadAsync(db => db.Roles.AsNoTracking().Where(role => role.TenantId == t.Owner.TenantId && role.IsBuiltIn).Select(role => role.Id).SingleAsync(ct));
+        var manager = await CreateRoleAsync(t.OwnerToken, "Member manager", ct, new RoleGrantInput(BuiltInApplication.Id, "members.manage", "Full"));
+        var second = await AddMemberAsync(t.Owner.TenantId, "second@other.com", ct);
+        var invitedOwner = await AddMemberAsync(t.Owner.TenantId, "invited.owner@other.com", ct, MembershipStatus.Invited);
+        var delegateMember = await AddMemberAsync(t.Owner.TenantId, "delegate@other.com", ct);
+        await PutAsync(RoleEndpoints.MemberRolesRouteFor(delegateMember.MembershipId), new AssignRolesRequest([manager]), t.OwnerToken, ct);
+        await PutAsync(RoleEndpoints.MemberRolesRouteFor(second.MembershipId), new AssignRolesRequest([ownerRole]), t.OwnerToken, ct);
+        await PutAsync(RoleEndpoints.MemberRolesRouteFor(invitedOwner.MembershipId), new AssignRolesRequest([ownerRole]), t.OwnerToken, ct);
+        var delegateToken = await TenantTokenAsync(delegateMember.IdentityToken, t.Owner.TenantId, ct);
+
+        // An Owner steps the second Owner down...
+        (await SetStatusAsync(t.OwnerToken, second.MembershipId, "Disabled", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // ...a delegate who may manage members cannot bring them back, nor switch off the invited Owner...
+        var enable = await SetStatusAsync(delegateToken, second.MembershipId, "Active", ct);
+        enable.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await ReadProblemAsync(enable, ct)).Code.ShouldBe("owner_role_restricted");
+        (await StatusOfAsync(second.MembershipId, ct)).ShouldBe(MembershipStatus.Disabled);
+
+        var disableInvited = await SetStatusAsync(delegateToken, invitedOwner.MembershipId, "Disabled", ct);
+        disableInvited.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await ReadProblemAsync(disableInvited, ct)).Code.ShouldBe("owner_role_restricted");
+        (await StatusOfAsync(invitedOwner.MembershipId, ct)).ShouldBe(MembershipStatus.Invited);
+
+        // ...and an active Owner can.
+        (await SetStatusAsync(t.OwnerToken, second.MembershipId, "Active", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await StatusOfAsync(second.MembershipId, ct)).ShouldBe(MembershipStatus.Active);
+    }
+
+    [Fact]
     public async Task TEN07_UnlimitedSubscriptionsNeverBlockReEnabling()
     {
         var ct = TestContext.Current.CancellationToken;
