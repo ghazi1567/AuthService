@@ -47,7 +47,7 @@ tested before it reaches anyone.
 
 - A product team needs a GitHub token with `read:packages` to restore the package, even though the package is not secret. That is the
   cost of GitHub Packages and the main reason to reconsider nuget.org if packages become public.
-- The licence file is a placeholder that grants use to products of the Auth Service and nothing more. The owner must replace it with the
-  licence they choose before the package is given to anyone outside.
+- The licence file grants use to products of the Auth Service and nothing more (no redistribution, no resale). The owner confirmed this
+  text for the first release (1.0.0). It must be replaced with a different licence before the package is given to anyone outside.
 - A bad version cannot be replaced, only superseded, so a release is a considered act: the next version is the fix.
 - The feed's address changes with the repository's owner; the workflow reads the owner from the run, and the README says how to add it.
