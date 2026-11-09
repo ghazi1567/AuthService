@@ -74,7 +74,7 @@ public sealed class MemberAccessService(AuthDbContext db, AuditLog audit, TimePr
             return new GrantAccessResult.MembershipDisabled();
         }
 
-        var seatsUsed = await db.SeatsUsedAsync(tenantId, applicationId, cancellationToken);
+        var seatsUsed = await db.SeatsUsedAsync(tenantId, applicationId, timeProvider.GetUtcNow(), cancellationToken);
         var alreadyHasAccess = await db.ApplicationAccess.AnyAsync(
             access => access.MembershipId == membershipId && access.ApplicationId == applicationId, cancellationToken);
         if (alreadyHasAccess)

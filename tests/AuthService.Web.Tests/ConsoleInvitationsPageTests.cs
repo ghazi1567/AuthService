@@ -184,6 +184,128 @@ public sealed class ConsoleInvitationsPageTests
     }
 
     [Fact]
+    public async Task EachPendingInvitationHasAWithdrawLinkThatOpensAConfirmationNamingThePerson()
+    {
+        var clock = new FakeClock(DateTimeOffset.UtcNow);
+        var api = Api(clock);
+        await using var factory = new WebAppFactory(api, time: clock);
+        using var client = await SignedInAsync(factory);
+
+        var list = await client.GetStringAsync(PagePath, Token);
+        var dialog = await client.GetStringAsync($"{PagePath}?revoke={Sam}", Token);
+
+        list.ShouldContain($"href=\"{PagePath}?revoke={Sam}\"");
+        list.ShouldNotContain("revoke-title", customMessage: "nothing is asked until the link is followed");
+        dialog.ShouldContain("Withdraw the invitation for sam@acme.com?");
+        dialog.ShouldContain("The link in their email stops working at once");
+        dialog.ShouldContain($"action=\"/console/{Acme}/invitations/{Sam}/revoke\"");
+        dialog.ShouldContain("Withdraw invitation");
+        api.RevokeInvitationCalls.ShouldBeEmpty("opening the question changes nothing");
+    }
+
+    [Fact]
+    public async Task ConfirmingWithdrawsTheInvitationAsTheAdminAndSaysSo()
+    {
+        var clock = new FakeClock(DateTimeOffset.UtcNow);
+        var api = Api(clock);
+        await using var factory = new WebAppFactory(api, time: clock);
+        using var client = await SignedInAsync(factory);
+        var dialog = await client.GetStringAsync($"{PagePath}?revoke={Omar}", Token);
+
+        var posted = await WebForms.PostPlainFormAsync(client, dialog, $"/invitations/{Omar}/revoke");
+
+        Where(posted).ShouldBe($"{PagePath}?notice=revoked");
+        var call = api.RevokeInvitationCalls.ShouldHaveSingleItem();
+        call.Authorization.ShouldBe($"Bearer {api.ProductTokensIssued[0]}");
+        call.Path.ShouldBe($"/api/auth/tenants/me/invitations/{Omar}");
+        (await client.GetStringAsync(Where(posted), Token)).ShouldContain("Invitation withdrawn");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Conflict, "invitation_not_pending", "invitation_not_pending", "nothing to resend or withdraw")]
+    [InlineData(HttpStatusCode.NotFound, "not_found", "not_found", "The list below is up to date.")]
+    [InlineData(HttpStatusCode.Forbidden, "something_else", "forbidden", "permission")]
+    [InlineData(HttpStatusCode.InternalServerError, "something_else", "unavailable", "Nothing was changed")]
+    public async Task EachRefusalWhenWithdrawingIsExplained(HttpStatusCode status, string code, string expectedCode, string expectedText)
+    {
+        var clock = new FakeClock(DateTimeOffset.UtcNow);
+        var api = Api(clock);
+        api.RevokeInvitationResponse = () => Problem(status, code);
+        await using var factory = new WebAppFactory(api, time: clock);
+        using var client = await SignedInAsync(factory);
+        var dialog = await client.GetStringAsync($"{PagePath}?revoke={Sam}", Token);
+
+        var posted = await WebForms.PostPlainFormAsync(client, dialog, $"/invitations/{Sam}/revoke");
+
+        Where(posted).ShouldBe($"{PagePath}?error={expectedCode}&m={Sam}");
+        (await client.GetStringAsync(Where(posted), Token)).ShouldContain(expectedText);
+    }
+
+    [Fact]
+    public async Task ResendingAnExpiredInvitationWhenTheProductIsFullSaysWhatToDo()
+    {
+        var clock = new FakeClock(DateTimeOffset.UtcNow);
+        var api = Api(clock);
+        api.ResendResponse = () => Problem(HttpStatusCode.Conflict, "no_seat_available");
+        await using var factory = new WebAppFactory(api, time: clock);
+        using var client = await SignedInAsync(factory);
+        var list = await client.GetStringAsync(PagePath, Token);
+
+        var posted = await WebForms.PostPlainFormAsync(client, list, $"/invitations/{Omar}/resend");
+
+        Where(posted).ShouldBe($"{PagePath}?error=no_seat_available&m={Omar}");
+        var html = await client.GetStringAsync(Where(posted), Token);
+        html.ShouldContain("No free seat");
+        html.ShouldContain("Free a seat first, then send it again.");
+    }
+
+    [Fact]
+    public async Task APostedWithdrawWithoutTheAntiForgeryTokenChangesNothing()
+    {
+        var clock = new FakeClock(DateTimeOffset.UtcNow);
+        var api = Api(clock);
+        await using var factory = new WebAppFactory(api, time: clock);
+        using var client = await SignedInAsync(factory);
+        await client.GetStringAsync(PagePath, Token);
+
+        var posted = await client.PostAsync($"/console/{Acme}/invitations/{Sam}/revoke", new FormUrlEncodedContent(new Dictionary<string, string>()), Token);
+
+        posted.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        api.RevokeInvitationCalls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AdminsWhoCannotInviteSeeWithdrawDisabledAndGetNoQuestion()
+    {
+        var clock = new FakeClock(DateTimeOffset.UtcNow);
+        var api = Api(clock);
+        api.ConsolePermissions = ["members.read:ReadOnly", "roles.read:ReadOnly"];
+        await using var factory = new WebAppFactory(api, time: clock);
+        using var client = await SignedInAsync(factory);
+
+        var html = await client.GetStringAsync($"{PagePath}?revoke={Sam}", Token);
+
+        Regex.IsMatch(html, "<button[^>]*disabled[^>]*>Withdraw</button>").ShouldBeTrue();
+        html.ShouldContain("permission to withdraw invitations.\"");
+        html.ShouldNotContain("?revoke=", customMessage: "no link to follow");
+        html.ShouldNotContain("revoke-title", customMessage: "the question is not opened for someone who could not confirm it");
+    }
+
+    [Fact]
+    public async Task AskingToWithdrawSomeoneWhoIsNotInTheListOpensNothing()
+    {
+        var clock = new FakeClock(DateTimeOffset.UtcNow);
+        var api = Api(clock);
+        await using var factory = new WebAppFactory(api, time: clock);
+        using var client = await SignedInAsync(factory);
+
+        var html = await client.GetStringAsync($"{PagePath}?revoke={Guid.NewGuid()}", Token);
+
+        html.ShouldNotContain("revoke-title");
+        html.ShouldContain("sam@acme.com");
+    }
+
+    [Fact]
     public async Task InvitingNeedsToBeAbleToReadRolesBecauseRolesMustBeChosen()
     {
         var clock = new FakeClock(DateTimeOffset.UtcNow);

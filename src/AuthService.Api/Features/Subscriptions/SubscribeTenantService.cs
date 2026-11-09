@@ -85,7 +85,7 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
         if (subscription is { Status: SubscriptionStatus.Active })
         {
             // Idempotent: nothing is written, no event is sent, and the seat limit is left to SUB-04.
-            return new SubscribeResult.AlreadySubscribed(await ToResponseAsync(subscription, cancellationToken));
+            return new SubscribeResult.AlreadySubscribed(await db.ToResponseAsync(subscription, now, cancellationToken));
         }
 
         var isNew = subscription is null;
@@ -135,7 +135,7 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new SubscribeResult.Subscribed(await ToResponseAsync(subscription, cancellationToken), isNew);
+        return new SubscribeResult.Subscribed(await db.ToResponseAsync(subscription, now, cancellationToken), isNew);
     }
 
     /// <summary>The tenant's Owner counts as the first seat: they get access to the product the moment the tenant subscribes.</summary>
@@ -167,7 +167,4 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
             });
         }
     }
-
-    private Task<SubscriptionResponse> ToResponseAsync(TenantApplicationSubscription subscription, CancellationToken cancellationToken) =>
-        db.ToResponseAsync(subscription, cancellationToken);
 }

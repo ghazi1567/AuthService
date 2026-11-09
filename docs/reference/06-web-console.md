@@ -597,7 +597,7 @@ Pages and the permission each needs (`Security/ConsoleSession.cs` `PermissionKey
 | Page | Route | Needed to see | Needed to change |
 |---|---|---|---|
 | Members | `/console/{id}/members` | `members.read` (ReadOnly) | `members.manage` (Full) to enable or disable; `members.invite` (Full) to invite; `roles.assign` (Full) to open a member's roles |
-| Invitations | `/console/{id}/invitations` | `members.read` | `members.invite` (Full) to invite or resend; inviting also needs `roles.read` |
+| Invitations | `/console/{id}/invitations` | `members.read` | `members.invite` (Full) to invite, resend or withdraw; inviting also needs `roles.read` |
 | Roles | `/console/{id}/roles` | `roles.read` | `roles.manage` (Full) |
 | Role editor | `/console/{id}/roles/new`, `/roles/{roleId}` | `roles.read` and `roles.manage` (Full) | same |
 | Member roles | `/console/{id}/members/{membershipId}/roles` | `roles.assign` (Full), `roles.read`, `members.read` | same |
@@ -658,7 +658,7 @@ modal, and a posted `@formname` form is made present on the page before the post
 |---|---|---|
 | Layout (`TenantLayout.razor`) | `GET /api/auth/tenant/me` (name and status badge) | none |
 | Members | `GET /api/auth/tenants/me/members` | via `ConsoleEndpoints`: `PATCH /api/auth/tenants/me/members/{id}` |
-| Invitations | `GET /api/auth/tenants/me/invitations`, `.../subscriptions`, `GET /api/auth/roles`, members | `POST /api/auth/tenants/me/invitations`; via endpoint: `POST .../invitations/{id}/resend` |
+| Invitations | `GET /api/auth/tenants/me/invitations`, `.../subscriptions`, `GET /api/auth/roles`, members | `POST /api/auth/tenants/me/invitations`; via endpoints: `POST .../invitations/{id}/resend`, `DELETE .../invitations/{id}` |
 | Roles | `GET /api/auth/roles` | via endpoint: `DELETE /api/auth/roles/{id}` |
 | Role editor | `GET /api/auth/tenants/me/permissions`, `GET /api/auth/roles` | `POST /api/auth/roles`, `PATCH /api/auth/roles/{id}` |
 | Member roles | members, roles | `PUT /api/auth/tenants/me/members/{id}/roles` |
@@ -673,7 +673,8 @@ login; all validate the anti-forgery token first, and a failure is an empty HTTP
 | Verb and route | Handler | API call | Result redirect |
 |---|---|---|---|
 | `POST /console/{t}/members/{m}/status` (`status` = `Active` or `Disabled`, else 400) | `SetMemberStatusAsync` | `PATCH .../members/{m}` | `?notice=enabled\|disabled&m=` or `?error=<code>&m=` |
-| `POST /console/{t}/invitations/{m}/resend` | `ResendInvitationAsync` | `POST .../invitations/{m}/resend` | `?notice=resent&m=`, or `?error=resend_too_soon&m=&wait=` |
+| `POST /console/{t}/invitations/{m}/resend` | `ResendInvitationAsync` | `POST .../invitations/{m}/resend` | `?notice=resent&m=`, or `?error=resend_too_soon&m=&wait=` (also `invitation_not_pending`, `no_seat_available`, `not_found`, `forbidden`, `unavailable`) |
+| `POST /console/{t}/invitations/{m}/revoke` | `RevokeInvitationAsync` | `DELETE .../invitations/{m}` | `?notice=revoked`, or `?error=invitation_not_pending`, `not_found`, `forbidden` or `unavailable` with `&m=` |
 | `POST /console/{t}/roles/{r}/delete` | `DeleteRoleAsync` | `DELETE /api/auth/roles/{r}` | `?notice=deleted`, or `?error=` |
 | `POST /console/{t}/access/{a}/grant` (`membershipId` in the form) | `GrantAccessAsync` | `PUT .../members/{m}/applications/{a}` | `?notice=granted&m=&a=` or `?error=` |
 | `POST /console/{t}/access/{a}/{m}/revoke` | `RevokeAccessAsync` | `DELETE .../members/{m}/applications/{a}` | `?notice=revoked&m=&a=` or `?error=` |
@@ -736,7 +737,7 @@ be edited.
   - *Anti-forgery failure on a console post:* HTTP 400, empty.
   - *Session ended:* redirect to login with `reason=expired`.
 - **What is logged / audited.** The web app logs nothing for these. The API audits the changes: for example `auth.membership.disabled`,
-  `auth.membership.enabled`, `auth.membership.roles_changed`, `auth.invitation.sent`, `auth.invitation.resent`,
+  `auth.membership.enabled`, `auth.membership.roles_changed`, `auth.invitation.sent`, `auth.invitation.resent`, `auth.invitation.revoked`,
   `auth.role.created`, `auth.role.updated`, `auth.role.deleted`, `auth.membership.access_granted`, `auth.membership.access_revoked`,
   `auth.apikey.created`, `auth.apikey.rotated`, `auth.apikey.revoked`, `auth.tenant.audit_read`. Read-only SQL for the last day of
   console changes: `select occurred_at, action, actor_id, tenant_id from audit_entries where tenant_id = '<id>' order by occurred_at desc limit 50;`

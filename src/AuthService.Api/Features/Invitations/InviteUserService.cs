@@ -144,7 +144,7 @@ public sealed class InviteUserService(
                 return new InviteResult.ApplicationNotSubscribed();
             }
 
-            if (subscription.MaxSeats is { } maxSeats && await db.SeatsUsedAsync(tenantId, applicationId, cancellationToken) >= maxSeats)
+            if (subscription.MaxSeats is { } maxSeats && await db.SeatsUsedAsync(tenantId, applicationId, now, cancellationToken) >= maxSeats)
             {
                 full.Add(await db.Applications.AsNoTracking().Where(application => application.Id == applicationId)
                     .Select(application => application.Key).SingleAsync(cancellationToken));

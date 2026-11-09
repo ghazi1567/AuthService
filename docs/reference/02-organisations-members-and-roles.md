@@ -187,9 +187,9 @@ Rules:
 - **Only this tenant's membership changes.** The same person's memberships elsewhere are untouched.
 - **Only the status changes.** Roles, access rows and history stay, so enabling restores the member as they were.
 - **An Invited person cannot be enabled** (`409` `membership_invited`: "They become Active by accepting it."). They can be disabled,
-  which withdraws the invitation.
+  which also withdraws the invitation but keeps the membership; to take an invitation back cleanly use `DELETE .../invitations/{membershipId}` (see Invitations).
 - **Disabling frees seats.** A Disabled member's `application_access` rows stay but are not counted
-  (`SeatsUsedAsync` counts memberships whose status is not Disabled).
+  (`SeatsUsedAsync` counts Active memberships and Invited ones whose invitation has not expired; see Invitations).
 - **Enabling re-checks seats.** For every product the member has access to, the subscription row is locked and, if the subscription
   has a `max_seats` limit and the seats used already equal or exceed it, the answer is `409` `no_seat_available` naming the products,
   and the member stays Disabled. A subscription that is missing or unlimited is skipped.
@@ -284,8 +284,8 @@ detail = the membership id. Nothing is logged by the service itself.
 
 Edge cases and half-states:
 
-- **Expired invitations hold seats.** An Invited member with product access counts as a seat, and nothing removes an expired
-  invitation (no worker). Disable the Invited membership to free the seat.
+- **Expired invitations hold no seat** (AUTH-269, decision 0012). The seat query leaves out an Invited member whose invitation has
+  expired, with no worker involved; resending takes the seat back (`409` `no_seat_available` if the product is full by then).
 - **Enable of a person who was once Invited and then disabled is allowed** (`Disabled` to `Active`) even though they never accepted.
   See open questions.
 - **Role changes and token lifetime.** A disabled member's tokens work until they expire. The console also caches the tenant-admin
@@ -317,7 +317,7 @@ WHERE tenant_id = '<tenant>' AND action IN ('auth.membership.disabled','auth.mem
 | Symptom | Cause | Confirm |
 |---|---|---|
 | "I cannot disable the owner" | `last_owner` (no other Active Owner) or `owner_role_restricted` (caller is not an Owner) | Owners query above; check the caller's roles |
-| "Enable fails with no seat" | A product is at `max_seats`; Invited members and Active members both count | `subscriptions.max_seats` against `SeatsUsedAsync` (count of `application_access` joined to non-Disabled memberships) |
+| "Enable fails with no seat" | A product is at `max_seats`; Active members and unexpired invitations both count | `subscriptions.max_seats` against `SeatsUsedAsync` (count of `application_access` joined to Active memberships and to Invited ones with no expired, unused invitation: `SeatHolders`) |
 | Disabled person still works | Token not expired yet, or console cache | Wait up to `ProductTokenMinutes`; check `auth.membership.disabled` time |
 | Member list is empty | Token's tenant is not the one expected (`tid`) | Decode the token; list is by `tid` only |
 
@@ -356,7 +356,7 @@ Rules:
   - **Only an Owner can invite someone with the Owner role** (any built-in role, in practice only Owner): `403` `owner_role_restricted`.
   - An email that already has a membership in this tenant, in **any** status, is `409` `already_member`.
   - Each product must have an **Active** subscription (otherwise `400` `application_not_subscribed`) and a free seat if it has a limit
-    (otherwise `409` `no_seat_available`). **An Invited member with access takes a seat.** One full product refuses the whole invitation
+    (otherwise `409` `no_seat_available`). **An Invited member with access takes a seat** until the invitation expires. One full product refuses the whole invitation
     and nothing is created.
   - The reply (`201`) is the same whether the email was new or already had an account, and never contains the link.
 - **A person new to the platform** gets a `users` row with **no password** and no verified email. They cannot log in until they accept
@@ -368,8 +368,16 @@ Rules:
   `membershipId, email, roles, applicationIds, invitedBy (email), invitedAt, lastSentAt, expiresAt, isExpired`. An expired invitation
   stays in the list, flagged `isExpired`, because that is the one to send again.
 - **Resending.** `POST /api/auth/tenants/me/invitations/{membershipId}/resend` needs `members.invite` at `Full`. It creates a **new token on
-  the same row** (the old link stops working at once) and a full new expiry, so it also revives an expired invitation. Within
+  the same row** (the old link stops working at once) and a full new expiry, so it also revives an expired invitation, which takes its seats back: if a product it gives access to is full by now it is `409` `no_seat_available`
+  and nothing is sent. Within
   **60 seconds** of the last send (`Auth:Invitations:ResendCooldownSeconds`) it is `429` `resend_too_soon` with a `Retry-After` header.
+- **Withdrawing.** `DELETE /api/auth/tenants/me/invitations/{membershipId}` needs `members.invite` at `Full` and answers `204`. It deletes the
+  pending membership with its roles, access rows and invitation, so the link is `410` at once, the seats are free, and the address can be
+  invited again (a membership that stayed would make that `409` `already_member`). A user with no password and no other membership is
+  deleted too. It works on an expired invitation. An accepted or never-invited membership is `409` `invitation_not_pending`, another
+  tenant's or an unknown one `404`. Audited as `auth.invitation.revoked`.
+- **Expiry and seats.** An invitation past `expires_at` (never accepted) holds no seat: `SeatHolders` leaves its membership out of every
+  seat count, with no worker (decision 0012). It stays in the list flagged `isExpired`.
 - **Accepting.** `POST /api/auth/invitations/accept` with `{"token", "password"}`. No login is needed for a new person.
   - **New person** (the user has no password): a password is required, 8 to 128 characters (`PasswordPolicy`). The email counts as
     verified (`email_verified_at` is set if it was empty) and they can log in at once.
@@ -389,7 +397,8 @@ Rules:
 |---|---|---|---|---|
 | `POST /api/auth/tenants/me/invitations` | Tenant-admin token, `members.invite` Full | `InvitationEndpoints.InviteAsync` | `InviteUserService.InviteAsync` | Creates user (if new), Invited membership, role links, seats, invitation, queued email. `201`. |
 | `GET /api/auth/tenants/me/invitations` | Tenant-admin token, `members.read` ReadOnly | `InvitationEndpoints.ListPendingAsync` | `ManageInvitationsService.ListPendingAsync` | Pending invitations, newest first, paged. |
-| `POST /api/auth/tenants/me/invitations/{membershipId:guid}/resend` | Tenant-admin token, `members.invite` Full | `InvitationEndpoints.ResendAsync` | `ManageInvitationsService.ResendAsync` | New token, new expiry, new email. `200`. |
+| `POST /api/auth/tenants/me/invitations/{membershipId:guid}/resend` | Tenant-admin token, `members.invite` Full | `InvitationEndpoints.ResendAsync` | `ManageInvitationsService.ResendAsync` | New token, new expiry, new email. `200`. `409` `no_seat_available` if it had expired and a product is full. |
+| `DELETE /api/auth/tenants/me/invitations/{membershipId:guid}` | Tenant-admin token, `members.invite` Full | `InvitationEndpoints.RevokeAsync` | `ManageInvitationsService.RevokeAsync` | Removes the pending membership (roles, access, invitation) and a user that exists only for it. `204`. |
 | `POST /api/auth/invitations/accept` | Anonymous (`AllowAnonymous`); an identity token is read if present | `InvitationEndpoints.AcceptAsync` | `AcceptInvitationService.AcceptAsync` | Activates the membership. `200` `{tenantId, membershipId}`. |
 
 Flow of `InviteAsync`:
@@ -414,8 +423,14 @@ The email is sent later by the background worker (`EmailDispatcher` -> `EmailDel
 (`EmailTemplates.Render`, `Link`). The web page `AcceptInvitation.razor` reads the token and posts it to the API.
 
 Flow of `ResendAsync`: lock the membership row (`FOR UPDATE`); not found `NotFound`; if not `Invited` or no unused invitation,
-`NotPending`; if `now < last_sent_at + cooldown`, `TooSoon(seconds)`; otherwise replace `token_hash`, `expires_at`, `last_sent_at` on the
+`NotPending`; if `now < last_sent_at + cooldown`, `TooSoon(seconds)`; if the invitation had expired, check each product with a limit under the subscription row lock (`FullProductsAsync`) and
+refuse with `NoSeatAvailable`; otherwise replace `token_hash`, `expires_at`, `last_sent_at` on the
 same invitation row, enqueue the email, audit, save, commit. Simultaneous resends send one email (the row lock).
+
+Flow of `RevokeAsync`: lock the membership row (`FOR UPDATE`); not found `NotFound`; if not `Invited` or no unused invitation, `NotPending`;
+delete the invitations, `membership_roles`, `application_access` and the membership (children first: the foreign keys restrict); delete the
+user if it has no password and no other membership; audit `auth.invitation.revoked`; save, commit. Revoke and accept take the same row
+lock, so they cannot both win.
 
 Flow of `AcceptAsync`:
 
@@ -480,6 +495,10 @@ What the caller sees:
 | Resend of an accepted/never-invited membership | `409` `invitation_not_pending` |
 | Resend too soon | `429` `resend_too_soon` + `Retry-After` |
 | Resend of another tenant's/unknown membership | `404` `not_found` |
+| Resend of an expired invitation when a product has filled up | `409` `no_seat_available` (message lists keys) |
+| Revoke | `204` |
+| Revoke of an accepted/never-invited membership | `409` `invitation_not_pending` |
+| Revoke of another tenant's/unknown membership | `404` `not_found` |
 | Accept: missing token | `400` validation problem, field `Token` |
 | Accept: bad new-person password | `400` validation problem, field `Password`; link still usable |
 | Accept: password sent by an existing person | `400` `password_not_allowed` |
@@ -487,7 +506,7 @@ What the caller sees:
 | Accept: logged in as someone else | `403` `wrong_account` |
 | Accept: unknown, expired, used, withdrawn | `410` `invitation_invalid` |
 
-Audit: `auth.invitation.sent`, `auth.invitation.resent` (actor = the admin, detail = membership id), `auth.invitation.accepted`
+Audit: `auth.invitation.sent`, `auth.invitation.resent` and `auth.invitation.revoked` (actor = the admin, detail = membership id), `auth.invitation.accepted`
 (actor = the accepting user, detail = membership id), all with `tenant_id`. No log line is written by the invitation services.
 Email delivery logs from `EmailDeliveryService`: "Email {OutboxId} ({Template}) sent after {Attempts} attempt(s).", "... attempt
 {Attempts} failed, will retry in {DelaySeconds}s: {Error}", "... failed for good after {Attempts} attempt(s): {Error}", and from
@@ -495,7 +514,8 @@ Email delivery logs from `EmailDeliveryService`: "Email {OutboxId} ({Template}) 
 
 Edge cases and half-states:
 
-- **Expired invitation:** the person stays `Invited` (and a new person cannot log in). The seat stays used. Resend revives it.
+- **Expired invitation:** the person stays `Invited` (and a new person cannot log in). The seat is free. Resend revives it and takes the seat
+  back; withdrawing removes the membership.
 - **Failed email:** after `MaxAttempts` the `email_outbox` row is `Failed` and its token is wiped, so the original link can never be
   recovered. The fix is **resend** (new token, new row), not retrying the old row.
 - **Resend cooldown starts when the email is queued** (`last_sent_at = now`), not when it is actually delivered.
@@ -531,7 +551,7 @@ SELECT email, password_hash IS NULL AS no_password, email_verified_at FROM users
 | Existing person gets 401 `login_required` | The email already has an account | Expected: they must log in first |
 | Existing person gets 403 `wrong_account` | Logged in as another email | Expected |
 | Invite says `already_member` for a former member | A Disabled membership still exists | `tenant_memberships` for the user; enable it instead |
-| Invite refused with `no_seat_available` | Product at `max_seats`, possibly because of expired, unaccepted invites | Count rows in `application_access` joined to non-Disabled memberships; disable stale Invited memberships |
+| Invite refused with `no_seat_available` | Product at `max_seats`, with Active members and invitations that have not yet expired | The seat query in the Memberships section; withdraw invitations that will not be accepted (an expired one already holds no seat) |
 | Resend `429` | Within the cooldown | `Retry-After` header |
 
 ### Decisions and open questions
@@ -540,8 +560,8 @@ SELECT email, password_hash IS NULL AS no_password, email_verified_at FROM users
   others (comment on `InvitationResponse`).
 - The link carries the token only in the email; the API never returns it.
 - Resend reuses the invitation row, so the list keeps its original `invitedAt` (`created_at`) and shows the new `lastSentAt`.
-- **Risk:** an Invited member with access consumes a seat indefinitely. There is no expiry job, no "revoke invitation" endpoint
-  (the only way is to disable the membership), and the list marks expired rows but does nothing.
+- **Fixed (AUTH-269, decision 0012):** an expired invitation no longer holds a seat (the seat count leaves it out; resending takes the seat
+  back), and `DELETE .../invitations/{membershipId}` withdraws a pending one. The list still shows expired rows, because they can be sent again.
 - **Inconsistent:** the invitation `ApplicationIds` limit (20) and role limit (10) are code constants with no setting.
 - **Unknown:** what happens to a seat, role and invitation when the invited person is later disabled and the tenant re-enables them
   (see Memberships section). No test covers it.
@@ -815,7 +835,7 @@ Rules:
 | `apikeys.manage` | Manage API keys | `POST /api/auth/apikeys`, `DELETE /api/auth/apikeys/{keyId}`, `POST /api/auth/apikeys/{keyId}/rotate` (Full) |
 | `members.read` | View members | `GET /api/auth/tenants/me/members`, `GET /api/auth/tenants/me/invitations` (ReadOnly) |
 | `members.manage` | Manage members | `PATCH /api/auth/tenants/me/members/{membershipId}` (Full) |
-| `members.invite` | Invite members | `POST /api/auth/tenants/me/invitations`, `POST .../invitations/{membershipId}/resend` (Full) |
+| `members.invite` | Invite members | `POST /api/auth/tenants/me/invitations`, `POST .../invitations/{membershipId}/resend`, `DELETE .../invitations/{membershipId}` (Full) |
 | `roles.read` | View roles | `GET /api/auth/roles`, `GET /api/auth/tenants/me/permissions` (ReadOnly) |
 | `roles.manage` | Manage roles | `POST`, `PATCH`, `DELETE` on `/api/auth/roles` (Full) |
 | `roles.assign` | Assign roles | `PUT /api/auth/tenants/me/members/{membershipId}/roles` (Full) |
@@ -954,7 +974,8 @@ Rules (membership-related):
 - **Revoking** is always allowed, even on a suspended subscription, so seats can be freed. It returns `204`, also when there was nothing
   to revoke.
 - A membership of another tenant, or an unknown one, is `404`.
-- **A seat is counted for Invited and Active members; Disabled members hold no seat** (`SeatsUsedAsync`).
+- **A seat is counted for Active members and for Invited ones whose invitation has not expired; Disabled members and expired invitations hold no seat**
+  (`SeatsUsedAsync`, `SeatHolders`; decision 0012).
 - Access applies at the member's next token exchange: an exchange for a non-built-in product is refused (`exchange_denied`) without an
   access row, whatever the roles.
 - **The tenant's Owner gets a seat automatically** when the tenant subscribes (`SubscribeTenantService.GrantOwnersAccessAsync`, for every
@@ -1009,7 +1030,9 @@ Likely causes and how to confirm:
 -- Seats used vs limit for a tenant's products
 SELECT a.key, s.status, s.max_seats,
        (SELECT count(*) FROM application_access x JOIN tenant_memberships m ON m.id = x.membership_id
-         WHERE x.tenant_id = s.tenant_id AND x.application_id = s.application_id AND m.status <> 'Disabled') AS seats_used
+         WHERE x.tenant_id = s.tenant_id AND x.application_id = s.application_id
+           AND (m.status = 'Active' OR (m.status = 'Invited' AND NOT EXISTS (
+                 SELECT 1 FROM invitations i WHERE i.membership_id = m.id AND i.used_at IS NULL AND i.expires_at <= now())))) AS seats_used
 FROM subscriptions s JOIN applications a ON a.id = s.application_id WHERE s.tenant_id = '<tenant>';
 
 -- Who holds a seat in a product
@@ -1021,7 +1044,7 @@ WHERE x.tenant_id = '<tenant>' AND x.application_id = '<application>' ORDER BY u
 | Symptom | Cause | Confirm |
 |---|---|---|
 | Member has roles but exchange says `exchange_denied` | No `application_access` row, or no Active subscription | The two queries above |
-| Seat count looks too high | Invited members and expired invitations count | `m.status = 'Invited'` rows in the second query |
+| Seat count looks too high | Invited members with a live invitation count (expired ones do not) | `m.status = 'Invited'` rows in the second query; `invitations.expires_at` |
 | Seat limit lowered below usage | Existing members keep access; only new grants blocked | Part 3 |
 
 ### Decisions and open questions
@@ -1045,7 +1068,7 @@ WHERE x.tenant_id = '<tenant>' AND x.application_id = '<application>' ORDER BY u
 | Invited person never got the email | Email worker off, provider error, wrong sender, or message `Failed` | `EmailDeliveryService`; `email_outbox`; `Email:DispatcherEnabled`, `Email:Provider` | `status`, `attempts`, `last_error`; logs "Email ... failed" |
 | Invitation link opens `localhost` | `Email:PublicBaseUrl` not set | `EmailTemplates.Link`; env `Email__PublicBaseUrl` | The link in the received mail |
 | Existing user accepting gets `login_required` or `wrong_account` | They must be logged in as the invited email | `InvitationEndpoints.AcceptAsync`, `LoggedInUserAsync` | Which account is signed in; a product token counts as nobody |
-| Invite says `no_seat_available` though few people work there | Invited/expired-invite members hold seats | `InviteUserService`; `application_access` + `tenant_memberships.status` | Seat query; disable stale Invited memberships |
+| Invite says `no_seat_available` though few people work there | Pending (unexpired) invitations hold seats | `InviteUserService`; `SubscriptionResponses.SeatHolders` | Seat query; withdraw invitations that will not be accepted |
 | Invite refused `already_member` | A membership exists in any status, including Disabled | `InviteUserService.InviteAsync` | `tenant_memberships` for the user; enable instead of inviting |
 | Member lost access (or still has access) after a role or status change | Token lifetime: old token valid until `Auth:Tokens:ProductTokenMinutes` (15); console caches it too | `TokenExchangeService`, `ConsoleTokenCache` | Wait 15 minutes; confirm in `membership_roles`/`tenant_memberships`; audit actions |
 | Roles not appearing on the Roles page | Wrong tenant in the token, missing `roles.read`, or the page cut at 10,000 | `ManageRolesService.ListAsync`; `AuthApiClient.GetAllAsync` | Roles query; token `tid` and `permissions` |
@@ -1066,8 +1089,10 @@ WHERE x.tenant_id = '<tenant>' AND x.application_id = '<application>' ORDER BY u
    tenant-admin tokens or invitation acceptance. Review `TokenExchangeService`, `SubscribeTenantService`, `ApiKeyValidationService`, and decide
    whether suspension needs an endpoint, an audit entry, and a check in tenant endpoints.
 2. **The "tenant keeps an Owner" rule is code-only.** There is no database constraint. Review `MembersService.SetStatusAsync` and `AssignRolesService.AssignAsync`.
-3. **Unaccepted invitations hold seats forever.** There is no expiry job or revoke endpoint, and Invited members count toward
-   `max_seats`, so stale invites can block real invitations and grants. Review `SeatsUsedAsync` and consider a revoke or sweep.
+3. **Fixed in AUTH-269: unaccepted invitations no longer hold seats for ever.** An expired invitation leaves the seat count and any pending
+   one can be withdrawn (`DELETE .../invitations/{membershipId}`); decision 0012. What remains: an unexpired invitation to someone who will
+   never accept holds its seat for up to `Auth:Invitations:TokenDays` unless an admin withdraws it, and resending an expired one is refused
+   when the product is full.
 4. **Email delivery is the single path to a working invitation.** A dispatcher that is off, a `Failed` row (token cleared), or a wrong
    `Email:PublicBaseUrl` all produce "the invitation does not work". Review `EmailTemplates`,
    `EmailDeliveryService`, and the deployment settings.

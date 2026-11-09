@@ -4,6 +4,7 @@ using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.BuiltIn;
 using AuthService.Api.Features.Invitations;
 using AuthService.Api.Features.Roles;
+using AuthService.Api.Features.Subscriptions;
 using AuthService.Infrastructure.Persistence.Entities;
 using AuthService.IntegrationTests.Infrastructure;
 using AuthService.IntegrationTests.Tok04;
@@ -245,9 +246,221 @@ public sealed class ManageInvitationsTests(PostgresContainerFixture postgres) : 
         });
     }
 
+    // ---- AUTH-269: revoking an invitation, and an expired one giving its seat back ----
+
+    [Fact]
+    public async Task RevokingFreesTheSeatRemovesThePendingMembershipAndKillsTheLink()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var baseline = await SeatsUsedAsync(t.Owner.OwnerToken, ct);
+        var membershipId = await InviteAsync(t.Owner.OwnerToken, "person@example.com", ct, t.Role, t.Product.Id);
+        var token = await WaitForEmailTokenAsync("person@example.com", Subject);
+        (await SeatsUsedAsync(t.Owner.OwnerToken, ct)).ShouldBe(baseline + 1);
+
+        var response = await RevokeAsync(t.Owner.OwnerToken, membershipId, ct);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await SeatsUsedAsync(t.Owner.OwnerToken, ct)).ShouldBe(baseline, "the seat is free again");
+        (await ListAsync(t.Owner.OwnerToken, ct)).ShouldBeEmpty();
+        (await AcceptAsync(token, ct)).StatusCode.ShouldBe(HttpStatusCode.Gone, "the link no longer works");
+        await WithDbAsync(async db =>
+        {
+            (await db.TenantMemberships.AnyAsync(membership => membership.Id == membershipId, ct)).ShouldBeFalse();
+            (await db.ApplicationAccess.AnyAsync(access => access.MembershipId == membershipId, ct)).ShouldBeFalse();
+            (await db.MembershipRoles.AnyAsync(assignment => assignment.MembershipId == membershipId, ct)).ShouldBeFalse();
+            (await db.Invitations.AnyAsync(invitation => invitation.MembershipId == membershipId, ct)).ShouldBeFalse();
+            (await db.Users.AnyAsync(user => user.Email == "person@example.com", ct)).ShouldBeFalse("nobody could sign in as them, so the account is not kept");
+        });
+    }
+
+    [Fact]
+    public async Task ARevokedAddressCanBeInvitedAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var first = await InviteAsync(t.Owner.OwnerToken, "person@example.com", ct, t.Role);
+        (await RevokeAsync(t.Owner.OwnerToken, first, ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        var again = await InviteAsync(t.Owner.OwnerToken, "person@example.com", ct, t.Role);
+
+        again.ShouldNotBe(first);
+        var token = await WaitForEmailTokenAsync("person@example.com", Subject, nth: 2);
+        (await AcceptAsync(token, ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task RevokingAnExpiredInvitationWorksAndAnExistingAccountIsKept()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var other = await TenantAsync("Other Ltd", "boss@other.com", ct);
+        var existing = await InviteAsync(t.Owner.OwnerToken, "boss@other.com", ct, t.Role);
+        _clock.Advance(TimeSpan.FromDays(8));
+
+        (await RevokeAsync(t.Owner.OwnerToken, existing, ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        await WithDbAsync(async db =>
+        {
+            (await db.TenantMemberships.AnyAsync(membership => membership.Id == existing, ct)).ShouldBeFalse();
+            (await db.Users.AnyAsync(user => user.Email == "boss@other.com", ct)).ShouldBeTrue("they have an account and another organisation");
+            (await db.TenantMemberships.AnyAsync(membership => membership.TenantId == other.Id, ct)).ShouldBeTrue();
+        });
+    }
+
+    [Fact]
+    public async Task OnlyAnInvitationStillWaitingCanBeRevokedAndOnlyInThisTenant()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var other = await TenantAsync("Other Ltd", "boss@other.com", ct);
+        var otherRole = await CreateRoleAsync(other.OwnerToken, "Support", ct);
+        var theirs = await InviteAsync(other.OwnerToken, "theirs@example.com", ct, otherRole);
+        var accepted = await InviteAsync(t.Owner.OwnerToken, "accepts@example.com", ct, t.Role);
+        (await AcceptAsync(await WaitForEmailTokenAsync("accepts@example.com", Subject), ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var acceptedResponse = await RevokeAsync(t.Owner.OwnerToken, accepted, ct);
+        var owner = await RevokeAsync(t.Owner.OwnerToken, await OwnerMembershipAsync(t.Owner.Id, ct), ct);
+
+        acceptedResponse.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await ReadProblemAsync(acceptedResponse, ct)).Code.ShouldBe("invitation_not_pending");
+        owner.StatusCode.ShouldBe(HttpStatusCode.Conflict, "the Owner was never invited");
+        (await RevokeAsync(t.Owner.OwnerToken, theirs, ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound, "another tenant's invitation");
+        (await RevokeAsync(t.Owner.OwnerToken, Guid.NewGuid(), ct)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await RevokeAsync(t.Owner.OwnerToken, accepted, ct)).StatusCode.ShouldBe(HttpStatusCode.Conflict, "a second revoke finds an active member, not an invitation");
+        await WithDbAsync(async db =>
+        {
+            (await db.TenantMemberships.AsNoTracking().SingleAsync(membership => membership.Id == accepted, ct)).Status.ShouldBe(MembershipStatus.Active);
+            (await db.TenantMemberships.AnyAsync(membership => membership.Id == theirs, ct)).ShouldBeTrue("the other tenant's invitation is untouched");
+        });
+    }
+
+    [Fact]
+    public async Task RevokingNeedsMembersInviteAtFull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var membershipId = await InviteAsync(t.Owner.OwnerToken, "person@example.com", ct, t.Role);
+        var reader = await CreateRoleAsync(t.Owner.OwnerToken, "Reader", ct, new RoleGrantInput(BuiltInApplication.Id, "members.read", "ReadOnly"));
+        var weak = await CreateRoleAsync(t.Owner.OwnerToken, "Inviter", ct, new RoleGrantInput(BuiltInApplication.Id, "members.invite", "CreateRead"));
+        var full = await CreateRoleAsync(t.Owner.OwnerToken, "Full inviter", ct, new RoleGrantInput(BuiltInApplication.Id, "members.invite", "Full"));
+        var nobody = await TokenForNewMemberAsync(t, "nobody@acme.com", null, ct);
+        var readerToken = await TokenForNewMemberAsync(t, "reader@acme.com", reader, ct);
+        var weakToken = await TokenForNewMemberAsync(t, "weak@acme.com", weak, ct);
+        var inviterToken = await TokenForNewMemberAsync(t, "inviter@acme.com", full, ct);
+
+        (await RevokeAsync(null, membershipId, ct)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await RevokeAsync(nobody, membershipId, ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await RevokeAsync(readerToken, membershipId, ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden, "reading is not enough");
+        (await RevokeAsync(weakToken, membershipId, ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden, "Full is needed");
+        (await RevokeAsync(t.Product.ServiceToken, membershipId, ct)).StatusCode.ShouldBe(HttpStatusCode.Forbidden, "a product cannot withdraw invitations");
+        (await ListAsync(t.Owner.OwnerToken, ct)).Count.ShouldBe(1, "none of those removed anything");
+
+        (await RevokeAsync(inviterToken, membershipId, ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task RevokingIsAuditedWithTheAdminAndTheMembership()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var membershipId = await InviteAsync(t.Owner.OwnerToken, "person@example.com", ct, t.Role);
+
+        await RevokeAsync(t.Owner.OwnerToken, membershipId, ct);
+
+        await WithDbAsync(async db =>
+        {
+            var entry = await db.AuditEntries.AsNoTracking().SingleAsync(candidate => candidate.Action == AuditActions.InvitationRevoked, ct);
+            (entry.ActorId, entry.TenantId, entry.Detail).ShouldBe((t.Owner.Owner.UserId, t.Owner.Id, membershipId.ToString()));
+        });
+    }
+
+    [Fact]
+    public async Task AnExpiredInvitationGivesItsSeatBackSoARealInvitationCanTakeIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var baseline = await SeatsUsedAsync(t.Owner.OwnerToken, ct);
+        await SetSeatLimitAsync(t, baseline + 1, ct);
+        var stale = await InviteAsync(t.Owner.OwnerToken, "stale@example.com", ct, t.Role, t.Product.Id);
+        var staleToken = await WaitForEmailTokenAsync("stale@example.com", Subject);
+        var full = await PostAsync(InvitationEndpoints.InviteRoute, new InviteRequest("real@example.com", [t.Role], [t.Product.Id]), t.Owner.OwnerToken, ct);
+        full.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await ReadProblemAsync(full, ct)).Code.ShouldBe("no_seat_available");
+
+        _clock.Advance(TimeSpan.FromDays(8));
+
+        (await SeatsUsedAsync(t.Owner.OwnerToken, ct)).ShouldBe(baseline, "the expired invitation no longer holds a seat");
+        (await InviteAsync(t.Owner.OwnerToken, "real@example.com", ct, t.Role, t.Product.Id)).ShouldNotBe(stale);
+        (await AcceptAsync(staleToken, ct)).StatusCode.ShouldBe(HttpStatusCode.Gone, "the expired link stays dead");
+        (await SeatsUsedAsync(t.Owner.OwnerToken, ct)).ShouldBe(baseline + 1);
+    }
+
+    [Fact]
+    public async Task ResendingAnExpiredInvitationTakesTheSeatBackOnlyIfThereIsOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var baseline = await SeatsUsedAsync(t.Owner.OwnerToken, ct);
+        await SetSeatLimitAsync(t, baseline + 1, ct);
+        var stale = await InviteAsync(t.Owner.OwnerToken, "stale@example.com", ct, t.Role, t.Product.Id);
+        _clock.Advance(TimeSpan.FromDays(8));
+        var real = await InviteAsync(t.Owner.OwnerToken, "real@example.com", ct, t.Role, t.Product.Id);
+
+        var refused = await ResendAsync(t.Owner.OwnerToken, stale, ct);
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var problem = await ReadProblemAsync(refused, ct);
+        problem.Code.ShouldBe("no_seat_available");
+        problem.Detail!.ShouldContain("whatsapp-saas");
+        await WaitForEmailTokenAsync("stale@example.com", Subject);
+        SentEmails.Count(email => email.To == "stale@example.com").ShouldBe(1, "nothing was sent");
+        (await ListAsync(t.Owner.OwnerToken, ct)).Single(item => item.MembershipId == stale).IsExpired.ShouldBeTrue("still expired");
+
+        (await RevokeAsync(t.Owner.OwnerToken, real, ct)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        (await ResendAsync(t.Owner.OwnerToken, stale, ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await SeatsUsedAsync(t.Owner.OwnerToken, ct)).ShouldBe(baseline + 1, "the resent invitation holds the seat again");
+        (await AcceptAsync(await WaitForEmailTokenAsync("stale@example.com", Subject, nth: 2), ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task ResendingALiveInvitationNeedsNoSeatCheckBecauseItAlreadyHoldsOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var t = await WorldAsync(ct);
+        var baseline = await SeatsUsedAsync(t.Owner.OwnerToken, ct);
+        await SetSeatLimitAsync(t, baseline + 1, ct);
+        var membershipId = await InviteAsync(t.Owner.OwnerToken, "person@example.com", ct, t.Role, t.Product.Id);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+
+        (await ResendAsync(t.Owner.OwnerToken, membershipId, ct)).StatusCode.ShouldBe(HttpStatusCode.OK, "the product is full, but this person already has the seat");
+        (await SeatsUsedAsync(t.Owner.OwnerToken, ct)).ShouldBe(baseline + 1);
+    }
+
     // ---- helpers ----
 
     private sealed record World(Tenant Owner, TestProduct Product, Guid Role);
+
+    private Task<HttpResponseMessage> RevokeAsync(string? token, Guid membershipId, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, InvitationEndpoints.RevokeRouteFor(membershipId));
+        if (token is not null)
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        }
+
+        return Client.SendAsync(request, ct);
+    }
+
+    private async Task SetSeatLimitAsync(World t, int maxSeats, CancellationToken ct) =>
+        (await PatchJsonAsync(SubscriptionEndpoints.SeatsRouteFor(t.Owner.Id, t.Product.Id), $$"""{"maxSeats": {{maxSeats}}}""", t.Product.ServiceToken, ct))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+
+    private async Task<int> SeatsUsedAsync(string ownerToken, CancellationToken ct)
+    {
+        var response = await GetAsync(ListSubscriptionsEndpoints.Route, ownerToken, ct);
+        return (await response.Content.ReadPageItemsAsync<TenantSubscriptionItem>(Json, ct))!.Single().SeatsUsed;
+    }
 
     private async Task<World> WorldAsync(CancellationToken ct)
     {

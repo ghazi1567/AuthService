@@ -697,7 +697,8 @@ No other settings; seat limits are data, set by the product.
     `SELECT granted_at FROM application_access WHERE tenant_id = '<t>' AND application_id = '<a>' AND membership_id = '<m>';`. Any miss is the same `403 exchange_denied`
     (except a suspended tenant, which says `tenant_suspended`).
   - **Seats "full":** `SELECT s.max_seats, count(*) FILTER (WHERE m.status <> 'Disabled') AS used, count(*) FILTER (WHERE m.status = 'Invited') AS invited FROM subscriptions s JOIN application_access a ON a.tenant_id = s.tenant_id AND a.application_id = s.application_id JOIN tenant_memberships m ON m.id = a.membership_id WHERE s.tenant_id = '<t>' AND s.application_id = '<a>' GROUP BY s.max_seats;`
-    Invited people (not yet accepted) use a seat; Disabled ones do not.
+    Invited people (not yet accepted, and not expired) use a seat; Disabled ones and expired invitations do not. The query above still counts
+    expired invitations; the API leaves them out (`SubscriptionResponses.SeatHolders`, part 2).
   - **The product says it subscribed a tenant but nothing happened:** the product probably received `400 application_not_active` or `409 tenant_suspended`; or it sent the call with
     another product's service token (the product is always the token's).
   - **Product was not told:** look at `webhook_outbox` (next section).
@@ -922,7 +923,7 @@ Likely production issues and how to confirm:
 | `503 rate_limit_unavailable` on the token endpoint | Database unreachable or latest migration missing | `SharedRateLimitMiddleware`; `/health/ready` | Log `The rate-limit store could not be reached...`; run the migrate job |
 | Secret rotation broke a product | Product still uses the old secret after `previousSecretsExpireAt`, or `graceHours: 0` was used | `SecretRotationService.RotateAsync`; `application_secrets` | Expiry times; give the product the new secret; next time use a longer grace |
 | Tenant person cannot open a product (`403 exchange_denied`) | No Active membership, product inactive, subscription not Active, or no seat | `TokenExchangeService.ExchangeAsync` | Run the five checks listed in the Subscriptions section |
-| Add/invite/enable fails with `409 no_seat_available` ("seats full") | `seatsUsed >= max_seats`; Invited people count, Disabled do not | `MemberAccessService.GrantAsync`; seat counting in `SubscriptionResponses.SeatsUsedAsync` | Seat query in the Subscriptions section; product can raise the limit with `PATCH .../seats` |
+| Add/invite/enable fails with `409 no_seat_available` ("seats full") | `seatsUsed >= max_seats`; Invited people with an unexpired invitation count, Disabled and expired do not | `MemberAccessService.GrantAsync`; seat counting in `SubscriptionResponses.SeatsUsedAsync` | Seat query in the Subscriptions section; product can raise the limit with `PATCH .../seats` |
 | Product does not appear in the console picker | Inactive, built in, or the person's organisation is not what they think | `MyApplicationsEndpoints.ListAsync`; `applications.is_active` | `SELECT key, is_active, is_built_in FROM applications WHERE key = '<key>';` and that the activation had a catalog |
 | Product appears but "isn't ready to open yet" | `Available` but `launch_url` is null | `ApplicationAdminEndpoints.SetLaunchUrlAsync`; `applications.launch_url` | Set it with `PUT /api/auth/admin/applications/{id}/launch-url`; must be https |
 | Product shows "subscription is suspended" or "has ended" | Status set by the product via `PATCH` | `SubscriptionStatusService.SetAsync`; `subscriptions.status` | Audit entries `auth.subscription.suspended`/`cancelled`; the product subscribes the tenant again to reinstate |

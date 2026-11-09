@@ -88,6 +88,6 @@ public sealed class SeatLimitService(AuthDbContext db, AuditLog audit, TimeProvi
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new SetSeatLimitResult.Updated(await db.ToResponseAsync(subscription, cancellationToken));
+        return new SetSeatLimitResult.Updated(await db.ToResponseAsync(subscription, timeProvider.GetUtcNow(), cancellationToken));
     }
 }

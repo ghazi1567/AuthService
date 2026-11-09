@@ -64,7 +64,7 @@ public static class MemberStatusValidator
 }
 
 /// <summary>TEN-07: the members of the caller's tenant, and enabling or disabling their membership.</summary>
-public sealed class MembersService(AuthDbContext db, AuditLog audit)
+public sealed class MembersService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
 {
     /// <summary>One page of the members, by email (PLT-08).</summary>
     public async Task<PagedResponse<MemberItem, NameCursor>> ListAsync(Guid tenantId, PageQuery page, CancellationToken cancellationToken)
@@ -155,7 +155,7 @@ public sealed class MembersService(AuthDbContext db, AuditLog audit)
                 }
 
                 // The member is Disabled, so they are not in this count yet.
-                var seatsUsed = await db.SeatsUsedAsync(tenantId, applicationId, cancellationToken);
+                var seatsUsed = await db.SeatsUsedAsync(tenantId, applicationId, timeProvider.GetUtcNow(), cancellationToken);
                 if (seatsUsed >= maxSeats)
                 {
                     full.Add(await db.Applications.AsNoTracking().Where(application => application.Id == applicationId)

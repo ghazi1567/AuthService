@@ -49,6 +49,7 @@ public static class AuditLabels
         ["auth.membership.access_revoked"] = "Product access taken away",
         ["auth.invitation.sent"] = "Invitation sent",
         ["auth.invitation.resent"] = "Invitation sent again",
+        ["auth.invitation.revoked"] = "Invitation withdrawn",
         ["auth.invitation.accepted"] = "Invitation accepted",
         ["auth.admin.audit_read"] = "Platform audit log viewed",
         ["auth.application.registered"] = "Product registered",

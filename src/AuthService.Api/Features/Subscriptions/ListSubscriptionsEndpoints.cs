@@ -30,7 +30,8 @@ public static class ListSubscriptionsEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(ClaimsPrincipal caller, AuthDbContext db, [AsParameters] PageQuery page, CancellationToken cancellationToken)
+    private static async Task<IResult> ListAsync(
+        ClaimsPrincipal caller, AuthDbContext db, TimeProvider timeProvider, [AsParameters] PageQuery page, CancellationToken cancellationToken)
     {
         if (page.Problem(byName: true) is { } problem)
         {
@@ -40,7 +41,8 @@ public static class ListSubscriptionsEndpoints
         // The tenant is the token's `tid` and nothing else: "me" is not a placeholder for an id the client could change.
         var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
 
-        // Every status, so the tenant can see a subscription that was suspended or cancelled. Disabled members use no seat.
+        // Every status, so the tenant can see a subscription that was suspended or cancelled. Disabled members and expired invitations use no seat.
+        var now = timeProvider.GetUtcNow();
         var rows = await page.ByNameAsync(
             from subscription in db.Subscriptions
             join application in db.Applications on subscription.ApplicationId equals application.Id
@@ -54,9 +56,8 @@ public static class ListSubscriptionsEndpoints
                 subscription.MaxSeats,
                 SeatsUsed = (
                     from access in db.ApplicationAccess
-                    join membership in db.TenantMemberships on new { access.TenantId, access.MembershipId } equals new { membership.TenantId, MembershipId = membership.Id }
+                    join membership in db.SeatHolders(now) on new { access.TenantId, access.MembershipId } equals new { membership.TenantId, MembershipId = membership.Id }
                     where access.TenantId == tenantId && access.ApplicationId == subscription.ApplicationId
-                        && membership.Status != MembershipStatus.Disabled
                     select access.Id).Count(),
                 subscription.CreatedAt,
                 subscription.UpdatedAt,
