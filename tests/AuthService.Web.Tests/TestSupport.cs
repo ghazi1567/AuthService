@@ -251,6 +251,16 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Path, string Body)> RenameCalls { get; } = [];
 
+    /// <summary>Answers a test organisation being created (given the request body); null (the default) creates it.</summary>
+    public Func<string, HttpResponseMessage?>? TestOrganisationResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> TestOrganisationCalls { get; } = [];
+
+    /// <summary>Answers an organisation being subscribed by an admin (given the request body); null (the default) subscribes it.</summary>
+    public Func<string, HttpResponseMessage?>? SubscribeOrganisationResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> SubscribeOrganisationCalls { get; } = [];
+
     /// <summary>Answers a product being made available or withdrawn; null (the default) does it.</summary>
     public Func<string, HttpResponseMessage?>? SetActiveResponse { get; set; }
 
@@ -388,6 +398,46 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 {
                     Content = new StringContent(
                         $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":{{live}},"clientId":"new-client","clientSecret":"{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z","launchUrl":{{launch}},"permissionCount":{{permissionCount}}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            if (path.StartsWith("/api/auth/admin/applications/", StringComparison.Ordinal) && path.EndsWith("/test-organisations", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    TestOrganisationCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                if (TestOrganisationResponse?.Invoke(body) is { } refused)
+                {
+                    return refused;
+                }
+
+                var orgName = json.RootElement.TryGetProperty("name", out var orgNameElement) ? orgNameElement.GetString() : "Sandbox";
+                var ownerEmail = json.RootElement.TryGetProperty("ownerEmail", out var ownerElement) ? ownerElement.GetString()?.ToLowerInvariant() : "owner@acme.com";
+                var seats = json.RootElement.TryGetProperty("maxSeats", out var seatsElement) && seatsElement.ValueKind == JsonValueKind.Number ? seatsElement.GetInt32().ToString() : "null";
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        $$$"""{"tenantId":"30000000-0000-4000-8000-000000000009","tenantName":"{{{orgName}}}","ownerEmail":"{{{ownerEmail}}}","subscription":{"tenantId":"30000000-0000-4000-8000-000000000009","applicationId":"20000000-0000-4000-8000-000000000001","status":"Active","maxSeats":{{{seats}}},"seatsUsed":1}}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            if (path.StartsWith("/api/auth/admin/applications/", StringComparison.Ordinal) && path.EndsWith("/subscriptions", StringComparison.Ordinal) && request.Method == HttpMethod.Post)
+            {
+                lock (_gate)
+                {
+                    SubscribeOrganisationCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                return SubscribeOrganisationResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        """{"tenantId":"30000000-0000-4000-8000-000000000009","applicationId":"20000000-0000-4000-8000-000000000001","status":"Active","maxSeats":null,"seatsUsed":1}""",
                         Encoding.UTF8,
                         "application/json"),
                 };

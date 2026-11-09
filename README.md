@@ -464,6 +464,8 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
 | `GET /api/auth/users/me/applications?tenantId={id}` | (Identity token, not admin.) The products the signed-in person can open in one organisation (APP-09): every active product by name with `state` (`Available`, `NoAccess`, `NotSubscribed`, `SubscriptionSuspended`, `SubscriptionCancelled`) and `launchUrl`, which is only given when `Available`. Needs an active membership in an organisation that is not suspended, else `403 tenant_access_denied`. `Cache-Control: no-store`. |
 | `GET /api/auth/admin/applications` | List every product, active or not (APP-06): `id`, `key`, `name`, `isActive`, `permissionCount`, `launchUrl`, `createdAt`, by name. The built-in product is left out, and no secret, audience, client id or webhook address is returned. |
 | `POST /api/auth/admin/applications` | Register a product (see "Applications" below). It can carry the product's `launchUrl`, its `permissions` and `activate: true` too, so it is ready in one call, saved all or nothing (ONB-01). |
+| `POST /api/auth/admin/applications/{id}/subscriptions` | Subscribe an existing organisation to a product as the platform admin (`{"tenantId", "maxSeats"}`; ONB-02), see "Subscriptions". |
+| `POST /api/auth/admin/applications/{id}/test-organisations` | Create an organisation owned by an existing verified person and subscribe it to a product (`{"name", "ownerEmail", "maxSeats"}`; ONB-02), see "Subscriptions". |
 | `PUT /api/auth/admin/applications/{id}/name` | Change a product's display name (`{"name": "…"}`; ONB-01). Its key and audience never change. Recorded in the audit log. |
 | `PUT /api/auth/admin/applications/{id}/launch-url` | Set (`{"url": "https://…"}`) or clear (`{"url": null}`) where the web console sends a person who chooses the product (APP-08). Absolute `https` only (plain `http` for localhost), no user name or password, no `#` fragment, at most 2000 characters. Recorded in the audit log. Also shown in the admin product list. |
 | `GET /api/auth/admin/applications/{id}/permissions` | Read a product's permission catalog (APP-07): `key`, `label`, `description`, `createdAt`, `updatedAt`, by key, whether or not the product is active. Unknown and built-in products are `404 application_not_found`. |
@@ -643,6 +645,19 @@ A tenant gets to use a product through a **subscription**. A product subscribes 
 from its own onboarding or checkout flow. The body is optional: `{"maxSeats": 3}` limits how many people can have access (at least
 1; left out means unlimited). The product is always the caller's own, from the verified token, so a product can only subscribe
 tenants to itself. A tenant's own people cannot subscribe themselves (403).
+
+A **platform admin** can bring an organisation onto a product too (ONB-02), without the product's service token, which is what the
+console's **Subscribe organisation** and **Test organisation** actions use:
+
+- `POST /api/auth/admin/applications/{id}/subscriptions` with `{"tenantId": "…", "maxSeats": 5}` (seats optional) subscribes an
+  existing organisation, with the same rules, the same responses (201 new, 200 already active or active again, 400
+  `application_not_active`, 404 `tenant_not_found`, 409 `tenant_suspended`) and the same `ApplicationSubscribed` event as the product's
+  own call. The audit log names the admin as the actor. The built-in product and an unknown product are `404 application_not_found`.
+- `POST /api/auth/admin/applications/{id}/test-organisations` with `{"name": "…", "ownerEmail": "…", "maxSeats": 3}` creates a new
+  organisation owned by someone who already has a verified account, and subscribes it at once, so that person can sign in and open the
+  product straight away. An email with no account is `404 owner_not_found`, an unverified one `409 owner_email_not_verified`, and a
+  person whose access was removed `409 owner_disabled`. The product must already be available (`400 application_not_active`), and that
+  is checked before anything is created. The audit log gets `auth.tenant.created` and `auth.subscription.subscribed`, both by the admin.
 
 - **201** with the subscription (`status`, `maxSeats`, `seatsUsed`) for a new one. A product that is not active gets **400**
   `application_not_active`, an unknown tenant **404**, and a suspended tenant **409** `tenant_suspended`.

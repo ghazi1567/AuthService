@@ -40,7 +40,10 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
 {
     public const string ApplicationSubscribedEvent = WebhookEvents.ApplicationSubscribed;
 
-    public async Task<SubscribeResult> SubscribeAsync(Guid applicationId, Guid tenantId, int? maxSeats, CancellationToken cancellationToken)
+    /// <param name="actor">Who is subscribing the tenant for the audit log. By default the product itself (SUB-01); a platform admin
+    /// subscribing a tenant from the console (ONB-02) passes themselves.</param>
+    public async Task<SubscribeResult> SubscribeAsync(
+        Guid applicationId, Guid tenantId, int? maxSeats, CancellationToken cancellationToken, AuditActor? actor = null)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -115,7 +118,7 @@ public sealed class SubscribeTenantService(AuthDbContext db, AuditLog audit, Tim
             maxSeats,
         }));
 
-        audit.Record(AuditActions.TenantSubscribed, AuditActor.Product(applicationId), tenantId, application.Key);
+        audit.Record(AuditActions.TenantSubscribed, actor ?? AuditActor.Product(applicationId), tenantId, application.Key);
 
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

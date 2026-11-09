@@ -383,6 +383,160 @@ public sealed class PlatformProductsPageTests
         }
     }
 
+    private static readonly Guid NewOrganisation = Guid.Parse("30000000-0000-4000-8000-000000000009");
+
+    [Fact]
+    public async Task OnlyAnAvailableProductOffersATestOrganisationAndASubscription()
+    {
+        await using var factory = new WebAppFactory(Api());
+        using var client = await SignedInAsync(factory);
+
+        var list = await client.GetStringAsync(PagePath, Token);
+
+        list.ShouldContain($"?testorg={Helpdesk}");
+        list.ShouldContain($"?subscribe={Helpdesk}");
+        foreach (var notAvailable in new[] { Billing, Draft })
+        {
+            list.ShouldNotContain($"?testorg={notAvailable}");
+            list.ShouldNotContain($"?subscribe={notAvailable}");
+        }
+
+        var dialog = WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?testorg={Helpdesk}", Token));
+        dialog.ShouldContain("Create a test organisation for 'Helpdesk'");
+        dialog.ShouldContain("value=\"Helpdesk test\"");
+        dialog.ShouldContain("They need an account with a verified email.");
+        WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?testorg={Billing}", Token)).ShouldNotContain("Create a test organisation");
+        WebUtility.HtmlDecode(await client.GetStringAsync($"{PagePath}?subscribe={Helpdesk}", Token)).ShouldContain("Subscribe an organisation to 'Helpdesk'");
+    }
+
+    [Fact]
+    public async Task CreatingATestOrganisationAsksTheApiAsTheAdminThenSaysWhoOwnsItAndItsId()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostPageFormAsync(client, $"?testorg={Helpdesk}", "testorg", new()
+        {
+            ["id"] = Helpdesk.ToString(),
+            ["name"] = "  Marketing sandbox  ",
+            ["ownerEmail"] = " Dev@Marketing.test ",
+            ["seats"] = "5",
+        });
+
+        var call = api.TestOrganisationCalls.ShouldHaveSingleItem();
+        call.Path.ShouldBe($"/api/auth/admin/applications/{Helpdesk}/test-organisations");
+        call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
+        call.Body.ShouldContain("\"name\":\"Marketing sandbox\"");
+        call.Body.ShouldContain("\"ownerEmail\":\"Dev@Marketing.test\"");
+        call.Body.ShouldContain("\"maxSeats\":5");
+        Where(posted).ShouldBe($"{PagePath}?notice=testorg&app={Helpdesk}&org=Marketing%20sandbox&owner=dev%40marketing.test&tid={NewOrganisation}");
+
+        var page = WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token));
+        page.ShouldContain("Marketing sandbox is ready");
+        page.ShouldContain("dev@marketing.test owns it and can open Helpdesk in it.");
+        page.ShouldContain($"Organisation id: {NewOrganisation}");
+    }
+
+    [Fact]
+    public async Task ATestOrganisationWithMissingOrBadFieldsNeverReachesTheApiAndKeepsWhatWasTyped()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var response = await PostPageFormAsync(client, $"?testorg={Helpdesk}", "testorg", new() { ["id"] = Helpdesk.ToString(), ["name"] = " ", ["ownerEmail"] = "", ["seats"] = "lots" });
+        var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+        html.ShouldContain("Fix 3 problems");
+        html.ShouldContain("Enter a name for the organisation.");
+        html.ShouldContain("Enter the owner's email.");
+        html.ShouldContain("Seats must be a whole number of at least 1, or left empty for no limit.");
+        html.ShouldContain("value=\"lots\"");
+        api.TestOrganisationCalls.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task TheApisReasonsForRefusingATestOrganisationAreExplainedAndWhatWasTypedIsKept()
+    {
+        var cases = new (Func<string, HttpResponseMessage?> Respond, string Expect)[]
+        {
+            (_ => Problem(HttpStatusCode.NotFound, "owner_not_found"), "No account has that email. Ask them to sign up first"),
+            (_ => Problem(HttpStatusCode.Conflict, "owner_email_not_verified"), "They haven't verified their email yet"),
+            (_ => Problem(HttpStatusCode.Conflict, "owner_disabled"), "That person's access has been removed"),
+            (_ => Problem(HttpStatusCode.BadRequest, "application_not_active"), "This product isn't available any more."),
+            (_ => new HttpResponseMessage(HttpStatusCode.Forbidden), "You don't have permission to do that."),
+            (_ => throw new HttpRequestException("connection refused"), "Nothing was created."),
+        };
+
+        foreach (var (respond, expect) in cases)
+        {
+            var api = Api();
+            api.TestOrganisationResponse = respond;
+            await using var factory = new WebAppFactory(api);
+            using var client = await SignedInAsync(factory);
+
+            var response = await PostPageFormAsync(client, $"?testorg={Helpdesk}", "testorg", new() { ["id"] = Helpdesk.ToString(), ["name"] = "Sandbox", ["ownerEmail"] = "dev@marketing.test" });
+            var html = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+            html.ShouldContain(expect);
+            html.ShouldContain("value=\"dev@marketing.test\"");
+            html.ShouldNotContain("connection refused");
+        }
+    }
+
+    [Fact]
+    public async Task SubscribingAnOrganisationAsksTheApiAsTheAdminThenSaysSo()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var posted = await PostPageFormAsync(client, $"?subscribe={Helpdesk}", "subscribe", new() { ["id"] = Helpdesk.ToString(), ["tenantId"] = $" {NewOrganisation} ", ["seats"] = "" });
+
+        var call = api.SubscribeOrganisationCalls.ShouldHaveSingleItem();
+        call.Path.ShouldBe($"/api/auth/admin/applications/{Helpdesk}/subscriptions");
+        call.Authorization.ShouldBe($"Bearer {api.AccessTokensIssued[0]}");
+        call.Body.ShouldContain($"\"tenantId\":\"{NewOrganisation}\"");
+        call.Body.ShouldContain("\"maxSeats\":null");
+        Where(posted).ShouldBe($"{PagePath}?notice=subscribed&app={Helpdesk}&tid={NewOrganisation}");
+        WebUtility.HtmlDecode(await client.GetStringAsync(Where(posted), Token)).ShouldContain($"The organisation is subscribed to Helpdesk");
+    }
+
+    [Fact]
+    public async Task ABadOrganisationIdNeverReachesTheApiAndTheApisReasonsAreExplained()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var bad = await PostPageFormAsync(client, $"?subscribe={Helpdesk}", "subscribe", new() { ["id"] = Helpdesk.ToString(), ["tenantId"] = "not-an-id" });
+        var html = WebUtility.HtmlDecode(await bad.Content.ReadAsStringAsync(Token));
+        html.ShouldContain("Enter the organisation's id, the long code with dashes.");
+        html.ShouldContain("value=\"not-an-id\"");
+        api.SubscribeOrganisationCalls.ShouldBeEmpty();
+
+        var cases = new (Func<string, HttpResponseMessage?> Respond, string Expect)[]
+        {
+            (_ => Problem(HttpStatusCode.NotFound, "tenant_not_found"), "No organisation has that id."),
+            (_ => Problem(HttpStatusCode.Conflict, "tenant_suspended"), "That organisation is suspended"),
+            (_ => throw new HttpRequestException("connection refused"), "Nothing was changed."),
+        };
+        foreach (var (respond, expect) in cases)
+        {
+            var refusing = Api();
+            refusing.SubscribeOrganisationResponse = respond;
+            await using var refusingFactory = new WebAppFactory(refusing);
+            using var refusingClient = await SignedInAsync(refusingFactory);
+
+            var response = await PostPageFormAsync(refusingClient, $"?subscribe={Helpdesk}", "subscribe", new() { ["id"] = Helpdesk.ToString(), ["tenantId"] = NewOrganisation.ToString() });
+            var reasons = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync(Token));
+
+            reasons.ShouldContain(expect);
+            reasons.ShouldNotContain("connection refused");
+        }
+    }
+
     [Fact]
     public async Task MakingAProductAvailableAsksTheApiAsTheAdminThenSaysSo()
     {
