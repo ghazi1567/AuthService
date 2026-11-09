@@ -145,8 +145,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The sample's NuGet.config looks in artifacts/packages, which is empty here, so the only place it can get the package from is
-      # the feed it was just published to.
+      # The sample's NuGet.config lists artifacts/packages as a source, and restore fails (NU1301) when a local source does not exist.
+      # A fresh checkout has no such folder, so make it empty: the only place the package can then come from is the feed it was just
+      # published to.
+      - name: Make the local package folder, empty
+        run: mkdir -p artifacts/packages
+
       - name: Add the feed
         run: >
           dotnet nuget add source "$FEED"
