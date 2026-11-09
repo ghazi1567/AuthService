@@ -755,7 +755,7 @@ the product's own logs.
   contract is the only coupling. A rename of `tid`, `sub`, `aud` or the `key:Level` format is a breaking change (new major version).
 - Package validation against the previous version is not enabled (decision 0009, "Alternatives considered"), so a breaking public API
   change is caught only in review.
-- The licence file is a placeholder (decision 0009 "Consequences").
+- The licence file grants use to Auth Service products only; the owner confirmed it for 1.0.0 (decision 0009 "Consequences").
 - **Unknown:** the currently released package version. The root `README.md` says "currently 1.1.0"; the project file has no fixed
   version (it comes from the tag). Check the GitHub Packages feed.
 - The package reads only the `Authorization` header (the JWT bearer default). It has no helper for the form-post hand-off (next section).

@@ -6,6 +6,3 @@ those products. You may not redistribute it or sell it on its own.
 
 The package is provided as it is, with no warranty of any kind, express or implied. In no event is its owner liable for any claim,
 damages or other liability arising from its use.
-
-(This is a placeholder. Replace it with the licence the owner of the Auth Service chooses, for example an open-source licence, and
-change PackageLicenseFile in AuthService.Authorization.csproj to a PackageLicenseExpression if the licence has an SPDX identifier.)

@@ -610,7 +610,7 @@ app.MapGet("/campaigns", (ClaimsPrincipal user) => List(user.RequireTenantId()))
   startup rather than at the first request.
 
 The claim contract (`sub`, `tid`, `aud`, `permissions` as `key:Level`) and the package's public API are versioned together under
-semantic versioning (currently 1.1.0): a breaking change to either is a new major version. The package judges token lifetimes on a
+semantic versioning (first release 1.0.0; see the Packages page of the repository for the current one): a breaking change to either is a new major version. The package judges token lifetimes on a
 `TimeProvider` the product registers (the system clock otherwise), so a test can move time. The tests run a small product API in the
 test process against the running Auth Service (`tests/AuthService.IntegrationTests/Tok03`).
 
