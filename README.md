@@ -1013,6 +1013,17 @@ curl -X POST https://auth.example.com/api/auth/token \
 The body can be the form above or JSON with the same three fields. The reply is `{"access_token", "token_type": "Bearer", "expires_in": 600}`
 (10 minutes; ask again when it expires), sent with `Cache-Control: no-store`.
 
+**One string instead of two (ONB-03).** Registering a product, and replacing its secret, also return `credential`: the client id and the
+secret joined by a dot, `cl_….<secret>`. That is what the console shows as the client secret, and what a product's team is given. The
+token endpoint takes it as `client_secret` on its own (`-d client_secret=cl_….<secret>`, no `client_id`), so a product needs one value.
+The old `client_id` plus `client_secret` pair keeps working. A product can then read its own record, with its audience and the keys of
+its permission catalogue (`permissionKeys`), from `GET /api/auth/applications/me`.
+
+**One address to start from (ONB-03).** `GET /.well-known/auth-service-configuration`, with no login, returns the `issuer`, `apiBaseUrl`,
+`jwksUrl`, `tokenUrl` and `consoleUrl`: public things only. A product that knows the Auth Service's address and its client secret can
+learn the rest from it. Set `Auth__Discovery__PublicBaseUrl` to the API's public address when it sits behind a proxy or is called by
+an internal name (the compose file does); otherwise the document carries the address the request came to.
+
 - Wrong secret, unknown client and an expired secret all get the **same 401** `invalid_client`, so the reply never says which. A
   missing field is **400** `invalid_request`, any other grant **400** `unsupported_grant_type`. Requests are rate limited per IP
   (`Auth:Applications:TokenIpLimit`, 429). Neither the client ID nor the secret is logged.

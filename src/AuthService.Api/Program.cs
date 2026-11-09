@@ -9,6 +9,7 @@ using AuthService.Api.Features.ApiKeys;
 using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.BuiltIn;
 using AuthService.Api.Features.CurrentUser;
+using AuthService.Api.Features.Discovery;
 using AuthService.Api.Features.EmailVerification;
 using AuthService.Api.Features.Jwks;
 using AuthService.Api.Features.Invitations;
@@ -68,6 +69,7 @@ builder.Services.AddIdentityTokenAuthentication();
 
 // Email (NTF-01): queued in the database, sent by a background worker through whichever provider is configured.
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
+builder.Services.Configure<DiscoveryOptions>(builder.Configuration.GetSection(DiscoveryOptions.SectionName));
 builder.Services.AddHttpClient(BrevoEmailSender.HttpClientName, client =>
 {
     client.BaseAddress = new Uri("https://api.brevo.com/");
@@ -209,6 +211,7 @@ app.MapCurrentUser();
 app.MapCreateTenant();
 app.MapPasswordReset();
 app.MapJwks();
+app.MapDiscovery();
 app.MapServiceToken();
 app.MapCurrentApplication();
 app.MapWebhookConfig();

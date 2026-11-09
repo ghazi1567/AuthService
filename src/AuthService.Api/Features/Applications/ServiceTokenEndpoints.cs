@@ -41,10 +41,21 @@ public static class ServiceTokenEndpoints
         httpContext.Response.Headers.Pragma = "no-cache";
 
         var request = await ReadRequestAsync(httpContext.Request, cancellationToken);
-        if (request is null || string.IsNullOrEmpty(request.ClientId) || string.IsNullOrEmpty(request.ClientSecret))
+
+        // The client secret may be the one combined string a product team is given (client id, a dot, the secret), with or without the
+        // client id beside it (ONB-03). A client id that names another client is left alone and simply fails like any wrong secret.
+        var clientId = request?.ClientId;
+        var clientSecret = request?.ClientSecret;
+        if (ClientCredential.TryParse(clientSecret, out var combinedId, out var combinedSecret) && (string.IsNullOrEmpty(clientId) || clientId == combinedId))
+        {
+            clientId = combinedId;
+            clientSecret = combinedSecret;
+        }
+
+        if (request is null || string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
         {
             return ApiProblem.Create(StatusCodes.Status400BadRequest, "invalid_request", "Invalid request",
-                "grant_type, client_id and client_secret are required, as a JSON or form body.");
+                "grant_type and client_secret are required, as a JSON or form body: the client secret you were given, or client_id and client_secret.");
         }
 
         if (request.GrantType != ClientCredentialsGrant)
@@ -53,7 +64,7 @@ public static class ServiceTokenEndpoints
                 $"Only the {ClientCredentialsGrant} grant is supported.");
         }
 
-        var token = await tokens.IssueAsync(request.ClientId, request.ClientSecret, cancellationToken);
+        var token = await tokens.IssueAsync(clientId, clientSecret, cancellationToken);
 
         // The same answer for an unknown client, a wrong secret and an expired one, so the response reveals nothing about which.
         return token is null

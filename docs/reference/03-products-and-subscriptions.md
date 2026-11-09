@@ -187,7 +187,7 @@ Flow of registration:
 5. `SaveChangesAsync`. If two registrations race, the unique indexes decide: a `UniqueViolation` on `ux_applications_key` becomes
    `KeyTaken`, on `ux_applications_jwt_audience` becomes `AudienceTaken` (`BrokeUniqueRule`), so the same 409 is returned.
 6. The handler sets `Cache-Control: no-store` and answers `201` with `RegisterApplicationResponse`
-   (`id`, `key`, `name`, `jwtAudience`, `isActive`, `clientId`, `clientSecret`, `createdAt`, `launchUrl`, `permissionCount`).
+   (`id`, `key`, `name`, `jwtAudience`, `isActive`, `clientId`, `clientSecret`, `createdAt`, `launchUrl`, `permissionCount`, `credential`).
 
 Data (entity `Application`, table `applications`; `ApplicationSecret`, table `application_secrets`):
 
@@ -348,6 +348,12 @@ Rules:
 
 - **Endpoint:** `POST /api/auth/token`, anonymous, body as form (`application/x-www-form-urlencoded`) or JSON, fields `grant_type`,
   `client_id`, `client_secret`. Only `grant_type=client_credentials` is accepted.
+- **The one string (ONB-03):** registration and rotation also return `credential`, the client id and the secret joined by a dot
+  (`cl_<id>.<secret>`; neither part can contain a dot, so the first dot is the join: `ClientCredential`). The endpoint accepts it as
+  `client_secret` on its own, or beside its own `client_id`. A `client_id` that names another client leaves the string whole, and it
+  fails as `401 invalid_client` like any wrong secret. A plain secret with no `client_id`, or a missing field, is `400 invalid_request`.
+  The old `client_id` plus `client_secret` pair keeps working, so nothing already deployed changes. The console shows the credential, not the
+  bare secret, as the client secret.
 - **Reply:** `{"access_token", "token_type": "Bearer", "expires_in": 600}` with `Cache-Control: no-store` and `Pragma: no-cache`.
   `expires_in` is `Auth:Tokens:ServiceTokenMinutes` (default 10) times 60.
 - **Service token claims** (`IdentityTokenService.CreateServiceToken`): `iss` = `Auth:Tokens:Issuer`, `aud` = `auth-service`, `sub` = `app:<applicationId>`,

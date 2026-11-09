@@ -237,7 +237,8 @@ All settings are environment variables. A double underscore stands for the colon
 | `Email__BrevoApiKey` | with Brevo | A secret. |
 | `Email__FromAddress`, `Email__FromName` | with Brevo | The sender; the address must be verified in Brevo. |
 | `Email__PublicBaseUrl` | yes | Where links in emails point, for example `https://app.example.com`. |
-| `Auth__Tokens__Issuer` | no | `iss` of every token. Default `AuthService`. Products must be configured with the same value. |
+| `Auth__Tokens__Issuer` | no | `iss` of every token. Default `AuthService`. Products that are not set up from the discovery document must be configured with the same value. |
+| `Auth__Discovery__PublicBaseUrl` | behind a proxy | The API's own public address, such as `https://auth.example.com`. It is what `/.well-known/auth-service-configuration` tells products, and what the console shows beside a new client secret. The compose file sets it from `AUTH_HOST`. |
 | `Auth__Proxy__TrustedProxies__0` (`__1`...) / `Auth__Proxy__TrustedNetworks__0` | behind a proxy | The proxy's address or CIDR range. See "Behind a proxy". Blank values are ignored. |
 | `Auth__RateLimit__Store` | no | Where rate-limit counters are kept: `Postgres` (the default) or `Memory`. See "Rate limits with several instances". |
 | `Observability__AllowedNetworks__0` (`__1`...) | to scrape `/metrics` | A CIDR range allowed to read `/metrics`, for example the monitoring server's `10.0.0.0/8`. Loopback is always allowed. See "Health checks and metrics". A typo stops the service from starting. |

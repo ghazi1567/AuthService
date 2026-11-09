@@ -840,8 +840,10 @@ Details by part:
   ("Opens at"). Actions: Register a product (name up to 200, key up to 63 characters, token audience up to 200, left empty it becomes the
   key plus `-api`; optionally the address it opens at, the permissions as lines or pasted JSON read by `PermissionText`, with a "Load from
   a file" button that needs the script, and a "Make it available now" box that is only sent when permissions were given; one API call saves
-  it all or nothing; the secret is shown once through `OneTimeSecrets`, with the audience, client id, address and permission count beside
-  it), Rename (the display name only; the dialog says the key and audience stay), Test organisation and Subscribe organisation (offered only
+  it all or nothing; the client secret is shown once through `OneTimeSecrets` as the one string with the client id in it (`credential`; a
+  bare secret from an older API), with the audience, client id, address and permission count beside it and, when the API's discovery
+  document can be read, a "Settings for the product" box with `AuthService__Url` and `AuthService__ClientSecret` to copy (the same box
+  appears after Replace secret)), Rename (the display name only; the dialog says the key and audience stay), Test organisation and Subscribe organisation (offered only
   for an available product; the first creates an organisation owned by an existing verified person, by email, with optional seats, and
   subscribes it, then shows its id; the second subscribes an organisation by its id, which the tenant console shows; both explain the
   API's reasons in plain words: no account, email not verified, access removed, unknown or suspended organisation, product withdrawn),

@@ -830,6 +830,7 @@ Everything under `/api/auth/admin` is mapped through `AdminEndpoints.MapAdminGro
 | Endpoint | Notes |
 |---|---|
 | `GET /` | Returns `AuthService` |
+| `GET /.well-known/auth-service-configuration` | The issuer and the public addresses a product starts from (ONB-03) |
 | `GET /.well-known/jwks.json` | Public signing keys |
 | `GET /health/live`, `GET /health/ready` | Probes |
 | `GET /metrics` | Anonymous in policy terms, restricted by network filter |

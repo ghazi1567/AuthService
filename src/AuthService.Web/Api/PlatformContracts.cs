@@ -63,7 +63,7 @@ public sealed record RotateSecretRequest(int GraceHours);
 /// A product's new client secret, which comes back once and nowhere else. <see cref="PreviousSecretsExpireAt"/> is when the secrets being
 /// replaced stop working. Printing it shows only the client id, so the secret can't reach a log by being printed.
 /// </summary>
-public sealed record RotatedSecret(Guid ApplicationId, string ClientId, string ClientSecret, DateTimeOffset PreviousSecretsExpireAt)
+public sealed record RotatedSecret(Guid ApplicationId, string ClientId, string ClientSecret, DateTimeOffset PreviousSecretsExpireAt, string Credential = "")
 {
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
@@ -86,6 +86,9 @@ public sealed record RegisterProductRequest(
     string? LaunchUrl = null,
     IReadOnlyList<PermissionToAdd>? Permissions = null,
     bool? Activate = null);
+
+/// <summary>What the API publishes about itself at <c>/.well-known/auth-service-configuration</c> (ONB-03): all of it public.</summary>
+public sealed record DiscoveryDocument(string Issuer, string ApiBaseUrl, string JwksUrl, string TokenUrl, string? ConsoleUrl);
 
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/name</c>.</summary>
 public sealed record RenameProductRequest(string Name);
@@ -116,7 +119,8 @@ public sealed record RegisteredProduct(
     string ClientSecret,
     DateTimeOffset CreatedAt,
     string? LaunchUrl = null,
-    int PermissionCount = 0)
+    int PermissionCount = 0,
+    string Credential = "")
 {
     private bool PrintMembers(System.Text.StringBuilder builder)
     {

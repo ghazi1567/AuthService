@@ -86,6 +86,9 @@ services:
       Email__FromName: ${EMAIL_FROM_NAME:-Auth Service}
       # Where the links in emails point: the web console, which handles /verify-email, /reset-password and /accept-invitation.
       Email__PublicBaseUrl: https://${APP_HOST:?Set APP_HOST in deploy/.env}
+      # The API's own public address, told to products (and shown beside a new client secret) in /.well-known/auth-service-configuration.
+      # The web console calls the API by its internal name, so without this it would show that name.
+      Auth__Discovery__PublicBaseUrl: https://${AUTH_HOST:?Set AUTH_HOST in deploy/.env}
       # The proxy and the web console are both inside the stack's network. The proxy's X-Forwarded-For and the one the web console adds
       # for its own visitors are believed from here and from nowhere else.
       Auth__Proxy__TrustedNetworks__0: ${DOCKER_SUBNET:-172.29.200.0/24}

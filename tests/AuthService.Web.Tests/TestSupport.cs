@@ -212,6 +212,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Path)> WebhookResendCalls { get; } = [];
 
+    /// <summary>What the API publishes about itself (<c>GET /.well-known/auth-service-configuration</c>), as its JSON.</summary>
+    public string DiscoveryJson { get; set; } = """{"issuer":"AuthService","apiBaseUrl":"https://auth.example.com","jwksUrl":"https://auth.example.com/.well-known/jwks.json","tokenUrl":"https://auth.example.com/api/auth/token","consoleUrl":"https://app.example.com"}""";
+
+    /// <summary>Answers the discovery read; null (the default) answers with <see cref="DiscoveryJson"/>.</summary>
+    public Func<HttpResponseMessage?>? DiscoveryResponse { get; set; }
+
+    public List<string?> DiscoveryCalls { get; } = [];
+
     /// <summary>The platform's published keys (<c>GET /.well-known/jwks.json</c>), as the API's JSON.</summary>
     public string JwksJson { get; set; } = """{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","kid":"key-old-0001","x":"x","y":"y"},{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","kid":"key-next-0002","x":"x","y":"y"}]}""";
 
@@ -397,7 +405,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 return new HttpResponseMessage(HttpStatusCode.Created)
                 {
                     Content = new StringContent(
-                        $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":{{live}},"clientId":"new-client","clientSecret":"{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z","launchUrl":{{launch}},"permissionCount":{{permissionCount}}}""",
+                        $$"""{"id":"{{Guid.NewGuid()}}","key":"{{key}}","name":"{{productName}}","jwtAudience":"{{audience}}","isActive":{{live}},"clientId":"new-client","clientSecret":"{{ProductSecret}}","credential":"new-client.{{ProductSecret}}","createdAt":"2026-11-02T12:00:00Z","launchUrl":{{launch}},"permissionCount":{{permissionCount}}}""",
                         Encoding.UTF8,
                         "application/json"),
                 };
@@ -522,7 +530,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(
-                        $$"""{"applicationId":"{{path.Split('/')[^3]}}","clientId":"helpdesk-client","clientSecret":"{{ProductSecret}}","previousSecretsExpireAt":"{{ApiNow.AddHours(grace):O}}"}""",
+                        $$"""{"applicationId":"{{path.Split('/')[^3]}}","clientId":"helpdesk-client","clientSecret":"{{ProductSecret}}","credential":"helpdesk-client.{{ProductSecret}}","previousSecretsExpireAt":"{{ApiNow.AddHours(grace):O}}"}""",
                         Encoding.UTF8,
                         "application/json"),
                 };
@@ -737,6 +745,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
             case "/.well-known/jwks.json":
                 return JwksResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JwksJson, Encoding.UTF8, "application/json") };
+
+            case "/.well-known/auth-service-configuration":
+                lock (_gate)
+                {
+                    DiscoveryCalls.Add(request.Headers.Authorization?.ToString());
+                }
+
+                return DiscoveryResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(DiscoveryJson, Encoding.UTF8, "application/json") };
 
             case "/api/auth/users/me/applications":
                 lock (_gate)
