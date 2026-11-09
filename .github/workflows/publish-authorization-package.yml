@@ -163,9 +163,11 @@ jobs:
           -p:AuthorizationPackageVersion=${{ needs.version.outputs.version }}
 
   # Public release (decision 0010). Runs only after the package has been pushed to GitHub Packages AND installed and tested from there,
-  # and pushes the very same .nupkg that job kept. The job uses the "nuget" environment, which holds NUGET_API_KEY (a nuget.org key
-  # scoped to this one package id, push only); add required reviewers to that environment to make every public release a manual
-  # approval. nuget.org never lets a version be deleted or replaced, only unlisted, so this is the step that cannot be undone.
+  # and pushes the very same .nupkg that job kept. It signs in to nuget.org with a trusted publishing policy (OIDC): GitHub gives the
+  # run a short-lived identity token, nuget.org checks it against the policy (this repository, this workflow file, the "nuget"
+  # environment) and hands back a temporary API key. No long-lived key is stored anywhere. The only value kept is NUGET_USER, the
+  # nuget.org profile name, in the "nuget" environment; add required reviewers to that environment to make every public release a
+  # manual approval. nuget.org never lets a version be deleted or replaced, only unlisted, so this is the step that cannot be undone.
   publish-nuget:
     name: Publish to nuget.org
     needs: [version, verify]
@@ -174,6 +176,8 @@ jobs:
     environment: nuget
     permissions:
       contents: read
+      # Lets this job ask GitHub for the identity token that nuget.org checks. Without it the login step fails with a 403.
+      id-token: write
 
     steps:
       - name: Get the package that was verified
@@ -187,15 +191,19 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # The user is the nuget.org profile name (not the email address). The temporary key this returns expires after about an hour,
+      # so the login stays next to the push.
+      - name: Sign in to nuget.org (trusted publishing)
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       # --skip-duplicate makes a re-run of a half-finished release safe: a version nuget.org already has is left as it is.
       - name: Push to nuget.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
-          if [ -z "$NUGET_API_KEY" ]; then
-            echo "::error::The secret NUGET_API_KEY is not set in the 'nuget' environment."
-            exit 1
-          fi
           dotnet nuget push "artifacts/packages/${PACKAGE_ID}.${{ needs.version.outputs.version }}.nupkg" \
             --source https://api.nuget.org/v3/index.json \
             --api-key "$NUGET_API_KEY" \

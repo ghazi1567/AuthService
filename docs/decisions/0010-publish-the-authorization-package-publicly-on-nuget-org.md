@@ -20,9 +20,14 @@ without being handed a token. The owner wants the package to be downloadable by 
   redistribution, cannot be combined with an open feed. `LICENSE.txt` was removed from the package.
 - **No project URL, repository URL or source link in the package, and no embedded sources.** The repository is private, so every such
   link would be dead. Debug symbols stay embedded in the assembly. Documentation is the package README.
-- **The nuget.org key lives in a GitHub environment named `nuget`** as the secret `NUGET_API_KEY`: a key limited to the package id
-  `AuthService.Authorization`, with the push permission only, and an expiry. The job fails with a clear message if it is missing. Adding
-  required reviewers to the `nuget` environment turns every public release into a manual approval.
+- **No nuget.org API key is stored: the job signs in with trusted publishing (OIDC).** A policy on nuget.org names this repository, the
+  workflow file `publish-authorization-package.yml` and the `nuget` environment. The job asks GitHub for an identity token (`id-token:
+  write`), `NuGet/login@v1` exchanges it for a key that expires after about an hour, and the push uses that key. The only value stored
+  is `NUGET_USER`, the nuget.org profile name, as a secret of the GitHub environment `nuget`, which is not sensitive. Nothing can leak
+  or expire, and a change of workflow file name or environment stops the publish until the policy is changed too. Adding required
+  reviewers to the `nuget` environment turns every public release into a manual approval.
+- **Private repository:** nuget.org keeps a policy for a private repository only "temporarily active" for seven days, and makes it
+  permanent after the first successful publish, so the first release should follow the policy soon after it is created.
 - **The first public version is 1.0.1.** Version 1.0.0 went to GitHub Packages under the old licence text, and a version cannot be
   replaced, so the same number must not mean two different packages.
 
