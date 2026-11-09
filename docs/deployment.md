@@ -20,6 +20,9 @@ job first, then starts the new API.
 `deploy/docker-compose.yml` is a worked example for a single machine: the HTTPS proxy (Caddy), the web console, the API, PostgreSQL and
 the migrate job. It pulls the images from the registry. It was run for real while writing this page.
 
+**If your domain is on Cloudflare**, you can skip the certificates and the open ports altogether with a Cloudflare Tunnel: see "Deploy behind a
+Cloudflare Tunnel" (`deploy/docker-compose.tunnel.yml`).
+
 **Before the first release exists**, nothing is in the registry yet: tag one (see "Publishing a release") or build from source on a machine that
 has the repository (`AUTHSERVICE_VERSION=local docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`).
 
@@ -62,7 +65,7 @@ are not reachable from outside at all.
 
 **3. Get the five small files and log in to the registry.** No source code and no `git` are needed on the server. Open the repository's
 **Releases** page, pick the version, and download the attached files: `docker-compose.yml`, `Caddyfile`, `env.example`, `backup.sh` and
-`check.sh`. (`env.example` is the repository's `.env.example`; GitHub does not keep a leading dot on an attachment's name.) Put them in one folder on
+`check.sh` (and `docker-compose.tunnel.yml` if you will use a Cloudflare Tunnel, see below). (`env.example` is the repository's `.env.example`; GitHub does not keep a leading dot on an attachment's name.) Put them in one folder on
 the server, for example by copying them from your own computer:
 
 ```bash
@@ -207,8 +210,105 @@ broke the data, restore the backup you took before updating (step 7).
   everyone out; they sign in again. (Running two copies of the console behind a load balancer would not work for the same reason.)
 - **Monitoring.** Nothing watches the server. At least add an uptime check on `https://auth.example.com/health/ready` with an alert to you, and see
   "Health checks and metrics" for what to alert on.
-- **Cloudflare's orange cloud.** Keep the records DNS only. Turning the proxy on puts Cloudflare's addresses between visitors and this server, and
-  the stack would then see Cloudflare, not the visitor, until the proxy is told to trust Cloudflare's ranges. Ask before enabling it.
+- **Cloudflare's orange cloud.** With Caddy, keep the records DNS only. Turning the proxy on puts Cloudflare's addresses between visitors and this
+  server, and the stack would then see Cloudflare, not the visitor, until the proxy is told to trust Cloudflare's ranges. To use Cloudflare's proxy,
+  use the tunnel in the next section instead.
+
+## Deploy behind a Cloudflare Tunnel
+
+The previous section gets its HTTPS certificates with Caddy, which needs ports 80 and 443 open and the DNS records set to "DNS only". If your
+domain is on Cloudflare you can instead put the stack behind a **Cloudflare Tunnel**: a small program (`cloudflared`) in the stack opens an
+outbound connection to Cloudflare, and Cloudflare carries visitors' requests through it. **No certificates on the server, no ports open to the
+internet (SSH only, or not even that), and Cloudflare's protection in front.** The cost is that Cloudflare sits in the path and sees the traffic
+(that is what ends HTTPS for you), and that an outage at Cloudflare is an outage here.
+
+It is the same stack: `docker-compose.tunnel.yml` is added on top of `docker-compose.yml`, removes the Caddy proxy and adds `cloudflared`.
+
+**You need:** the domain on Cloudflare (its nameservers), a Cloudflare account with Zero Trust (the free plan is enough), and an Ubuntu server with
+Docker. Follow steps 2 to 4 of the previous section for the server, **except**: skip the DNS check (step 1), leave ports 80 and 443 closed in
+the firewall, and in step 3 also download `docker-compose.tunnel.yml` from the release. `docker compose version` must say 2.24 or newer.
+
+**1. Create the tunnel.** In the Cloudflare dashboard open **Zero Trust**, then **Networks**, **Tunnels**, **Create a tunnel**, choose **Cloudflared**,
+and name it (for example `authservice`). Cloudflare then shows an install command with a long **token** after `--token`. Copy only the token. Do not run
+Cloudflare's install command on the server: the stack runs `cloudflared` for you. Treat the token like a password: anyone who has it can run your
+tunnel. Type it only into the server's `.env`, never into a chat, ticket or commit. (The menu names change from time to time; the values below are
+what matters.)
+
+**2. Add the two routes.** On the tunnel's **Public hostname** (published application) page, add one route per name, and use the *service names inside
+the stack*, with plain `HTTP` (the traffic never leaves the server's private network):
+
+| Hostname | Service type | URL |
+|---|---|---|
+| `auth.example.com` (the API) | HTTP | `api:8080` |
+| `app.example.com` (the web console) | HTTP | `web:8080` |
+
+Cloudflare normally creates the DNS records for you. If `dig +short auth.example.com` answers nothing, add them yourself under **DNS**: a **CNAME** for
+each name to `<the tunnel's id>.cfargotunnel.com`, with the **orange cloud on** (proxied). With a tunnel the orange cloud is required, the opposite of
+the Caddy setup.
+
+**3. Fill in the settings.** In `.env` (step 4 of the previous section), set the same values as before (`AUTHSERVICE_VERSION`, `AUTH_HOST`, `APP_HOST`,
+the secrets, the email settings) and add two lines:
+
+```bash
+COMPOSE_FILE=docker-compose.yml:docker-compose.tunnel.yml
+TUNNEL_TOKEN=<the token from step 1>
+```
+
+`COMPOSE_FILE` tells compose to use both files, so every command in this guide works unchanged, with no `-f` flags. `ACME_EMAIL` still has to hold an
+address (compose checks it before it merges the files); it is not used for anything.
+
+**4. Start it** exactly as before:
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose ps
+```
+
+`api`, `web` and `db` become `healthy` and `cloudflared` is `Up`. `docker compose logs cloudflared` shows connections being registered, and the tunnel
+shows **Healthy** in the Cloudflare dashboard.
+
+**5. Turn on HTTPS enforcement in Cloudflare.** Under **SSL/TLS, Edge Certificates** (for the domain), switch on **Always Use HTTPS**, and switch on
+**HTTP Strict Transport Security (HSTS)**: max age 6 months, **do not** include subdomains (the Caddy setup sends the same six months and also leaves the
+rest of your domain alone). Cloudflare, not the stack, sends these now.
+
+**6. Check it,** from the server or your own computer:
+
+```bash
+CHECK_TUNNEL=1 ./check.sh auth.example.com app.example.com
+```
+
+`CHECK_TUNNEL=1` tells the script that Cloudflare redirects http to https with a 301 (Caddy says 308), and that a missing HSTS header is a warning
+(`warn`) rather than a failure, since it is a setting you make in Cloudflare. Everything else is checked as before. Then carry on with steps 6 to 8 of the
+previous section (first platform admin, backups, updating): they are the same.
+
+### What is different behind a tunnel
+
+- **The real visitor address.** Cloudflare puts it in `X-Forwarded-For`; `cloudflared` runs inside the stack's private network, which both apps already
+  trust (`DOCKER_SUBNET`), so rate limits and the audit log see each visitor. Check it once: sign in, then
+  `docker compose exec db psql -U auth -d auth -c "SELECT source_ip FROM audit_entries ORDER BY occurred_at DESC LIMIT 1;"` must show your own public
+  address, not a `172.29.x.x` address.
+- **`/metrics` is still not served to the internet.** The apps themselves answer 404 to anyone outside the networks allowed to read it (the proxy
+  that used to do it is gone, the rule is not).
+- **No certificate volume to keep.** `caddy_data` is not used. Keep `.env` safe as before: it now also holds the tunnel token.
+- **Updating** is unchanged: `docker compose pull` also fetches `cloudflared`. Its version is pinned in the file (`CLOUDFLARED_VERSION` in `.env`
+  overrides it); a release's notes say when it changes. To replace a token that leaked, create a new one in Cloudflare (or roll the tunnel's token),
+  put it in `.env` and run `docker compose up -d cloudflared`.
+- **Moving from a hand-made tunnel file.** Keep a copy of the old file. Stop the old stack with its own `docker compose -f <old file> down` (never add
+  `--volumes`: that would delete the database), add the two lines to `.env`, and `docker compose up -d`. The database volume is kept and the tunnel
+  reconnects in seconds; run the check above before deleting the old file.
+
+### If something does not work behind a tunnel
+
+| What you see | Look at |
+|---|---|
+| Cloudflare error **1033**, or the tunnel shows **Down** | `cloudflared` is not connected: `docker compose logs cloudflared`. Usually the token in `.env` is wrong or has a stray space or quote. |
+| Cloudflare error **502** | The route points at the wrong name or port (it must be `http://api:8080` and `http://web:8080`), or `api` or `web` is not healthy: `docker compose ps`. |
+| The browser cannot find the name | No DNS record: add the proxied CNAME to `<tunnel id>.cfargotunnel.com` (step 2). |
+| `docker compose` says `required variable TUNNEL_TOKEN is missing` or `ACME_EMAIL is missing` | Both must be set in `.env` (step 3). |
+| `docker compose` complains about `!reset` or an unknown tag | Compose is older than 2.24: upgrade Docker's compose plugin. |
+| `check.sh` says `warn  no Strict-Transport-Security header` | Switch on HSTS in Cloudflare (step 5). It is a warning, not a failure. |
+| Everyone is rate-limited at once, or the audit log shows a `172.29.x.x` address | The real address is not arriving: check that `DOCKER_SUBNET` is the network the stack uses (`docker network inspect authservice_default`). |
 
 ## What you need before you start
 

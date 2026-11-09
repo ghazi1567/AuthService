@@ -1,0 +1,42 @@
+# Run AuthService behind a Cloudflare Tunnel instead of the Caddy proxy: no certificates on the server, no ports open to the internet.
+# The step-by-step guide is docs/deployment.md, "Deploy behind a Cloudflare Tunnel".
+#
+# This file is added on top of docker-compose.yml. It removes the Caddy proxy and adds `cloudflared`, which opens an outbound connection to
+# Cloudflare and carries visitors' requests to the API and the web console inside the stack. Cloudflare holds the certificates.
+#
+# Tell compose to use both files once, in .env, so every command works without -f flags:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.tunnel.yml
+#   TUNNEL_TOKEN=<the token Cloudflare shows when you create the tunnel>
+#
+# ACME_EMAIL still has to hold some address: docker-compose.yml reads it for the proxy this file removes, and compose checks it before
+# it merges the files. It is not used for anything with the tunnel.
+#
+# In Cloudflare the tunnel's two public hostnames point at the service names inside the stack:
+#   <AUTH_HOST>  ->  HTTP  api:8080
+#   <APP_HOST>   ->  HTTP  web:8080
+#
+# Needs Docker Compose 2.24 or newer (the `!reset` tag below); the Docker Engine installer in the guide gives you that.
+name: authservice
+
+services:
+  # No proxy of our own: Cloudflare ends HTTPS. (`!reset` drops the service from docker-compose.yml, with its ports and certificate volume.)
+  caddy: !reset null
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-2025.11.1}
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # A secret: whoever has it can run your tunnel. It lives in .env on the server and nowhere else.
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?Set TUNNEL_TOKEN in deploy/.env (Cloudflare shows it when you create the tunnel)}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy

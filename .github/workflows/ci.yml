@@ -96,6 +96,13 @@ jobs:
           EOF
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+          # The Cloudflare Tunnel option (docker-compose.tunnel.yml) must still merge: no proxy, the tunnel client in its place.
+          tunnel_services="$(TUNNEL_TOKEN=ci docker compose -f docker-compose.yml -f docker-compose.tunnel.yml config --services)"
+          echo "$tunnel_services" | grep -qx cloudflared || { echo "::error::the tunnel file does not add cloudflared"; exit 1; }
+          if echo "$tunnel_services" | grep -qx caddy; then echo "::error::the tunnel file does not remove caddy"; exit 1; fi
+          if TUNNEL_TOKEN=ci docker compose -f docker-compose.yml -f docker-compose.tunnel.yml config | grep -q published; then
+            echo "::error::the tunnel option publishes a port"; exit 1
+          fi
           docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
           for service in api web; do

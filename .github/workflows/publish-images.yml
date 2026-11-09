@@ -228,11 +228,12 @@ jobs:
 
           To deploy or update, put \`AUTHSERVICE_VERSION=$VERSION\` in \`.env\` next to the attached \`docker-compose.yml\` and run
           \`docker compose pull && docker compose up -d\`. The guide is \`docs/deployment.md\` ("Deploy on an Ubuntu server with Docker").
-          Take a backup first (\`./backup.sh\`).
+          Take a backup first (\`./backup.sh\`). Behind a Cloudflare Tunnel instead of Caddy, also download the attached
+          \`docker-compose.tunnel.yml\` (guide: "Deploy behind a Cloudflare Tunnel").
           EOF
           # GitHub renames an attachment whose name starts with a dot (.env.example becomes default.env.example), so it is attached without one.
           mkdir release-files
-          cp deploy/docker-compose.yml deploy/Caddyfile deploy/backup.sh deploy/check.sh release-files/
+          cp deploy/docker-compose.yml deploy/docker-compose.tunnel.yml deploy/Caddyfile deploy/backup.sh deploy/check.sh release-files/
           cp deploy/.env.example release-files/env.example
 
           flags=()
