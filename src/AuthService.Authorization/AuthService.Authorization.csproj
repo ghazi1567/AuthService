@@ -19,18 +19,15 @@
     <Authors>Auth Service</Authors>
     <PackageTags>authentication;authorization;jwt;jwks;multi-tenant;aspnetcore</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
-    <PackageProjectUrl>https://github.com/ghazi1567/AuthService</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/ghazi1567/AuthService</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <!-- Published publicly on nuget.org under MIT. No project or repository URL on purpose: the repository is private, so a link would
+         lead nowhere for everyone who installs the package. -->
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <PropertyGroup Label="Symbols">
-    <!-- The debug symbols travel inside the package, with Source Link, so a debugger can step into it from any feed. GitHub Packages
-         does not host separate .snupkg symbol packages, and an embedded PDB needs no second package to publish. -->
+    <!-- The debug symbols travel inside the package, so no second symbol package is needed. The source files are not embedded and no
+         source link is published, because the repository is private. -->
     <DebugType>embedded</DebugType>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
@@ -48,7 +45,6 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
-    <None Include="LICENSE.txt" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

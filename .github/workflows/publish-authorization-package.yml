@@ -161,3 +161,42 @@ jobs:
           dotnet test samples/SampleProduct.Tests
           --configuration Release
           -p:AuthorizationPackageVersion=${{ needs.version.outputs.version }}
+
+  # Public release (decision 0010). Runs only after the package has been pushed to GitHub Packages AND installed and tested from there,
+  # and pushes the very same .nupkg that job kept. The job uses the "nuget" environment, which holds NUGET_API_KEY (a nuget.org key
+  # scoped to this one package id, push only); add required reviewers to that environment to make every public release a manual
+  # approval. nuget.org never lets a version be deleted or replaced, only unlisted, so this is the step that cannot be undone.
+  publish-nuget:
+    name: Publish to nuget.org
+    needs: [version, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: read
+
+    steps:
+      - name: Get the package that was verified
+        uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: artifacts/packages
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # --skip-duplicate makes a re-run of a half-finished release safe: a version nuget.org already has is left as it is.
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::The secret NUGET_API_KEY is not set in the 'nuget' environment."
+            exit 1
+          fi
+          dotnet nuget push "artifacts/packages/${PACKAGE_ID}.${{ needs.version.outputs.version }}.nupkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_API_KEY" \
+            --skip-duplicate

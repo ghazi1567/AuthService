@@ -1,8 +1,0 @@
-AuthService.Authorization
-Copyright (c) Auth Service. All rights reserved.
-
-This package is provided to the products that use the Auth Service for sign-in and access control. You may install it and use it in
-those products. You may not redistribute it or sell it on its own.
-
-The package is provided as it is, with no warranty of any kind, express or implied. In no event is its owner liable for any claim,
-damages or other liability arising from its use.
