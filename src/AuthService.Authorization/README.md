@@ -3,13 +3,13 @@
 The package a product API installs to enforce Auth Service tokens. A token is checked **locally**, with no call to the Auth Service per
 request, against the public keys the Auth Service publishes.
 
+Give it two things: where the Auth Service is, and the client secret the platform admin gave your product. The package learns the rest
+(who issues tokens, your product's own audience, where the keys are) from the Auth Service.
+
 ```csharp
-builder.Services.AddAuthServiceAuthorization(options =>
-{
-    options.Issuer = "AuthService";                                         // the Auth Service's issuer
-    options.Audience = "my-product-api";                                    // YOUR product's own audience, as registered
-    options.JwksUrl = new Uri("https://auth.example.com/.well-known/jwks.json");
-});
+builder.Services.AddAuthServiceProduct(options => builder.Configuration.GetSection("AuthService").Bind(options));
+// AuthService__Url=https://auth.example.com
+// AuthService__ClientSecret=cl_….the-secret      (keep it in the host's secret store)
 
 var app = builder.Build();
 app.UseAuthentication();
@@ -20,6 +20,45 @@ app.MapGet("/campaigns", (ClaimsPrincipal user) => ListFor(user.RequireTenantId(
 app.MapPost("/campaigns", CreateCampaign)
    .RequirePermission("campaign.create", AccessLevel.CreateRead);
 ```
+
+`AddAuthServiceProduct` also registers `IAuthServiceClient`, for the calls a product makes as itself: it asks for the service token when it
+needs one, keeps it, and asks again when it is about to expire.
+
+```csharp
+app.MapPost("/signup", async (IAuthServiceClient authService, Guid tenantId) =>
+{
+    var subscription = await authService.SubscribeTenantAsync(tenantId, maxSeats: 5);   // Active; subscribing again changes nothing
+    return Results.Ok(subscription);
+});
+var product = await authService.GetProductAsync();     // your audience, whether you are available, your permission keys
+```
+
+A refusal is an `AuthServiceException` with the status and the Auth Service's own `Code`, such as `tenant_not_found`. It never carries the
+secret or a token.
+
+### Setting it up by hand
+
+If you would rather not have the package read anything from the Auth Service when it starts, say the three things yourself (the product's
+own audience, the issuer and where the keys are). The checks are exactly the same.
+
+```csharp
+builder.Services.AddAuthServiceAuthorization(options =>
+{
+    options.Issuer = "AuthService";                                         // the Auth Service's issuer
+    options.Audience = "my-product-api";                                    // YOUR product's own audience, as registered
+    options.JwksUrl = new Uri("https://auth.example.com/.well-known/jwks.json");
+});
+```
+
+Use one of the two, not both.
+
+### If the Auth Service can't be reached
+
+With `AddAuthServiceProduct`, the issuer and audience are read when the first token arrives and then kept for `ConfigurationCacheMinutes`
+(60). If the Auth Service can't be reached at that moment, every token gets a plain **401** (never an error page) and the package tries again
+after `MinimumRefreshSeconds` (30), so a stream of requests is not a stream of calls to the Auth Service. Once it has read them, a later
+outage changes nothing: the last known settings and keys stay in use. A wrong client secret looks the same from outside (401), and the
+package logs a warning saying only the kind of failure, never the secret.
 
 ## What it enforces
 

@@ -64,14 +64,14 @@ internal sealed class JwksConfigurationManager : IConfigurationManager<OpenIdCon
     }
 }
 
-/// <summary>Fetches the key document through <see cref="IHttpClientFactory"/>, so a product controls the handler, proxy and timeouts.</summary>
-internal sealed class JwksDocumentRetriever(IHttpClientFactory httpClientFactory) : IDocumentRetriever
+/// <summary>Fetches the key document through the named <see cref="IHttpClientFactory"/> client, so a product controls the handler, proxy and timeouts.</summary>
+internal sealed class JwksDocumentRetriever(IHttpClientFactory httpClientFactory, string clientName) : IDocumentRetriever
 {
     private const int MaxBytes = 256 * 1024;
 
     public async Task<string> GetDocumentAsync(string address, CancellationToken cancel)
     {
-        using var client = httpClientFactory.CreateClient(AuthServiceAuthorizationOptions.JwksHttpClientName);
+        using var client = httpClientFactory.CreateClient(clientName);
         using var response = await client.GetAsync(address, HttpCompletionOption.ResponseHeadersRead, cancel);
         response.EnsureSuccessStatusCode();
 

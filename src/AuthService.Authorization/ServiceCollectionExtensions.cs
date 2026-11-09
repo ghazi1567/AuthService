@@ -41,7 +41,8 @@ public static class ServiceCollectionExtensions
         });
 
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<JwksDocumentRetriever>();
+        services.TryAddSingleton(provider => new JwksDocumentRetriever(
+            provider.GetRequiredService<IHttpClientFactory>(), AuthServiceAuthorizationOptions.JwksHttpClientName));
         services.AddSingleton(provider =>
         {
             var options = provider.GetRequiredService<IOptions<AuthServiceAuthorizationOptions>>().Value;
@@ -54,69 +55,16 @@ public static class ServiceCollectionExtensions
             .Configure<IOptions<AuthServiceAuthorizationOptions>, JwksConfigurationManager, TimeProvider>((bearer, settings, keys, time) =>
             {
                 var options = settings.Value;
-
-                // Keep claim names as issued ("sub", "tid", "permissions"), not renamed to long Microsoft claim types.
-                bearer.MapInboundClaims = false;
-                bearer.ConfigurationManager = keys;
-                bearer.RefreshOnIssuerKeyNotFound = true;
-                bearer.SaveToken = false;
-
-                bearer.TokenValidationParameters = new TokenValidationParameters
+                BearerSetup.Apply(bearer, keys, time, options.ClockSkewSeconds, parameters =>
                 {
-                    RequireSignedTokens = true,
-                    ValidateIssuerSigningKey = true,
-
-                    // Only the algorithm the Auth Service signs with, so a token cannot pick a weaker one, or none.
-                    ValidAlgorithms = [SecurityAlgorithms.EcdsaSha256],
-
-                    ValidateIssuer = true,
-                    ValidIssuer = options.Issuer,
-
-                    // The audience is the product's own, and a token must have one. This is what stops a token for one product
-                    // being replayed against another, and an identity or service token (different or no audience) being used here.
-                    ValidateAudience = true,
-                    ValidAudience = options.Audience,
-                    RequireAudience = true,
-
-                    ValidateLifetime = true,
-                    RequireExpirationTime = true,
-                    ClockSkew = TimeSpan.FromSeconds(options.ClockSkewSeconds),
-
-                    // Judged on the product's own TimeProvider if it registers one (so a test can move the clock), otherwise the system clock.
-                    LifetimeValidator = (notBefore, expires, _, parameters) =>
-                    {
-                        var now = time.GetUtcNow().UtcDateTime;
-                        return expires is { } expiry
-                            && expiry >= now - parameters.ClockSkew
-                            && (notBefore is not { } start || start <= now + parameters.ClockSkew);
-                    },
-                    NameClaimType = AuthServiceClaims.Subject,
-                };
-
-                bearer.Events = new JwtBearerEvents
-                {
-                    // A clean answer for any bad token: no exception text, no stack trace, nothing about why.
-                    OnChallenge = async context =>
-                    {
-                        context.HandleResponse();
-                        context.Response.Headers.WWWAuthenticate = JwtBearerDefaults.AuthenticationScheme;
-                        await WriteProblemAsync(context.HttpContext, StatusCodes.Status401Unauthorized, "unauthorized", "Unauthorized", "A valid access token is required.");
-                    },
-                    OnForbidden = context => WriteProblemAsync(
-                        context.HttpContext, StatusCodes.Status403Forbidden, "forbidden", "Forbidden", "The access token does not allow this."),
-                };
+                    // The issuer and the audience are typed in by the product, so each is compared with that one value.
+                    parameters.ValidIssuer = options.Issuer;
+                    parameters.ValidAudience = options.Audience;
+                });
             });
 
-        services.AddAuthorization();
-        services.AddSingleton<IAuthorizationHandler, TenantHandler>();
-        services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
+        BearerSetup.AddEnforcement(services);
 
         return services;
-    }
-
-    private static Task WriteProblemAsync(HttpContext httpContext, int status, string code, string title, string detail)
-    {
-        httpContext.Response.StatusCode = status;
-        return httpContext.Response.WriteAsJsonAsync(new { status, title, detail, code }, options: null, contentType: "application/problem+json");
     }
 }
