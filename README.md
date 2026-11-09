@@ -590,6 +590,18 @@ A product does not write its own token checks. It installs the **`AuthService.Au
 [decision 0009](docs/decisions/0009-publish-the-authorization-package-to-github-packages.md); its own
 [README](src/AuthService.Authorization/README.md) has how to install it, how releases are made and the details), which checks a product token **locally**, against the keys in the JWKS, with no call to the Auth Service per request:
 
+The simplest setup gives the package two things, where the Auth Service is and the client secret the platform admin gave the product, and
+it learns the rest (the issuer, the product's own audience, where the keys are) from the Auth Service (ONB-03, package 1.1.0):
+
+```csharp
+builder.Services.AddAuthServiceProduct(options => builder.Configuration.GetSection("AuthService").Bind(options));
+// AuthService__Url=https://auth.example.com   AuthService__ClientSecret=cl_….the-secret
+```
+
+It also registers `IAuthServiceClient` (`SubscribeTenantAsync`, `GetProductAsync`, `GetServiceTokenAsync`) for the calls a product makes as
+itself, and the checks below are the same. To say the three things yourself instead, which reads nothing from the Auth Service at start,
+use `AddAuthServiceAuthorization` (use one of the two, not both):
+
 ```csharp
 builder.Services.AddAuthServiceAuthorization(options =>
 {

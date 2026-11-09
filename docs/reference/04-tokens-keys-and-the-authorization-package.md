@@ -636,6 +636,15 @@ Rules it enforces:
 - A bad token is a clean 401 problem (`code` = `unauthorized`); a good token lacking the permission is 403 (`code` = `forbidden`). Neither
   leaks exception text.
 - The product refuses to start with a missing audience, issuer or JWKS URL, or a non-https JWKS URL (unless `AllowInsecureJwksUrl`).
+- **`AddAuthServiceProduct` (package 1.1.0, ONB-03)** is the other way to install it: the product gives only `Url` (the Auth Service's address) and
+  `ClientSecret` (the combined credential, or a bare secret with `ClientId`), and `ProductConnection` learns the issuer from
+  `/.well-known/auth-service-configuration` and the product's own audience from `GET /api/auth/applications/me` with its service token, when the
+  first token arrives, keeping them for `ConfigurationCacheMinutes` (60). The keys address is built from `Url`, never taken from the answer, so a
+  wrong answer cannot redirect the key fetches or the secret. The judging is the same shared code (`BearerSetup`); only the issuer and
+  audience come from what was learned. With nothing learned yet every token is a plain 401 and another attempt waits `MinimumRefreshSeconds`.
+  It refuses to start without `Url`, with a non-https `Url` (unless `AllowInsecureUrl`) or without `ClientSecret`. It also registers
+  `IAuthServiceClient` (`SubscribeTenantAsync`, `GetProductAsync`, `GetServiceTokenAsync`), which keeps the service token and asks for a
+  new one once if the Auth Service turns it down. Use it or `AddAuthServiceAuthorization`, not both.
 - `EndpointPolicyAudit` finds endpoints a team forgot to protect.
 
 ### How it is implemented
@@ -644,6 +653,10 @@ Package files (`src/AuthService.Authorization`):
 
 | File | Role |
 |---|---|
+| `AuthServiceProductExtensions.cs`, `AuthServiceProductOptions.cs` | `AddAuthServiceProduct(Action<AuthServiceProductOptions>)` and its settings (`Url`, `ClientSecret`, `ClientId`, `AllowInsecureUrl`, `ConfigurationCacheMinutes`, `KeyCacheMinutes`, `MinimumRefreshSeconds`, `ClockSkewSeconds`); the HTTP client `AuthService.Product` |
+| `ProductConnection.cs`, `ProductKeysConfigurationManager.cs` | What the product learns from the Auth Service, the service token it holds, and the key keeper that waits for it |
+| `IAuthServiceClient.cs`, `AuthServiceClient.cs` | `IAuthServiceClient`, `AuthServiceProduct`, `AuthServiceSubscription`, `AuthServiceException` and their implementation |
+| `BearerSetup.cs` | The token checks and the 401 and 403 answers both ways of installing share |
 | `ServiceCollectionExtensions.cs` | `AddAuthServiceAuthorization(Action<AuthServiceAuthorizationOptions>)`: validates options (`ValidateOnStart`), registers the JWKS HTTP client `AuthService.Jwks` (10 second timeout), the key manager, the JWT bearer settings and the two handlers |
 | `AuthServiceAuthorizationOptions.cs` | Settings (below) |
 | `JwksConfigurationManager.cs` | Keeps the keys: fetch once, refresh on a timer, refresh on an unknown `kid`, keep the last good set, back off on failure. Contains `JwksDocumentRetriever` (response limit 256 KiB) |
