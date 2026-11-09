@@ -238,7 +238,10 @@ These go in `deploy/.env` (copy `deploy/.env.example`; git ignores `.env`). Comp
 | `AUTHSERVICE_REGISTRY` | `ghcr.io/ghazi1567` | No | Registry prefix of the three images (`authservice-api`, `-web`, `-migrate`) | Only change to use your own registry |
 | `AUTH_HOST` | none (`.env.example`: `auth.example.com`) | **Yes** | Name Caddy serves the API on and gets a certificate for; products fetch keys from `https://<AUTH_HOST>/.well-known/jwks.json` | DNS must point at the server and ports 80 and 443 be open |
 | `APP_HOST` | none (`.env.example`: `app.example.com`) | **Yes** | Name of the web console; also becomes `Email__PublicBaseUrl` (`https://<APP_HOST>`) | Wrong value makes email links dead |
-| `ACME_EMAIL` | none | **Yes** | Address Let's Encrypt writes to about certificates | |
+| `ACME_EMAIL` | none | **Yes** (`:?`, even behind a tunnel) | Address Let's Encrypt writes to about certificates. Compose checks it before it merges `docker-compose.tunnel.yml`, so it must hold an address behind a tunnel too, where it is unused | |
+| `COMPOSE_FILE` | none | For a tunnel | `docker-compose.yml:docker-compose.tunnel.yml` makes every `docker compose` command use the tunnel file too (no Caddy, no published ports) | Without it the Caddy stack starts, which needs ports 80 and 443 |
+| `TUNNEL_TOKEN` | none | With the tunnel file (`:?`) | The Cloudflare tunnel's token, passed to `cloudflared` | **Secret**: whoever has it can run the tunnel |
+| `CLOUDFLARED_VERSION` | `2025.11.1` | No | Image tag of `cloudflare/cloudflared` | An untested newer tag may change behaviour |
 | `POSTGRES_PASSWORD` | none (`.env.example`: `change-me`) | **Yes** | Password of the bundled `db` container's `auth` user, and inside the API and migrate connection strings | **Secret.** Replace `change-me` (`openssl rand -base64 24`). Changing it after the volume exists does not change the stored password |
 | `AUTH_KEY_ENCRYPTION_KEY` | none | **Yes** | Becomes `Auth__Tokens__KeyEncryptionKey` | **Secret.** See "Connection and secrets" |
 | `AUTH_ISSUER` | `AuthService` | No | Becomes `Auth__Tokens__Issuer` | Products must match |
