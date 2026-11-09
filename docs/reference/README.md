@@ -199,7 +199,7 @@ The most common production symptoms, with the part that has the full diagnosis. 
 | Webhook stuck `Pending` or `Failed` | Dispatcher off, receiver down or redirecting, wrong key-encryption key, or deadline passed (24 h) | [3](03-products-and-subscriptions.md) |
 | A product reports a bad webhook signature | Verifying over parsed JSON instead of the raw body, or the secret was rotated during the overlap | [3](03-products-and-subscriptions.md) |
 | A product cannot get a service token (401 `invalid_client`) | Wrong or expired secret after a rotation | [3](03-products-and-subscriptions.md) |
-| Seats "full" (409 `no_seat_available`) | Invited and disabled members count differently than expected; stale invitations hold seats | [2](02-organisations-members-and-roles.md), [3](03-products-and-subscriptions.md) |
+| Seats "full" (409 `no_seat_available`) | Invited and disabled members count differently than expected; an unexpired invitation holds a seat, an expired one does not (AUTH-269) | [2](02-organisations-members-and-roles.md), [3](03-products-and-subscriptions.md) |
 | An owner cannot be disabled | The organisation must keep an Owner (409 `last_owner`) | [2](02-organisations-members-and-roles.md) |
 | Platform console says "You don't have access" to a real admin | `users.is_platform_admin` is not set; an admin 403 has no body | [3](03-products-and-subscriptions.md), [6](06-web-console.md) |
 | Audit entries show the proxy's address | Forwarded headers not trusted from the proxy | [5](05-platform-and-cross-cutting.md) |
@@ -238,7 +238,7 @@ Review these first, most risky first. Each links to the part that explains it. T
    `Auth:Webhooks:AllowPrivateAddresses` staying off. Part [3](03-products-and-subscriptions.md).
 10. **Refresh-token rotation under concurrency.** A duplicate request or a lost response revokes the whole family, including the newest token, and the
     "reuse detected" audit entry is also written for ordinary logout and reset. Part [1](01-accounts-and-sign-in.md).
-11. **Organisation rules enforced only in code, with gaps.** Stale invitations hold seats forever, and the "tenant keeps an Owner" rule has no
+11. **Organisation rules enforced only in code, with gaps.** Unaccepted invitations can now be withdrawn and expire out of the seat count (AUTH-269), but the "tenant keeps an Owner" rule has no
     database constraint. Part [2](02-organisations-members-and-roles.md).
 12. **Unbounded growth.** No cleanup for refresh, verification and reset tokens, finished email and webhook outbox rows, or expired product secrets;
     audit retention can be switched off. Parts [1](01-accounts-and-sign-in.md), [5](05-platform-and-cross-cutting.md), [3](03-products-and-subscriptions.md).

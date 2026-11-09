@@ -72,9 +72,19 @@ else
                 <p class="alert-body">This invitation was emailed a moment ago. You can send it again in @(Wait ?? 60) seconds.</p>
             </AlertBanner>
             break;
+        case ("revoked", _):
+            <AlertBanner Kind="AlertKind.Success" Title="Invitation withdrawn" Class="auth-alert">
+                <p class="alert-body">The link in their email no longer works, and any seats held for them are free. You can invite them again whenever you like.</p>
+            </AlertBanner>
+            break;
         case (_, "invitation_not_pending"):
             <AlertBanner Kind="AlertKind.Info" Title="Already accepted" Class="auth-alert">
-                <p class="alert-body">This person has already accepted, or was withdrawn, so there is nothing to resend.</p>
+                <p class="alert-body">This person has already accepted, or was withdrawn, so there is nothing to resend or withdraw.</p>
+            </AlertBanner>
+            break;
+        case (_, "no_seat_available"):
+            <AlertBanner Kind="AlertKind.Warning" Title="No free seat" Class="auth-alert">
+                <p class="alert-body">This invitation expired, which gave up its seats, and a product it includes is full now. Free a seat first, then send it again. Or withdraw it and invite them with fewer products.</p>
             </AlertBanner>
             break;
         case (_, "not_found"):
@@ -149,6 +159,9 @@ else
                                     <span class="has-tip" tabindex="0" data-tip="You need the 'Members · Full access' permission to invite people.">
                                         <button type="button" class="btn btn-secondary btn-sm" disabled aria-disabled="true">Resend</button>
                                     </span>
+                                    <span class="has-tip" tabindex="0" data-tip="You need the 'Members · Full access' permission to withdraw invitations.">
+                                        <button type="button" class="btn btn-ghost btn-sm" disabled aria-disabled="true">Withdraw</button>
+                                    </span>
                                 }
                                 else
                                 {
@@ -160,6 +173,7 @@ else
                                                 data-countdown-label="Resend in {0}s"
                                                 data-countdown-done="Resend">Resend</button>
                                     </form>
+                                    <a class="btn btn-ghost btn-sm" href="@PagePath?revoke=@invitation.MembershipId">Withdraw</a>
                                 }
                             </td>
                         </tr>
@@ -170,7 +184,24 @@ else
         <p class="table-foot">Showing @pending.Count @(pending.Count == 1 ? "invitation" : "invitations")</p>
     }
 
-    @if (inviting)
+    @if (revoking is { } toRevoke)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="revoke-title">
+                <div class="modal-body">
+                    <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                    <h2 id="revoke-title" class="modal-title">Withdraw the invitation for @toRevoke.Email?</h2>
+                    <p class="modal-text">The link in their email stops working at once, and any seats held for them are freed. We don't tell them. You can invite them again later.</p>
+                </div>
+                <form method="post" action="/console/@TenantId/invitations/@toRevoke.MembershipId/revoke" class="modal-foot">
+                    <AntiforgeryToken />
+                    <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                    <button type="submit" class="btn btn-danger" data-busy-label="Withdrawing…">Withdraw invitation</button>
+                </form>
+            </div>
+        </div>
+    }
+    else if (inviting)
     {
         <div class="modal-backdrop">
             <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="invite-title">
@@ -281,6 +312,7 @@ else
     private bool canInvite;
     private bool forbidden;
     private bool inviting;
+    private PendingInvitationItem? revoking;
     private bool callerIsOwner;
     private string? reference;
     private string enteredEmails = "";
@@ -297,6 +329,8 @@ else
     [CascadingParameter] private HttpContext? HttpContext { get; set; }
 
     [SupplyParameterFromQuery(Name = "invite")] private string? Invite { get; set; }
+
+    [SupplyParameterFromQuery(Name = "revoke")] private Guid? RevokeId { get; set; }
 
     [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
 
@@ -374,6 +408,12 @@ else
         }
 
         pending = [.. list.Value!.OrderByDescending(invitation => invitation.IsExpired).ThenBy(invitation => invitation.Email, StringComparer.OrdinalIgnoreCase)];
+
+        // The withdraw question opens only for someone who may act on it, and only for an invitation that is still in the list.
+        if (canInvite && RevokeId is { } revokeId)
+        {
+            revoking = pending.FirstOrDefault(invitation => invitation.MembershipId == revokeId);
+        }
 
         // Product names for the list and the dialog, when the person may read subscriptions.
         if (console.Can(PermissionKeys.SubscriptionsRead, AccessLevel.ReadOnly))

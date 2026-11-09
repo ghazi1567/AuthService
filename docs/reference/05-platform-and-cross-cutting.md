@@ -101,7 +101,7 @@ column holds the value shown, or nothing where the cell says "none".
 | Members | `MemberRolesChanged` | `auth.membership.roles_changed` | User | yes | membership id |
 | Members | `MemberDisabled` / `MemberEnabled` | `auth.membership.disabled` / `auth.membership.enabled` | User | yes | membership id |
 | Members | `MemberAccessGranted` / `MemberAccessRevoked` | `auth.membership.access_granted` / `auth.membership.access_revoked` | User | yes | `<membership-id>.<product-key>` |
-| Invitations | `InvitationSent` / `InvitationResent` | `auth.invitation.sent` / `auth.invitation.resent` | User | yes | membership id |
+| Invitations | `InvitationSent` / `InvitationResent` / `InvitationRevoked` | `auth.invitation.sent` / `auth.invitation.resent` / `auth.invitation.revoked` | User | yes | membership id |
 | Invitations | `InvitationAccepted` | `auth.invitation.accepted` | User (the invitee) | yes | membership id |
 | API keys | `ApiKeyCreated` / `ApiKeyRotated` / `ApiKeyRevoked` | `auth.apikey.created` / `.rotated` / `.revoked` | User | yes | key id (for rotate: the replacement key's id) |
 | Signing keys | `SigningKeyCreated` | `auth.signing_key.created` | System | no | `initial` |
@@ -744,7 +744,7 @@ Collected from every `ApiProblem.Create` call (and the signup `Results.Problem`)
 | `verification_link_invalid` | 410 | Unknown, expired or used verification link | email verify |
 | `reset_link_invalid` | 410 | Unknown, expired or used reset link | password reset |
 | `invitation_invalid` | 410 | Invitation unknown, expired, used or withdrawn | accept invitation |
-| `invitation_not_pending` | 409 | Already accepted, or was not invited | invitation resend |
+| `invitation_not_pending` | 409 | Already accepted, or was not invited | invitation resend, invitation withdraw |
 | `resend_too_soon` | 429 | Invitation emailed a moment ago (with `Retry-After`) | invitation resend |
 | `login_required` | 401 | The email already has an account: log in, then accept | accept invitation |
 | `wrong_account` | 403 | Invitation is for a different email | accept invitation |
@@ -758,7 +758,7 @@ Collected from every `ApiProblem.Create` call (and the signup `Results.Problem`)
 | `role_in_use` | 409 | Members still hold the role | delete role |
 | `membership_invited` | 409 | Person has not accepted the invitation yet | member status |
 | `membership_disabled` | 409 | A disabled member cannot be given access | grant access |
-| `no_seat_available` | 409 | Seat limit reached | invite, enable member, grant access |
+| `no_seat_available` | 409 | Seat limit reached | invite, enable member, grant access, resend an expired invitation |
 | `application_not_subscribed` | 400 | The tenant has no active subscription to the product | invite, grant access |
 | `tenant_access_denied` | 403 | Not an active member of the organisation | my applications |
 | `tenant_suspended` | 403 (my applications, token exchange), 409 (subscribe) | Organisation suspended | several |
@@ -865,7 +865,7 @@ Everything under `/api/auth/admin` is mapped through `AdminEndpoints.MapAdminGro
 | `GET /api/auth/tenants/me/audit` | `audit.read` ReadOnly |
 | `GET /api/auth/tenants/me/members` | `members.read` ReadOnly |
 | `PATCH /api/auth/tenants/me/members/{membershipId}` | `members.manage` Full |
-| `POST /api/auth/tenants/me/invitations`, `POST .../invitations/{membershipId}/resend` | `members.invite` Full |
+| `POST /api/auth/tenants/me/invitations`, `POST .../invitations/{membershipId}/resend`, `DELETE .../invitations/{membershipId}` | `members.invite` Full |
 | `GET /api/auth/tenants/me/invitations` | `members.read` ReadOnly |
 | `PUT /api/auth/tenants/me/members/{membershipId}/roles` | `roles.assign` Full |
 | `PUT` and `DELETE /api/auth/tenants/me/members/{membershipId}/applications/{applicationId}` | `access.manage` Full |

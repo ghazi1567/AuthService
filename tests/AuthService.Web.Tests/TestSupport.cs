@@ -123,6 +123,11 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Path)> ResendCalls { get; } = [];
 
+    /// <summary>Answers an invitation being withdrawn (<c>DELETE /api/auth/tenants/me/invitations/{id}</c>); by default 204.</summary>
+    public Func<HttpResponseMessage>? RevokeInvitationResponse { get; set; }
+
+    public List<(string? Authorization, string Path)> RevokeInvitationCalls { get; } = [];
+
     public string RolesJson { get; set; } = "[]";
 
     /// <summary>The API keys, as the API's JSON array (masked, never raw).</summary>
@@ -697,6 +702,16 @@ public sealed class FakeAuthApi : HttpMessageHandler
             }
 
             return RoleDeleteResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
+
+        if (path.StartsWith("/api/auth/tenants/me/invitations/", StringComparison.Ordinal) && request.Method == HttpMethod.Delete)
+        {
+            lock (_gate)
+            {
+                RevokeInvitationCalls.Add((request.Headers.Authorization?.ToString(), path));
+            }
+
+            return RevokeInvitationResponse?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.NoContent);
         }
 
         if (path.StartsWith("/api/auth/tenants/me/invitations/", StringComparison.Ordinal) && path.EndsWith("/resend", StringComparison.Ordinal))

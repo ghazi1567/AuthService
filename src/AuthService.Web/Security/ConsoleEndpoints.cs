@@ -14,6 +14,7 @@ public static class ConsoleEndpoints
     {
         app.MapPost("/console/{tenantId:guid}/members/{membershipId:guid}/status", SetMemberStatusAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/invitations/{membershipId:guid}/resend", ResendInvitationAsync).AllowAnonymous();
+        app.MapPost("/console/{tenantId:guid}/invitations/{membershipId:guid}/revoke", RevokeInvitationAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/roles/{roleId:guid}/delete", DeleteRoleAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/access/{applicationId:guid}/grant", GrantAccessAsync).AllowAnonymous();
         app.MapPost("/console/{tenantId:guid}/api-keys/{keyId:guid}/rotate", RotateApiKeyAsync).AllowAnonymous();
@@ -126,6 +127,44 @@ public static class ConsoleEndpoints
         {
             var wait = problem.RetryAfter is { } retryAfter ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds)) : 60;
             return Results.Redirect($"{page}?error=resend_too_soon&m={membershipId}&wait={wait}");
+        }
+
+        var known = problem.Code is "invitation_not_pending" or "not_found" or "no_seat_available";
+        var code = known ? problem.Code : problem.Status == StatusCodes.Status403Forbidden ? "forbidden" : "unavailable";
+        return Results.Redirect($"{page}?error={code}&m={membershipId}");
+    }
+
+    private static async Task<IResult> RevokeInvitationAsync(
+        Guid tenantId,
+        Guid membershipId,
+        HttpContext context,
+        IAntiforgery antiforgery,
+        ConsoleSession console,
+        AuthApiClient api)
+    {
+        if (await ReadCheckedFormAsync(context, antiforgery) is null)
+        {
+            return Results.BadRequest();
+        }
+
+        var page = $"/console/{tenantId}/invitations";
+        var opened = await OpenAsync(context, console, tenantId, page);
+        if (opened.Redirect is not null)
+        {
+            return opened.Redirect;
+        }
+
+        var result = await api.DeleteAsync($"/api/auth/tenants/me/invitations/{membershipId}", opened.Console!.Token, context.RequestAborted);
+        if (result.IsSuccess)
+        {
+            return Results.Redirect($"{page}?notice=revoked");
+        }
+
+        var problem = result.Problem!;
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            console.Refresh(context, tenantId);
+            return Results.Redirect(page);
         }
 
         var known = problem.Code is "invitation_not_pending" or "not_found";

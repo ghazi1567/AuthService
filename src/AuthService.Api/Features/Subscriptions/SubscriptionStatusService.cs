@@ -68,7 +68,7 @@ public sealed class SubscriptionStatusService(AuthDbContext db, AuditLog audit, 
 
         if (subscription.Status == status)
         {
-            return new SetSubscriptionStatusResult.Unchanged(await db.ToResponseAsync(subscription, cancellationToken));
+            return new SetSubscriptionStatusResult.Unchanged(await db.ToResponseAsync(subscription, timeProvider.GetUtcNow(), cancellationToken));
         }
 
         if (subscription.Status == SubscriptionStatus.Cancelled)
@@ -102,6 +102,6 @@ public sealed class SubscriptionStatusService(AuthDbContext db, AuditLog audit, 
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new SetSubscriptionStatusResult.Updated(await db.ToResponseAsync(subscription, cancellationToken));
+        return new SetSubscriptionStatusResult.Updated(await db.ToResponseAsync(subscription, now, cancellationToken));
     }
 }

@@ -2,6 +2,7 @@ using AuthService.Api.Common;
 using AuthService.Api.Email;
 using AuthService.Api.Features.Audit;
 using AuthService.Api.Features.Roles;
+using AuthService.Api.Features.Subscriptions;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -33,11 +34,28 @@ public abstract record ResendInvitationResult
 
     /// <summary>The link was emailed moments ago.</summary>
     public sealed record TooSoon(int RetryAfterSeconds) : ResendInvitationResult;
+
+    /// <summary>
+    /// The invitation had expired, which freed its seats, and a product it gives access to has since filled up. Sending it again would
+    /// take a seat that is not there. The keys name the full products.
+    /// </summary>
+    public sealed record NoSeatAvailable(IReadOnlyList<string> ApplicationKeys) : ResendInvitationResult;
+}
+
+public abstract record RevokeInvitationResult
+{
+    public sealed record Revoked : RevokeInvitationResult;
+
+    /// <summary>No such membership in the caller's tenant.</summary>
+    public sealed record NotFound : RevokeInvitationResult;
+
+    /// <summary>The person has already accepted, or the membership was never an open invitation.</summary>
+    public sealed record NotPending : RevokeInvitationResult;
 }
 
 /// <summary>
-/// Lets a tenant admin see who has not yet accepted their invitation, and send the link again (a new one: the old link stops
-/// working, and the new one lasts a full invitation period). Both only ever concern the caller's tenant.
+/// Lets a tenant admin see who has not yet accepted their invitation, send the link again (a new one: the old link stops working, and
+/// the new one lasts a full invitation period), or withdraw it. All of it only ever concerns the caller's tenant.
 /// </summary>
 public sealed class ManageInvitationsService(
     AuthDbContext db,
@@ -143,6 +161,17 @@ public sealed class ManageInvitationsService(
             return new ResendInvitationResult.TooSoon((int)Math.Ceiling((waitUntil - now).TotalSeconds));
         }
 
+        // An invitation past its lifetime holds no seat (see SeatHolders), so sending it again takes the seats back, and that needs the same
+        // check and the same row locks as a new invitation. A live invitation already holds its seats, so there is nothing to check.
+        if (invitation.ExpiresAt <= now)
+        {
+            var full = await FullProductsAsync(tenantId, membershipId, now, cancellationToken);
+            if (full.Count > 0)
+            {
+                return new ResendInvitationResult.NoSeatAvailable(full);
+            }
+        }
+
         // The same row gets a new token and a new expiry, so the old link no longer matches anything.
         var token = SecretToken.NewValue();
         invitation.TokenHash = SecretToken.Hash(token);
@@ -178,5 +207,87 @@ public sealed class ManageInvitationsService(
             [.. roles.OrderBy(role => role.Name, StringComparer.OrdinalIgnoreCase)],
             [.. applicationIds.Order()],
             invitation.ExpiresAt));
+    }
+
+    /// <summary>
+    /// Withdraws an invitation nobody has accepted: the link stops working at once, the person's seats are freed, and the pending membership
+    /// is removed, so the same address can be invited again (it would otherwise be refused as "already a member"). Anyone who has accepted
+    /// is a member, and leaves through the member list, not here.
+    /// </summary>
+    public async Task<RevokeInvitationResult> RevokeAsync(Guid callerUserId, Guid tenantId, Guid membershipId, CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        // The same row lock as resending and accepting, so a revoke and an acceptance at the same moment cannot both win.
+        var membership = await db.TenantMemberships
+            .FromSqlInterpolated($"SELECT * FROM tenant_memberships WHERE id = {membershipId} AND tenant_id = {tenantId} FOR UPDATE")
+            .AsNoTracking()
+            .SingleOrDefaultAsync(cancellationToken);
+        if (membership is null)
+        {
+            return new RevokeInvitationResult.NotFound();
+        }
+
+        // Pending means Invited with a link that was never used. Expired counts: a stale invitation is exactly what is being cleaned up.
+        var pending = membership.Status == MembershipStatus.Invited
+            && await db.Invitations.AnyAsync(
+                candidate => candidate.TenantId == tenantId && candidate.MembershipId == membershipId && candidate.UsedAt == null, cancellationToken);
+        if (!pending)
+        {
+            return new RevokeInvitationResult.NotPending();
+        }
+
+        // Children first (the foreign keys restrict), then the membership itself.
+        await db.Invitations.Where(candidate => candidate.MembershipId == membershipId).ExecuteDeleteAsync(cancellationToken);
+        await db.MembershipRoles.Where(assignment => assignment.MembershipId == membershipId).ExecuteDeleteAsync(cancellationToken);
+        await db.ApplicationAccess.Where(access => access.MembershipId == membershipId).ExecuteDeleteAsync(cancellationToken);
+        await db.TenantMemberships.Where(candidate => candidate.Id == membershipId).ExecuteDeleteAsync(cancellationToken);
+
+        // A person who exists only because of this invitation (no password, no other organisation) is not kept as an account nobody can
+        // sign in to; anyone who has an account or belongs somewhere else is left exactly as they are.
+        await db.Users
+            .Where(user => user.Id == membership.UserId && user.PasswordHash == null
+                && !db.TenantMemberships.Any(other => other.UserId == user.Id))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        audit.Record(AuditActions.InvitationRevoked, AuditActor.User(callerUserId), tenantId, membershipId.ToString());
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new RevokeInvitationResult.Revoked();
+    }
+
+    /// <summary>
+    /// The keys of the products that cannot take this membership's seat back, checked under the same row locks as inviting. The membership
+    /// is not counted yet (its invitation has expired), so a product whose count is already at the limit is full.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> FullProductsAsync(Guid tenantId, Guid membershipId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var applicationIds = await db.ApplicationAccess.AsNoTracking()
+            .Where(access => access.MembershipId == membershipId)
+            .Select(access => access.ApplicationId)
+            .OrderBy(id => id)
+            .ToListAsync(cancellationToken);
+
+        var full = new List<string>();
+        foreach (var applicationId in applicationIds)
+        {
+            var subscription = await db.Subscriptions
+                .FromSqlInterpolated($"SELECT * FROM subscriptions WHERE tenant_id = {tenantId} AND application_id = {applicationId} FOR UPDATE")
+                .AsNoTracking()
+                .SingleOrDefaultAsync(cancellationToken);
+            if (subscription?.MaxSeats is not { } maxSeats)
+            {
+                continue;
+            }
+
+            if (await db.SeatsUsedAsync(tenantId, applicationId, now, cancellationToken) >= maxSeats)
+            {
+                full.Add(await db.Applications.AsNoTracking().Where(application => application.Id == applicationId)
+                    .Select(application => application.Key).SingleAsync(cancellationToken));
+            }
+        }
+
+        return [.. full.Order(StringComparer.Ordinal)];
     }
 }

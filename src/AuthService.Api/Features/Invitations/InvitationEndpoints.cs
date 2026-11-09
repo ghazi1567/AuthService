@@ -16,6 +16,8 @@ public static class InvitationEndpoints
 
     public static string ResendRouteFor(Guid membershipId) => $"{InviteRoute}/{membershipId}/resend";
 
+    public static string RevokeRouteFor(Guid membershipId) => $"{InviteRoute}/{membershipId}";
+
     public static IEndpointRouteBuilder MapInvitations(this IEndpointRouteBuilder app)
     {
         app.MapPost(InviteRoute, InviteAsync).RequireTenantPermission(PermissionKeys.MembersInvite, AccessLevel.Full);
@@ -23,6 +25,9 @@ public static class InvitationEndpoints
         // Who has not accepted yet is part of knowing who is in the tenant, so it takes the same permission as the member list.
         app.MapGet(InviteRoute, ListPendingAsync).RequireTenantPermission(PermissionKeys.MembersRead, AccessLevel.ReadOnly);
         app.MapPost($"{InviteRoute}/{{membershipId:guid}}/resend", ResendAsync).RequireTenantPermission(PermissionKeys.MembersInvite, AccessLevel.Full);
+
+        // Withdrawing an invitation is the other half of sending one, so it takes the same permission.
+        app.MapDelete($"{InviteRoute}/{{membershipId:guid}}", RevokeAsync).RequireTenantPermission(PermissionKeys.MembersInvite, AccessLevel.Full);
 
         // Open to anyone holding a link. A new person has no account to log in to; an existing one is checked inside.
         app.MapPost(AcceptRoute, AcceptAsync).AllowAnonymous();
@@ -96,9 +101,30 @@ public static class InvitationEndpoints
                 return ApiProblem.Create(StatusCodes.Status409Conflict, "invitation_not_pending", "Not waiting to be accepted",
                     "This person has already accepted, or was not invited.");
 
+            case ResendInvitationResult.NoSeatAvailable full:
+                return ApiProblem.Create(StatusCodes.Status409Conflict, "no_seat_available", "No seat available",
+                    $"This invitation has expired and its seats were given up. There is no free seat in: {string.Join(", ", full.ApplicationKeys)}.");
+
             default:
                 return ApiProblem.Create(StatusCodes.Status404NotFound, "not_found", "Not found", "No such invitation in this tenant.");
         }
+    }
+
+    private static async Task<IResult> RevokeAsync(
+        Guid membershipId, ClaimsPrincipal caller, ManageInvitationsService invitations, CancellationToken cancellationToken)
+    {
+        var userId = caller.GetUserId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a user id.");
+        var tenantId = caller.GetTenantId() ?? throw new InvalidOperationException("The tenant-context policy guarantees a tenant id.");
+
+        return await invitations.RevokeAsync(userId, tenantId, membershipId, cancellationToken) switch
+        {
+            RevokeInvitationResult.Revoked => Results.NoContent(),
+
+            RevokeInvitationResult.NotPending => ApiProblem.Create(StatusCodes.Status409Conflict, "invitation_not_pending", "Not waiting to be accepted",
+                "This person has already accepted, or was not invited."),
+
+            _ => ApiProblem.Create(StatusCodes.Status404NotFound, "not_found", "Not found", "No such invitation in this tenant."),
+        };
     }
 
     private static async Task<IResult> AcceptAsync(AcceptInvitationRequest request, HttpContext httpContext, AcceptInvitationService accept, CancellationToken cancellationToken)

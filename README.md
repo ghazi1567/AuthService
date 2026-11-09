@@ -127,7 +127,8 @@ What is in place:
 - **Invitations** (`/console/{tenantId}/invitations`, UI02_T2 and T3). The pending list shows email, status (expired ones first and flagged), roles, products
   (named when the person may read subscriptions, counted otherwise), who invited, when it was sent and when it expires. **Resend** (needs
   `members.invite:Full`) shows the API's one-minute wait as a live countdown worked out from when it was last sent; resending too soon, an
-  invitation already accepted and a missing invitation are each explained. **Invite people** opens a dialog (`?invite=1`, plain HTML): one or
+  invitation already accepted, an expired one whose product has filled up, and a missing invitation are each explained. **Withdraw** (same
+  permission) asks first, naming the person (`?revoke=`), then removes the invitation. **Invite people** opens a dialog (`?invite=1`, plain HTML): one or
   many addresses (a line or comma each, up to 20), 1 to 10 roles from the role list (Owner only offered to an Owner), and optional product access
   with seats shown (full or unsubscribed products can't be chosen). Each address is invited in turn; a refusal (already a member, Owner
   role restricted, product not subscribed, no free seat in named products, role gone, API down) is explained and only the addresses that still
@@ -391,7 +392,7 @@ entry has **who** (user, product, API key, the system, or anonymous), **what** (
 What is recorded: signup, tenant creation, login success and failure (with the reason: wrong password, unknown account, locked,
 disabled, email not verified), lockouts, email verification, completed password resets, refresh-token reuse, signing-key creation and
 rotation, platform-admin actions (registering a product, its catalog, activation and secret rotation, reading the log), subscriptions,
-suspensions and seat-limit changes, role creation, changes and deletion, member role, access and status changes, invitations sent, accepted and resent, and
+suspensions and seat-limit changes, role creation, changes and deletion, member role, access and status changes, invitations sent, accepted, resent and withdrawn, and
 reads of the tenant's own log. API-key events are recorded when those stories land. The codes live in `AuditActions`.
 
 - **Written with the action, not after it.** An entry is saved in the same transaction as the action it records, so it exists if
@@ -865,7 +866,7 @@ whose subscription is Suspended or Cancelled, and one the tenant never used, is 
 
 - **Roles are required: 1 to 10** of the caller's tenant (another tenant's role is **404**). Only an Owner can invite someone as an
   Owner (**403**). `applicationIds` is optional and gives the person access to those products straight away; an Invited person
-  **takes a seat**, so a full product refuses the whole invitation (**409** `no_seat_available`) and nothing is created, and a
+  **takes a seat** until the invitation expires, so a full product refuses the whole invitation (**409** `no_seat_available`) and nothing is created, and a
   product the tenant is not actively subscribed to is **400**.
 - The email is trimmed and lowercased. An email that already has a membership in this tenant, in any status and whatever its
   case, is **409** `already_member`. The reply (**201**, `membershipId`, `status: Invited`, roles, `expiresAt`) is the same
@@ -893,11 +894,19 @@ whose subscription is Suspended or Cancelled, and one the tenant never used, is 
   `isExpired`. An accepted invitation is not listed; an expired one is, flagged, because that is the one to send again. Only the
   caller's tenant is ever listed.
 - `POST /api/auth/tenants/me/invitations/{membershipId}/resend` (`members.invite` at `Full`) emails a **new** link (the old one stops
-  working at once) and gives a full period again, so it also revives an expired invitation. The reply is the invitation as when
+  working at once) and gives a full period again, so it also revives an expired invitation, which takes its seats back: if a product it gives access to is full by now, it is **409**
+  `no_seat_available` and nothing is sent. The reply is the invitation as when
   it was sent (**200**). A person who has already accepted, or was never invited, is **409** `invitation_not_pending`; a
   membership of another tenant or an unknown id is **404**. Within 60 seconds of the last send (`Auth:Invitations:ResendCooldownSeconds`)
   it is **429** `resend_too_soon` with `Retry-After` and sends nothing, so it cannot be used to flood an inbox; simultaneous requests
   send one email. Resending is audit-logged (`auth.invitation.resent`, with the membership id).
+- `DELETE /api/auth/tenants/me/invitations/{membershipId}` (`members.invite` at `Full`) **withdraws** an invitation nobody has accepted (**204**):
+  the pending membership, its roles, product access and link are removed, so the link stops working (**410**), its seats are free at once, and
+  the same address can be invited again. A person who exists only because of the invitation (no password, no other organisation) is removed
+  too. It works on an expired invitation as well. An accepted one is **409** `invitation_not_pending`; another tenant's or an unknown id is
+  **404**. It is audit-logged (`auth.invitation.revoked`, with the membership id).
+- **Seats and expiry.** An invitation that has expired no longer holds a seat: the seat count leaves it out, with no background job
+  (decision 0012). It stays in the list, flagged `isExpired`, until it is sent again or withdrawn.
 
 #### Members: listing, enabling and disabling
 
@@ -965,7 +974,7 @@ tenant-admin token:
 - `PUT /api/auth/tenants/me/members/{membershipId}/applications/{applicationId}` to give access.
 - `DELETE` on the same path to take it away.
 
-- **Granting** locks the subscription row, counts the seats in use (members whose membership is **Invited or Active** and who have
+- **Granting** locks the subscription row, counts the seats in use (members who are **Active**, or **Invited** with an invitation that has not expired, and who have
   access) and returns **409** `no_seat_available` when none is free, creating nothing. Two requests for the last seat can never both
   succeed, and a change of the limit (SUB-04) takes turns with them. It returns **201** with `seatsUsed` and `maxSeats`;
   granting access a member already has is a no-op (**200**).
@@ -987,7 +996,7 @@ A tenant admin sees the tenant's subscriptions with `GET /api/auth/tenants/me/su
 Each item is `{applicationId, applicationKey, applicationName, status, maxSeats, seatsUsed, createdAt, updatedAt}`, ordered by product
 name, and includes **every** status (Active, Suspended and Cancelled), so a tenant can see a subscription that was ended.
 
-- **`seatsUsed`** counts members with access to the product whose membership is **Invited or Active**. A Disabled member keeps
+- **`seatsUsed`** counts members with access to the product whose membership is **Active**, or **Invited** with an invitation that has not expired. An expired invitation uses no seat (decision 0012). A Disabled member keeps
   their access row, so re-enabling restores it, but uses no seat. The same rule gives `seatsUsed` in the subscribe and seat-limit
   responses. `maxSeats` is null for unlimited.
 - A member without the permission gets 403; an identity, service or other product's token gets 403; no token 401. The Auth Service's
