@@ -1,10 +1,15 @@
+using AuthService.Api.Features.Webhooks;
 using AuthService.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AuthService.Api.Features.Entitlements;
 
 /// <summary>A subscription's effective limits at one moment, with what they were computed from.</summary>
 public sealed record EntitlementSnapshot(Guid SubscriptionId, Guid TenantId, Guid? PlanId, SortedDictionary<string, EffectiveLimit> Limits);
+
+/// <summary>A tenant's entitlements as the events carry them. <c>Entitlements</c> is the complete set; null is unlimited.</summary>
+public sealed record EntitlementPayload(string? PlanKey, string? PlanName, long Version, SortedDictionary<string, long?> Entitlements, IReadOnlyList<string> Overridden);
 
 /// <summary>A subscription whose effective limits changed, after its version was raised.</summary>
 public sealed record ChangedEntitlements(Guid SubscriptionId, Guid TenantId, long Version, long ChangeSeq, SortedDictionary<string, EffectiveLimit> Limits);
@@ -12,9 +17,9 @@ public sealed record ChangedEntitlements(Guid SubscriptionId, Guid TenantId, lon
 /// <summary>
 /// ENT-03: computes subscriptions' effective limits and raises the version of the ones that changed. A caller takes a snapshot of the
 /// subscriptions its change can affect, saves the change inside its transaction, then calls <see cref="CommitAsync"/>, which compares, raises
-/// versions, copies <c>seats</c> to <c>maxSeats</c> and returns what changed (ENT-04 sends one event for each).
+/// versions, copies <c>seats</c> to <c>maxSeats</c>, writes one <c>EntitlementsChanged</c> event for each (ENT-04) and returns what changed.
 /// </summary>
-public sealed class EntitlementState(AuthDbContext db)
+public sealed class EntitlementState(AuthDbContext db, TimeProvider timeProvider, IOptions<WebhookOptions> webhookOptions)
 {
     /// <param name="subscriptionIds">The subscriptions to look at, or null for every subscription of the product.</param>
     public async Task<Dictionary<Guid, EntitlementSnapshot>> SnapshotAsync(
@@ -72,8 +77,11 @@ public sealed class EntitlementState(AuthDbContext db)
     /// as a new subscription, counts as changed), raises the version of each that differs with a fresh change number in one statement, and keeps
     /// <c>maxSeats</c> equal to the effective <c>seats</c>. Call it after saving the change, inside the same transaction.
     /// </summary>
+    /// <param name="sendEvents">Whether to tell the product with an <c>EntitlementsChanged</c> event for each subscription that changed, written in
+    /// the same transaction. Subscribing passes false: its <c>ApplicationSubscribed</c> event already carries the entitlements.</param>
     public async Task<IReadOnlyList<ChangedEntitlements>> CommitAsync(
-        Guid applicationId, IReadOnlyCollection<Guid> subscriptionIds, IReadOnlyDictionary<Guid, EntitlementSnapshot> before, CancellationToken cancellationToken)
+        Guid applicationId, IReadOnlyCollection<Guid> subscriptionIds, IReadOnlyDictionary<Guid, EntitlementSnapshot> before, CancellationToken cancellationToken,
+        bool sendEvents = true)
     {
         if (subscriptionIds.Count == 0)
         {
@@ -103,8 +111,63 @@ public sealed class EntitlementState(AuthDbContext db)
             await SyncSeatsAsync(snapshot, cancellationToken);
         }
 
-        return changed.Select(snapshot => new ChangedEntitlements(
+        var result = changed.Select(snapshot => new ChangedEntitlements(
             snapshot.SubscriptionId, snapshot.TenantId, byId[snapshot.SubscriptionId].Version, byId[snapshot.SubscriptionId].ChangeSeq, snapshot.Limits)).ToList();
+
+        if (sendEvents)
+        {
+            await EnqueueChangedEventsAsync(applicationId, changed, byId, cancellationToken);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// What the events carry about a tenant's entitlements (ENT-04): its plan, the version, the complete effective set (null is unlimited, never a
+    /// difference) and which limits are overridden. Shared by <c>EntitlementsChanged</c> and <c>ApplicationSubscribed</c>.
+    /// </summary>
+    public static EntitlementPayload Payload(EntitlementSnapshot snapshot, long version, string? planKey, string? planName) =>
+        new(planKey, planName, version,
+            new SortedDictionary<string, long?>(snapshot.Limits.ToDictionary(pair => pair.Key, pair => pair.Value.Value), StringComparer.Ordinal),
+            snapshot.Limits.Where(pair => pair.Value.Source == EntitlementSource.Override).Select(pair => pair.Key).ToList());
+
+    /// <summary>The key and name of each plan asked about.</summary>
+    public async Task<Dictionary<Guid, (string Key, string Name)>> PlanNamesAsync(IEnumerable<Guid?> planIds, CancellationToken cancellationToken)
+    {
+        var ids = planIds.Where(id => id != null).Select(id => id!.Value).Distinct().ToList();
+        var plans = await db.Plans.AsNoTracking().Where(plan => ids.Contains(plan.Id))
+            .Select(plan => new { plan.Id, plan.Key, plan.Name })
+            .ToListAsync(cancellationToken);
+        return plans.ToDictionary(plan => plan.Id, plan => (plan.Key, plan.Name));
+    }
+
+    private async Task EnqueueChangedEventsAsync(
+        Guid applicationId, IReadOnlyList<EntitlementSnapshot> changed, Dictionary<Guid, VersionRow> versions, CancellationToken cancellationToken)
+    {
+        var plans = await PlanNamesAsync(changed.Select(snapshot => snapshot.PlanId), cancellationToken);
+        var now = timeProvider.GetUtcNow();
+        foreach (var snapshot in changed)
+        {
+            var plan = snapshot.PlanId is { } planId ? plans[planId] : default((string Key, string Name)?);
+            var payload = Payload(snapshot, versions[snapshot.SubscriptionId].Version, plan?.Key, plan?.Name);
+            db.WebhookOutbox.Add(WebhookEvents.Create(applicationId, WebhookEvents.EntitlementsChanged, now, webhookOptions.Value.RetryWindowHours, eventId => new
+            {
+                eventId,
+                eventType = WebhookEvents.EntitlementsChanged,
+                occurredAt = now,
+                schemaVersion = WebhookEvents.SchemaVersion,
+                tenantId = snapshot.TenantId,
+                applicationId,
+                planKey = payload.PlanKey,
+                planName = payload.PlanName,
+                version = payload.Version,
+                entitlements = payload.Entitlements,
+                overridden = payload.Overridden,
+            }));
+        }
+
+        // Saved here, in the caller's transaction, so an event exists if and only if the change it describes does.
+        await db.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>

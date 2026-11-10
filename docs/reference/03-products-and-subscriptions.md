@@ -15,6 +15,7 @@ from, how a tenant subscribes to it, and how the Auth Service tells the product 
 - [Product limit definitions](#product-limit-definitions)
 - [Plans](#plans)
 - [Plan assignment, overrides and effective entitlements](#plan-assignment-overrides-and-effective-entitlements)
+- [Entitlement events](#entitlement-events)
 - [Product credentials and the service token](#product-credentials-and-the-service-token)
 - [Launch URL and the "my products" read](#launch-url-and-the-my-products-read)
 - [Subscriptions](#subscriptions)
@@ -526,6 +527,52 @@ limit, cascade with the subscription, `reason` up to 200); `entitlement_changes`
 ### Decisions and open questions
 
 - See decision 0014. **Open:** a plan edit with thousands of tenants recomputes them all inside the request; the history has no retention job.
+
+---
+
+## Entitlement events
+
+### What it does
+
+ENT-04 (epic AUTH-277). Products are told a tenant's entitlements by webhook, with the same outbox, signing, headers and retries as the other
+events (see "Webhooks to products and webhook secret rotation"). Two events carry them, both with `schemaVersion: 1` (`WebhookEvents.SchemaVersion`):
+
+- **`EntitlementsChanged`** (`WebhookEvents.EntitlementsChanged`): one per subscription each time its version rises (`EntitlementState.CommitAsync`
+  with `sendEvents` true, the default). Fields: `eventId`, `eventType`, `occurredAt`, `schemaVersion`, `tenantId`, `applicationId`, `planKey`,
+  `planName`, `version`, `entitlements` (the complete effective set, null = unlimited), `overridden` (keys).
+- **`ApplicationSubscribed`**: the existing fields plus `schemaVersion`, `planKey`, `planName`, `version`, `entitlements`, `overridden`. `maxSeats` is
+  now the subscription's effective seat limit after subscribing. Subscribing commits with `sendEvents: false`, so no `EntitlementsChanged` goes
+  out for the same change.
+
+Rules:
+
+- Written in the same transaction as the change (`EnqueueChangedEventsAsync` saves them with the caller's context), so an event exists if and
+  only if the change does. A plan edit writes one row per changed tenant inside the admin's request; delivery stays with the background worker.
+- Payload built by `EntitlementState.Payload` (`EntitlementPayload`), plan key and name by `EntitlementState.PlanNamesAsync`.
+- Subscribing accepts `planKey` (`SubscribeRequest.PlanKey`, `AdminSubscribeRequest.PlanKey`): lowercased, must be an active plan of the product
+  (`404 plan_not_found`, `409 plan_inactive`, checked before anything is written). Assigning it on subscribe sets `plans.ever_assigned` and writes a
+  `plan_assigned` history row. The response (`SubscriptionResponse`) then has `planKey`, `entitlementsVersion` and `entitlements`.
+- A subscription from before ENT-03 (version 0) gets version 1 when it is subscribed again.
+
+### How it is implemented
+
+| Where | What |
+|---|---|
+| `EntitlementState.CommitAsync` | Raises versions, then `EnqueueChangedEventsAsync` adds one outbox row per changed subscription and saves. |
+| `SubscribeTenantService.SubscribeAsync` | Checks the plan, assigns it, commits entitlements without events, then writes `ApplicationSubscribed` with the snapshot. |
+| `SubscriptionEntitlementService.ApplyOverrideAsync` | Takes `sendEvents`, false when called while subscribing. |
+| `SubscriptionEndpoints.PlanNotFound` / `PlanInactive` | The two new refusals, shared with the admin subscribe endpoint. |
+
+### Failure modes and production debugging
+
+- "The product did not hear about a plan change": `SELECT event_type, status, attempts, last_error FROM webhook_outbox WHERE application_id = '<id>'
+  ORDER BY created_at DESC LIMIT 20;` (the same as any other event; a product with no callback registered gets nothing delivered).
+- "The product holds an old number": compare its stored version with `subscriptions.entitlements_version`; a product must apply only higher versions.
+
+### Decisions and open questions
+
+- `ApplicationSubscribed` carries the entitlements instead of a second event, so a new tenant arrives complete in one message.
+- **Open:** a plan with thousands of tenants writes thousands of outbox rows in one request; delivery is paced by the worker, not throttled per product.
 
 ---
 

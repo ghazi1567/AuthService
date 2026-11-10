@@ -100,6 +100,14 @@ public static class SubscriptionEndpoints
         };
     }
 
+    /// <summary>The plan asked for when subscribing is not one of the product's plans (ENT-04).</summary>
+    public static IResult PlanNotFound() =>
+        ApiProblem.Create(StatusCodes.Status404NotFound, "plan_not_found", "Plan not found", "This product has no plan with this key.");
+
+    /// <summary>The plan asked for when subscribing is deactivated (ENT-04).</summary>
+    public static IResult PlanInactive() =>
+        ApiProblem.Create(StatusCodes.Status409Conflict, "plan_inactive", "Plan is not active", "This plan is deactivated, so it cannot be newly assigned.");
+
     private static IResult SubscriptionNotFound() =>
         ApiProblem.Create(StatusCodes.Status404NotFound, "subscription_not_found", "Subscription not found", "No such subscription.");
 
@@ -119,7 +127,8 @@ public static class SubscriptionEndpoints
         }
 
         var applicationId = caller.GetApplicationId() ?? throw new InvalidOperationException("The service-token policy guarantees an application id.");
-        var result = await subscriptions.SubscribeAsync(applicationId, tenantId, request?.MaxSeats, cancellationToken);
+        var planKey = string.IsNullOrWhiteSpace(request?.PlanKey) ? null : request.PlanKey.Trim().ToLowerInvariant();
+        var result = await subscriptions.SubscribeAsync(applicationId, tenantId, request?.MaxSeats, cancellationToken, planKey: planKey);
 
         return result switch
         {
@@ -132,6 +141,10 @@ public static class SubscriptionEndpoints
 
             SubscribeResult.TenantSuspended => ApiProblem.Create(StatusCodes.Status409Conflict, "tenant_suspended",
                 "Tenant suspended", "A suspended tenant cannot subscribe to an application."),
+
+            SubscribeResult.PlanNotFound => PlanNotFound(),
+
+            SubscribeResult.PlanInactive => PlanInactive(),
 
             _ => ApiProblem.Create(StatusCodes.Status404NotFound, "tenant_not_found", "Tenant not found", "No tenant has this id."),
         };
