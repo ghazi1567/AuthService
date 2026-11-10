@@ -769,6 +769,93 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("permissions", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Plan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("EverAssigned")
+                        .HasColumnType("boolean")
+                        .HasColumnName("ever_assigned");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_plans");
+
+                    b.HasIndex("ApplicationId", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ux_plans_application_id_key");
+
+                    b.ToTable("plans", (string)null);
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.PlanValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("LimitDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("limit_definition_id");
+
+                    b.Property<Guid>("PlanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("plan_id");
+
+                    b.Property<long?>("Value")
+                        .HasColumnType("bigint")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_plan_values");
+
+                    b.HasIndex("LimitDefinitionId")
+                        .HasDatabaseName("ix_plan_values_limit_definition_id");
+
+                    b.HasIndex("PlanId", "LimitDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_plan_values_plan_id_limit_definition_id");
+
+                    b.ToTable("plan_values", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_plan_values_value_not_negative", "value IS NULL OR value >= 0");
+                        });
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RateLimitCounter", b =>
                 {
                     b.Property<string>("KeyHash")
@@ -1382,6 +1469,33 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_permissions_applications_application_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.Plan", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_plans_applications_application_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.PlanValue", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.LimitDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("LimitDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_values_limit_definitions_limit_definition_id");
+
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_values_plans_plan_id");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.RefreshToken", b =>
