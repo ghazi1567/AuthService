@@ -55,15 +55,26 @@ Rules:
 - **What `Suspended` blocks** (all read from the database at the time of the call):
   - Token exchange for any product, including the Auth Service's own: an *Active member* gets `403` `tenant_suspended`; anyone else
     still gets the plain `403` `exchange_denied` (`TokenExchangeService.ExchangeAsync`). So the admin console cannot be opened.
+  - **Every tenant-admin request** (AUTH-268): `ActiveTenantRequirement` is part of the `TenantContext` policy, and `ActiveTenantHandler` reads
+    the status of the token's `tid` on each call. A suspended organisation gets `401` `tenant_suspended` (with `WWW-Authenticate: Bearer`, from
+    `TenantSuspendedResultHandler`), so a token issued before the suspension stops working at once and works again after reactivation. A missing
+    permission is still an empty `403`. The console answers the 401 by dropping its cached token and reloading, and the exchange then says why.
   - `GET /api/auth/users/me/applications` (`MyApplicationsEndpoints`): `403` `tenant_suspended` for an Active member,
     `tenant_access_denied` for anyone else.
-  - Subscribing the tenant to a product (`SubscribeTenantService`): `409` `tenant_suspended`.
+  - Subscribing the tenant to a product (`SubscribeTenantService`) and a product changing its seat limit (`SeatLimitService`): `409` `tenant_suspended`.
+  - Accepting an invitation (`AcceptInvitationService`): `403` `tenant_suspended`, checked before the link is claimed or a password hashed,
+    so the link keeps working after reactivation.
   - API keys: `ApiKeyValidationService` treats a key of a suspended tenant as invalid (`401` `invalid_api_key`).
-- **What `Suspended` does not block.** Tokens already issued keep working until they expire (15 minutes by default), because the
-  tenant-admin endpoints do not look at the tenant status. Login and refresh still work. Accepting an invitation
-  (`AcceptInvitationService`) does not check it. Creating another organisation still works.
-- **There is no way to suspend or reactivate an organisation through the API or the web console.** I found no code that writes
-  `TenantStatus.Suspended` outside tests. See "Decisions and open questions".
+- **What `Suspended` does not block.** Login and refresh still work (the person is not suspended, their organisation is). A product can still
+  suspend or cancel its own subscription, which only takes access away. Creating another organisation still works.
+- **Suspending and reactivating** (AUTH-268, decision 0013). `PUT /api/auth/admin/tenants/{tenantId}/status` with `{"status": "Suspended" | "Active", "reason": "<code>"}`
+  (platform admin; `TenantAdminEndpoints.SetStatusAsync`, `TenantStatusService.SetAsync`). `status` is `Active` or `Suspended` (any case; a number or
+  another word is `400`). `reason` is required and one of `TenantStatusValidator.Reasons`: `non_payment`, `abuse`, `security`, `customer_request`,
+  `resolved`, `other` (`400` otherwise): a code, because the audit log's detail column holds only short codes. The organisation row is locked
+  (`FOR UPDATE`); a real change writes `auth.tenant.suspended` or `auth.tenant.reactivated` (actor = the admin, `tenant_id` = the organisation, detail = the
+  reason code); setting the status it already has is `200` and writes nothing. An unknown id is `404` `tenant_not_found`.
+  `GET /api/auth/admin/tenants` lists organisations by name (`id`, `name`, `status`, `memberCount`, `createdAt`), and the platform console's Organisations
+  page (`/platform/organisations`) does both with a confirmation.
 
 ### How it is implemented
 
@@ -130,34 +141,34 @@ Logged and audited:
 
 Edge cases and half-states:
 
-- Suspension is a manual database change, so it can be forgotten. A person reports "nothing opens, `tenant_suspended`" and the
-  console shows "<name> is suspended" (`ConsoleDenied.razor`).
-- A suspended tenant's members who already hold a tenant-admin token can keep using the admin endpoints for up to 15 minutes.
-- The web console tells a suspended organisation's members to "Ask the platform administrator to switch it back on", but the platform
-  console has no such control.
+- A suspension can be forgotten, since nothing reminds anyone. A person reports "nothing opens, `tenant_suspended`" and the
+  console shows "<name> is suspended" (`ConsoleDenied.razor`). The audit log says who suspended it and why.
+- A suspended organisation's admins who hold a tenant-admin token are refused at once (`401` `tenant_suspended`), not after the token expires.
+- The web console tells a suspended organisation's members to "Ask the platform administrator to switch it back on", and the platform
+  console now has the control (`/platform/organisations`, Reactivate).
 
 Likely causes and how to confirm:
 
 | Symptom | Cause | Confirm |
 |---|---|---|
-| `403` `tenant_suspended` on exchange | `tenants.status = 'Suspended'` | `SELECT id, name, status FROM tenants WHERE id = '<tenant>';` |
+| `403` `tenant_suspended` on exchange, or `401` `tenant_suspended` on a tenant-admin call | `tenants.status = 'Suspended'` | `SELECT id, name, status FROM tenants WHERE id = '<tenant>';` and the audit log: `auth.tenant.suspended` (detail = the reason code) |
 | Person cannot create an organisation, `account_disabled` | All their memberships Disabled | `SELECT tenant_id, status FROM tenant_memberships WHERE user_id = '<user>';` |
 | New organisation has no Owner role | Not possible through the code path (one transaction). Suspect manual SQL. | `SELECT id, name, is_built_in FROM roles WHERE tenant_id = '<tenant>';` |
 | `500` on create | Database down, or a migration missing | Readiness endpoint, `__EFMigrationsHistory` (migrations are applied explicitly, never on startup) |
 
-To reactivate a suspended organisation (no API exists): `UPDATE tenants SET status = 'Active' WHERE id = '<tenant>';`. The tests do
-the same with `ExecuteUpdateAsync` (`Tok05/SuspendedTenantExchangeTests.cs` through a helper, `Tok01/TokenExchangeTests.cs` directly). It applies at the next exchange, with no restart.
+To reactivate a suspended organisation use the platform console (Organisations, Reactivate) or `PUT /api/auth/admin/tenants/{id}/status` with `{"status": "Active", "reason": "resolved"}`.
+It applies at once, with no restart, and is audited. (Changing `tenants.status` in SQL still works and takes effect the same way, but leaves no audit entry.
+Older tests do that with `ExecuteUpdateAsync`.)
 
 ### Decisions and open questions
 
 - A single `AddTenantWithOwner` is shared by signup and create-organisation so they cannot drift (comment in `TenantProvisioning`).
 - The tenant of a request always comes from the token's `tid`, never from the request (decision 0005).
 - `404`, not `403`, for anything in another tenant, so ids are not confirmed.
-- **Inconsistent / unfinished:** `TenantStatus.Trial` exists and the console contracts mention it, but nothing sets it. Suspension
-  has no endpoint, no audit entry and no web screen, yet the code and the console text assume a "platform administrator" does it.
-- **Risk:** an already-issued tenant-admin token ignores a suspension for up to `ProductTokenMinutes`.
-- **Assumption (confirm):** suspension is meant to be done by an operator in the database for now. I infer this from the tests
-  (they set the status directly) and from the absence of any endpoint.
+- **Inconsistent / unfinished:** `TenantStatus.Trial` exists and the console contracts mention it, but nothing sets it.
+- **Fixed (AUTH-268, decision 0013):** suspension has an endpoint, an audit entry (with a reason code) and a platform console screen, and a
+  tenant-admin token no longer outlives it. Open: products are not told by a webhook when an organisation is suspended or reactivated; the
+  reason is one of six codes, not free text.
 - **Assumption (confirm):** unlimited organisations per person is intended. The code has no cap and no comment saying either way.
 
 ---
@@ -910,6 +921,10 @@ The catalog itself is in code; there is no setting.
 | Tenant-admin token without the needed permission or level | `403`, empty body |
 | Exchange: not an Active member, no such tenant | `403` `exchange_denied` |
 | Exchange: Active member of a suspended tenant | `403` `tenant_suspended` |
+| Any tenant-admin call with a token of a suspended tenant | `401` `tenant_suspended` |
+| Accepting an invitation into a suspended tenant | `403` `tenant_suspended` (the link is not used up) |
+| `PUT /api/auth/admin/tenants/{id}/status`: bad status or a reason that is not a listed code | `400` validation problem, fields `Status`, `Reason` |
+| `PUT /api/auth/admin/tenants/{id}/status`: unknown organisation | `404` `tenant_not_found` |
 | Exchange: too many in a minute | `429` `rate_limited` with `Retry-After` |
 | Startup: `auth-service` key taken by another application | process exits with the `InvalidOperationException` above |
 
@@ -1076,7 +1091,7 @@ WHERE x.tenant_id = '<tenant>' AND x.application_id = '<application>' ORDER BY u
 | Role create/edit returns `400` "no active subscription" | Product subscription lapsed (also when editing an old role that still holds that grant) | `RoleGrantResolver.ResolveAsync` | Subscription status; drop the grant or resubscribe |
 | 403 on a console page | Missing permission or level in the tenant-admin token (e.g. needs `Full` to change) | `PermissionHandler`; `ConsoleContext.Can`; page file in `Components/Pages/Console` | Decode token `permissions`; check role grants; 403 with empty body means permission |
 | Console says "You don't have access" | Membership not Active, or exchange refused | `ConsoleSession.OpenAsync`, `ConsoleDenied.razor` | `/api/auth/users/me` memberships; `tenant_memberships.status` |
-| Suspended organisation cannot open its console | `tenants.status = 'Suspended'`, exchange returns `tenant_suspended` | `TokenExchangeService`; `tenants` | `SELECT status FROM tenants`; set back to `Active` (no API) |
+| Suspended organisation cannot open its console | `tenants.status = 'Suspended'`, exchange returns `tenant_suspended` | `TokenExchangeService`, `ActiveTenantHandler`; `tenants` | `SELECT status FROM tenants`; the audit log for who and why; reactivate in the platform console (Organisations) |
 | Delete role fails `role_in_use` | Someone (even a disabled member) still holds it | `ManageRolesService.DeleteAsync`; `membership_roles` | Roles query `holders` column |
 | Cannot rename or delete the Owner role | By design | `ManageRolesService` (`OwnerRoleImmutable`) | None; create a custom role instead |
 | Creating an organisation returns `account_disabled` | Every membership of the person is Disabled | `CreateTenantService`; `AccountAccess.IsDisabled` | `tenant_memberships` for the user |
@@ -1085,9 +1100,10 @@ WHERE x.tenant_id = '<tenant>' AND x.application_id = '<application>' ORDER BY u
 
 ## Highest-risk areas in this part
 
-1. **Tenant suspension is manual and leaky.** It can only be set in the database, is not audited, and does not stop already-issued
-   tenant-admin tokens or invitation acceptance. Review `TokenExchangeService`, `SubscribeTenantService`, `ApiKeyValidationService`, and decide
-   whether suspension needs an endpoint, an audit entry, and a check in tenant endpoints.
+1. **Fixed in AUTH-268: tenant suspension is no longer manual and leaky.** Platform admins suspend and reactivate through the API and the console,
+   each change is audited with a reason code, and a suspended organisation is refused by every tenant-admin call (checked per request),
+   token exchange, invitation acceptance, subscribing, seat-limit changes and API-key validation (decision 0013). What remains: every tenant-admin
+   request now reads `tenants` once, and products are not notified.
 2. **The "tenant keeps an Owner" rule is code-only.** There is no database constraint. Review `MembersService.SetStatusAsync` and `AssignRolesService.AssignAsync`.
 3. **Fixed in AUTH-269: unaccepted invitations no longer hold seats for ever.** An expired invitation leaves the seat count and any pending
    one can be withdrawn (`DELETE .../invitations/{membershipId}`); decision 0012. What remains: an unexpired invitation to someone who will

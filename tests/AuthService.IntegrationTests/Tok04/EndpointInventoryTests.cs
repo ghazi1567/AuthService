@@ -85,14 +85,16 @@ public sealed class EndpointInventoryTests(PostgresContainerFixture postgres) : 
     }
 
     [Fact]
-    public async Task TOK04_TheOnlyEndpointsThatTakeATenantFromTheRouteAreTheOnesAProductCallsWithItsServiceToken()
+    public async Task TOK04_TheOnlyEndpointsThatTakeATenantFromTheRouteAreTheOnesAProductCallsWithItsServiceTokenAndThePlatformAdminsOwn()
     {
         var inventory = await InventoryAsync();
 
         var fromRoute = inventory.Where(entry => entry.Pattern.Contains("{tenantId", StringComparison.OrdinalIgnoreCase)).ToList();
 
+        // A platform admin works on any organisation by design (AUTH-268 suspends one by id), so those routes name the tenant too. Everything
+        // else, above all a tenant admin's own endpoints, takes the tenant from the token and never from the address.
         fromRoute.ShouldNotBeEmpty();
-        fromRoute.Where(entry => entry.Kind != Kind.Service).Select(entry => $"{entry.Name} is {entry.Kind}").ShouldBeEmpty();
+        fromRoute.Where(entry => entry.Kind is not (Kind.Service or Kind.PlatformAdmin)).Select(entry => $"{entry.Name} is {entry.Kind}").ShouldBeEmpty();
     }
 
     [Fact]

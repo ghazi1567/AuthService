@@ -192,6 +192,21 @@ public sealed class AcceptInvitationPageTests
     }
 
     [Fact]
+    public async Task ASuspendedOrganisationSaysSoAndKeepsTheLinkInsteadOfBlamingTheService()
+    {
+        var api = new FakeAuthApi { AcceptResponse = () => Problem(HttpStatusCode.Forbidden, "tenant_suspended") };
+        await using var factory = new WebAppFactory(api);
+        using var client = NewClient(factory);
+
+        var html = await ReadAsync(await AcceptNewAsync(client, Password, Password));
+
+        html.ShouldContain("This organisation is suspended");
+        html.ShouldContain("Your invitation is still good, so try again later");
+        html.ShouldNotContain("isn&#x27;t responding");
+        html.ShouldContain(LinkToken);
+    }
+
+    [Fact]
     public async Task AnApiThatCannotBeReachedKeepsTheLinkAndGivesACalmMessage()
     {
         var api = new FakeAuthApi { AcceptResponse = () => throw new HttpRequestException("connection refused") };

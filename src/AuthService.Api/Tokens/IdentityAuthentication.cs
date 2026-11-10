@@ -86,6 +86,8 @@ public static class IdentityAuthentication
 
         services.AddScoped<IAuthorizationHandler, PlatformAdminHandler>();
         services.AddSingleton<IAuthorizationHandler, PermissionHandler>();
+        services.AddScoped<IAuthorizationHandler, ActiveTenantHandler>();
+        services.AddSingleton<IAuthorizationMiddlewareResultHandler, TenantSuspendedResultHandler>();
 
         return services;
     }

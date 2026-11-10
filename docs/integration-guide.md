@@ -339,7 +339,7 @@ POST https://<auth-host>/api/auth/tenants/{tenantId}/subscriptions        Author
 - Change the limit: `PATCH /api/auth/tenants/{tenantId}/subscriptions/{yourAppId}/seats` with `{"maxSeats": n}` (or `null`).
 - Suspend or cancel: `PATCH .../subscriptions/{yourAppId}` with `{"status": "Suspended"}` or `"Cancelled"`. Subscribing again re-activates
   and restores earlier seats. A cancelled subscription cannot be suspended.
-- A tenant that does not exist is `404 tenant_not_found`; a suspended tenant is `409 tenant_suspended`; your app not yet active is
+- A tenant that does not exist is `404 tenant_not_found`; a suspended tenant is `409 tenant_suspended` (so is changing its seat limit); your app not yet active is
   `400 application_not_active`.
 - Your own record: `GET /api/auth/applications/me` returns your `id`, `key`, `jwtAudience`, `clientId` and `isActive`.
 

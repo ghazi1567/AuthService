@@ -184,6 +184,9 @@ What is in place:
   until the API has answered, nothing of the page is drawn either (fail closed). An ended sign-in goes to sign-in, and an API that can't answer is a calm error, not "not allowed".
   `/platform` leads to the first part that exists. **Audit log** (`/platform/audit`): every organisation, newest first, with the organisation and a readable event name; filters for
   what happened, organisation id, a date range and "Only this person" / "Only this organisation"; Load more up to 200. Viewing it is itself recorded.
+- **Organisations** (`/platform/organisations`, AUTH-268). Every organisation by name with a status badge (Active, Suspended), how many people it has and when it was created, and a name search. **Suspend** and **Reactivate** each ask first, in a dialog naming
+  the organisation and what it does (a suspension: nobody there can open products or manage it, even when signed in, its API keys stop, and nothing is deleted), and need a reason from a short list, which goes into the audit log with the admin's name.
+  Without a reason nothing is sent and the question comes back. An organisation that is not in the list, or is already in the state asked for, opens no question. Needs a platform admin.
 - **Webhook events** (`/platform/webhooks`, UI04_T4). What the platform has tried to tell products about, newest first: product, the event in plain words, a status badge (Pending, Delivered,
   Failed), attempts, what happened or happens next (delivered at, next try, gave up at) and the short reason such as `HTTP 503`. Filter by status and product; Load more up to 200. A
   **Failed** event offers **Send again**, which asks first, naming the event and product, then calls the API as the signed-in person. The API's reasons (not failed any more, not found, no
@@ -392,7 +395,7 @@ entry has **who** (user, product, API key, the system, or anonymous), **what** (
 What is recorded: signup, tenant creation, login success and failure (with the reason: wrong password, unknown account, locked,
 disabled, email not verified), lockouts, email verification, completed password resets, refresh-token reuse, signing-key creation and
 rotation, platform-admin actions (registering a product, its catalog, activation and secret rotation, reading the log), subscriptions,
-suspensions and seat-limit changes, role creation, changes and deletion, member role, access and status changes, invitations sent, accepted, resent and withdrawn, and
+suspensions and seat-limit changes, organisation suspensions and reactivations, role creation, changes and deletion, member role, access and status changes, invitations sent, accepted, resent and withdrawn, and
 reads of the tenant's own log. API-key events are recorded when those stories land. The codes live in `AuditActions`.
 
 - **Written with the action, not after it.** An entry is saved in the same transaction as the action it records, so it exists if
@@ -457,11 +460,21 @@ and registering products. They live under **`/api/auth/admin/*`** and need a **p
   checks that every endpoint under that path requires it.
 - No token gets 401. A token that is not an identity token (it carries an audience) or whose user is not an admin gets 403.
 - Every admin action is audit-logged under the admin's own identity.
+- **Suspending an organisation** (AUTH-268) is an admin action too: `PUT /api/auth/admin/tenants/{id}/status` with `{"status": "Suspended" | "Active", "reason": "<code>"}`.
+  The reason is required and is one of `non_payment`, `abuse`, `security`, `customer_request`, `resolved`, `other` (a code, not free text: the audit log keeps
+  only short codes). A real change is audited (`auth.tenant.suspended` / `auth.tenant.reactivated`: the admin, the organisation, the reason code); setting the status it
+  already has changes nothing. An unknown organisation is **404** `tenant_not_found`, a bad status or reason **400**. While an organisation is suspended it is
+  refused where it is used, all with the code `tenant_suspended`: token exchange (**403**), **every tenant-admin request** (**401**, checked against the organisation
+  on each call, so a token issued before the suspension stops working at once and works again after reactivation, and the console then shows "is suspended"),
+  accepting an invitation (**403**; the link is not used up), subscribing and a product changing the seat limit (**409**), and API-key validation (**401**
+  `invalid_api_key`). Nothing is deleted. See decision 0013.
 
 | Endpoint | What it does |
 |---|---|
 | `POST /api/auth/admin/signing-keys/rotate` | Emergency rotation: a new key signs now and the old one leaves the JWKS at once, so tokens it signed stop validating (including the caller's own). |
 | `GET /api/auth/admin/audit` | The whole audit log, newest first, across all tenants. Filters: `action`, `tenantId`, `actorId`. Paging: `limit` (1 to 200, default 50), then pass the returned `next` values back as `before` and `beforeId`. Reading it is itself audited. |
+| `GET /api/auth/admin/tenants` | Every organisation by name (AUTH-268): `id`, `name`, `status` (`Active` or `Suspended`), `memberCount` (memberships in any status), `createdAt`. Paged like the other lists. |
+| `PUT /api/auth/admin/tenants/{id}/status` | Suspend or reactivate an organisation, with a reason code (see "Suspending an organisation" above). `200` with the organisation. |
 | `GET /api/auth/users/me/applications?tenantId={id}` | (Identity token, not admin.) The products the signed-in person can open in one organisation (APP-09): every active product by name with `state` (`Available`, `NoAccess`, `NotSubscribed`, `SubscriptionSuspended`, `SubscriptionCancelled`) and `launchUrl`, which is only given when `Available`. Needs an active membership in an organisation that is not suspended, else `403 tenant_access_denied`. `Cache-Control: no-store`. |
 | `GET /api/auth/admin/applications` | List every product, active or not (APP-06): `id`, `key`, `name`, `isActive`, `permissionCount`, `launchUrl`, `createdAt`, by name. The built-in product is left out, and no secret, audience, client id or webhook address is returned. |
 | `POST /api/auth/admin/applications` | Register a product (see "Applications" below). It can carry the product's `launchUrl`, its `permissions` and `activate: true` too, so it is ready in one call, saved all or nothing (ONB-01). |

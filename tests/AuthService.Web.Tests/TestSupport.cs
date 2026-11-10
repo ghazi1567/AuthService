@@ -259,6 +259,14 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public List<(string? Authorization, string Body)> RegisterProductCalls { get; } = [];
 
+    /// <summary>Every organisation as the platform admin's list returns it (<c>GET /api/auth/admin/tenants</c>), as a JSON array.</summary>
+    public string AdminOrganisationsJson { get; set; } = "[]";
+
+    /// <summary>Answers an organisation's status being set (<c>PUT /api/auth/admin/tenants/{id}/status</c>, given the body); null (the default) does it.</summary>
+    public Func<string, HttpResponseMessage?>? OrganisationStatusResponse { get; set; }
+
+    public List<(string? Authorization, string Path, string Body)> OrganisationStatusCalls { get; } = [];
+
     /// <summary>Answers a product being renamed (given the request body); null (the default) does it.</summary>
     public Func<string, HttpResponseMessage?>? RenameResponse { get; set; }
 
@@ -397,6 +405,19 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 // The new key signs at once and every earlier key leaves the published list, as in the real API.
                 JwksJson = """{"keys":[{"kty":"EC","crv":"P-256","use":"sig","alg":"ES256","kid":"key-new-0001","x":"x","y":"y"}]}""";
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"keyId":"key-new-0001"}""", Encoding.UTF8, "application/json") };
+            }
+
+            if (path.StartsWith("/api/auth/admin/tenants/", StringComparison.Ordinal) && path.EndsWith("/status", StringComparison.Ordinal) && request.Method == HttpMethod.Put)
+            {
+                lock (_gate)
+                {
+                    OrganisationStatusCalls.Add((request.Headers.Authorization?.ToString(), path, body));
+                }
+
+                return OrganisationStatusResponse?.Invoke(body) ?? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"id":"00000000-0000-0000-0000-000000000000","name":"x","status":"Suspended","memberCount":1,"createdAt":"2026-10-01T10:00:00Z"}""", Encoding.UTF8, "application/json"),
+                };
             }
 
             if (path == "/api/auth/admin/applications" && request.Method == HttpMethod.Post)
@@ -618,6 +639,7 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 "/api/auth/admin/audit" => AdminAuditJson,
                 "/api/auth/admin/webhooks" => AdminWebhooksJson,
                 "/api/auth/admin/applications" => Paged(AdminProductsJson),
+                "/api/auth/admin/tenants" => Paged(AdminOrganisationsJson),
                 _ => "{}",
             };
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(adminJson, Encoding.UTF8, "application/json") };

@@ -53,7 +53,10 @@ public static class TenantAuthorization
     public static AuthorizationPolicyBuilder TenantContext(this AuthorizationPolicyBuilder policy) => policy
         .RequireAuthenticatedUser()
         .RequireClaim("aud", BuiltInApplication.Audience)
-        .RequireAssertion(context => context.User.GetTenantId() is not null && context.User.FindFirstValue("sub") is not null);
+        .RequireAssertion(context => context.User.GetTenantId() is not null && context.User.FindFirstValue("sub") is not null)
+
+        // And the organisation must not be suspended, looked up now rather than read from a token issued before (AUTH-268).
+        .AddRequirements(new ActiveTenantRequirement());
 
     /// <summary>Like <see cref="TenantContext"/>, and the token must also hold a permission at least at the given level.</summary>
     public static AuthorizationPolicyBuilder TenantPermission(

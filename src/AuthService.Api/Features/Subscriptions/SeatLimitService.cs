@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AuthService.Api.Features.Audit;
 using AuthService.Infrastructure.Persistence;
+using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace AuthService.Api.Features.Subscriptions;
@@ -10,6 +11,9 @@ public abstract record SetSeatLimitResult
     public sealed record Updated(SubscriptionResponse Subscription) : SetSeatLimitResult;
 
     public sealed record SubscriptionNotFound : SetSeatLimitResult;
+
+    /// <summary>The organisation is suspended, and a suspended organisation's subscriptions are not changed (AUTH-268).</summary>
+    public sealed record TenantSuspended : SetSeatLimitResult;
 }
 
 public static class SeatLimitValidator
@@ -73,6 +77,11 @@ public sealed class SeatLimitService(AuthDbContext db, AuditLog audit, TimeProvi
         if (subscription is null)
         {
             return new SetSeatLimitResult.SubscriptionNotFound();
+        }
+
+        if (await db.Tenants.AsNoTracking().AnyAsync(tenant => tenant.Id == tenantId && tenant.Status == TenantStatus.Suspended, cancellationToken))
+        {
+            return new SetSeatLimitResult.TenantSuspended();
         }
 
         // Accepted whatever the current usage: people who already have access keep it, and only new grants are blocked (SUB-05).

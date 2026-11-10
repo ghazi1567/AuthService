@@ -1,0 +1,285 @@
+@page "/platform/organisations"
+@attribute [Authorize]
+@layout PlatformLayout
+@using System.Globalization
+@using AuthService.Web.Api
+@using AuthService.Web.Security
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>Organisations · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Organisations</h1>
+    <ErrorState Title="We couldn't load the organisations" RetryHref="@PagePath" Reference="@reference" />
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Organisations</h1>
+            <p class="page-lead">Every organisation on the platform. Suspending one stops its people from opening products or managing it, and stops its API keys, until you reactivate it. Nothing is deleted.</p>
+        </div>
+    </div>
+
+    @switch (NoticeCode, ErrorCode)
+    {
+        case ("suspended", _):
+            <AlertBanner Kind="AlertKind.Success" Title="Organisation suspended" Class="auth-alert">
+                <p class="alert-body">@NameOf(MemberId) is suspended. Its admins are refused straight away, even if they are signed in. The reason is in the audit log.</p>
+            </AlertBanner>
+            break;
+        case ("reactivated", _):
+            <AlertBanner Kind="AlertKind.Success" Title="Organisation reactivated" Class="auth-alert">
+                <p class="alert-body">@NameOf(MemberId) is active again. Its admins can carry on, signed in as they are.</p>
+            </AlertBanner>
+            break;
+        case (_, "choose_reason"):
+            <AlertBanner Kind="AlertKind.Warning" Title="Choose a reason" Class="auth-alert">
+                <p class="alert-body">A reason is needed for the audit log. Nothing was changed.</p>
+            </AlertBanner>
+            break;
+        case (_, "tenant_not_found"):
+            <AlertBanner Kind="AlertKind.Warning" Title="That organisation isn't here any more" Class="auth-alert">
+                <p class="alert-body">The list below is up to date.</p>
+            </AlertBanner>
+            break;
+        case (_, "forbidden"):
+            <AlertBanner Kind="AlertKind.Error" Title="You don't have permission to do that" Class="auth-alert">
+                <p class="alert-body">Only platform admins can suspend or reactivate an organisation.</p>
+            </AlertBanner>
+            break;
+        case (_, "unavailable"):
+            <AlertBanner Kind="AlertKind.Error" Title="We couldn't change it" Class="auth-alert">
+                <p class="alert-body">Auth Service isn't responding right now. Nothing was changed. Try again in a moment.</p>
+            </AlertBanner>
+            break;
+    }
+
+    <form method="get" action="@PagePath" class="filter-bar filter-bar-short" aria-label="Find an organisation">
+        <div class="field">
+            <label for="f-q">Name</label>
+            <input id="f-q" name="q" type="search" class="input" value="@query" autocomplete="off" />
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-secondary">Find</button>
+            @if (query is not null)
+            {
+                <a class="btn btn-ghost" href="@PagePath">Clear</a>
+            }
+        </div>
+    </form>
+
+    @if (shown.Count == 0)
+    {
+        @if (query is not null)
+        {
+            <EmptyState Title="No matching organisations" IconName="building">
+                <p class="empty-body">Nothing has that in its name. Try a shorter name, or clear the search.</p>
+                <a class="btn btn-secondary" href="@PagePath">Clear</a>
+            </EmptyState>
+        }
+        else
+        {
+            <EmptyState Title="No organisations yet" IconName="building">
+                <p class="empty-body">An organisation appears here as soon as someone signs up.</p>
+            </EmptyState>
+        }
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Organisation</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">People</th>
+                        <th scope="col">Created</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var organisation in shown)
+                    {
+                        <tr>
+                            <td data-label="Organisation">
+                                <span class="person-name">@organisation.Name</span>
+                                <code class="mono audit-detail">@organisation.Id.ToString("N")[..8]</code>
+                            </td>
+                            <td data-label="Status">
+                                @if (organisation.Status == "Suspended")
+                                {
+                                    <StatusBadge Kind="error" IconName="slash" Label="Suspended" />
+                                }
+                                else
+                                {
+                                    <StatusBadge Kind="success" IconName="check" Label="Active" />
+                                }
+                            </td>
+                            <td data-label="People">@organisation.MemberCount</td>
+                            <td data-label="Created"><time datetime="@organisation.CreatedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)">@organisation.CreatedAt.UtcDateTime.ToString("d MMM yyyy", CultureInfo.InvariantCulture)</time></td>
+                            <td data-label="Actions" class="row-actions">
+                                @if (organisation.Status == "Suspended")
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="@Link(organisation.Id, "Active")">Reactivate</a>
+                                }
+                                else
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="@Link(organisation.Id, "Suspended")">Suspend</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @shown.Count @(shown.Count == 1 ? "organisation" : "organisations")@(query is null ? "" : $" matching “{query}”")</p>
+    }
+
+    @if (asking is { } organisation2)
+    {
+        var suspending = target == "Suspended";
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="status-title">
+                <form method="post" action="/platform/organisations/@organisation2.Id/status">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="status" value="@target" />
+                    <div class="modal-body">
+                        @if (suspending)
+                        {
+                            <div class="icon-tile is-error"><Icon Name="alert-triangle" /></div>
+                            <h2 id="status-title" class="modal-title">Suspend @organisation2.Name?</h2>
+                            <p class="modal-text">Its @organisation2.MemberCount @(organisation2.MemberCount == 1 ? "person" : "people") can't open products or manage the organisation, even if they're signed in now. Its API keys stop working, and it can't subscribe to products or accept new people. Nothing is deleted, and you can reactivate it at any time.</p>
+                        }
+                        else
+                        {
+                            <h2 id="status-title" class="modal-title">Reactivate @organisation2.Name?</h2>
+                            <p class="modal-text">Its people can open products and manage the organisation again, and its API keys work again. Everything is as it was.</p>
+                        }
+
+                        <div class="field">
+                            <label for="reason">Reason</label>
+                            <select id="reason" name="reason" class="input" aria-describedby="reason-help" required>
+                                <option value="">Choose a reason</option>
+                                @foreach (var reasonCode in ReasonCodes(suspending))
+                                {
+                                    <option value="@reasonCode">@PlatformOrganisationReasons.Label(reasonCode)</option>
+                                }
+                            </select>
+                            <p id="reason-help" class="field-message">Goes into the audit log with your name.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath" autofocus>Cancel</a>
+                        @if (suspending)
+                        {
+                            <button type="submit" class="btn btn-danger" data-busy-label="Suspending…">Suspend organisation</button>
+                        }
+                        else
+                        {
+                            <button type="submit" class="btn btn-primary" data-busy-label="Reactivating…">Reactivate organisation</button>
+                        }
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private const string PagePath = "/platform/organisations";
+
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private string? reference;
+    private string? query;
+    private string? target;
+    private OrganisationItem? asking;
+    private List<OrganisationItem> all = [];
+    private List<OrganisationItem> shown = [];
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "q")] private string? QueryText { get; set; }
+
+    [SupplyParameterFromQuery(Name = "org")] private Guid? OrgId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "to")] private string? To { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")] private string? ErrorCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "m")] private Guid? MemberId { get; set; }
+
+    private static string[] ReasonCodes(bool suspending) =>
+        suspending ? ["non_payment", "abuse", "security", "customer_request", "other"] : ["resolved", "customer_request", "other"];
+
+    private string Link(Guid id, string to) =>
+        query is null ? $"{PagePath}?org={id}&to={to}" : $"{PagePath}?q={Uri.EscapeDataString(query)}&org={id}&to={to}";
+
+    private string NameOf(Guid? id) => all.FirstOrDefault(organisation => organisation.Id == id)?.Name ?? "The organisation";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        // The layout has already asked the API; this is the same answer.
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var list = await Api.GetAllAsync<OrganisationItem>("/api/auth/admin/tenants", access.Token!, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            if (list.Problem!.Status == StatusCodes.Status401Unauthorized)
+            {
+                leaving = true;
+                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+                return;
+            }
+
+            loadFailed = true;
+            reference = HttpContext.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+            return;
+        }
+
+        all = [.. list.Value!];
+        query = string.IsNullOrWhiteSpace(QueryText) ? null : QueryText.Trim();
+        shown = query is null
+            ? all
+            : [.. all.Where(organisation => organisation.Name.Contains(query, StringComparison.OrdinalIgnoreCase))];
+
+        // The question opens only for an organisation that is in the list and would really change.
+        target = To is "Suspended" or "Active" ? To : null;
+        if (OrgId is { } id && target is not null)
+        {
+            asking = all.FirstOrDefault(organisation => organisation.Id == id && organisation.Status != target);
+        }
+    }
+}

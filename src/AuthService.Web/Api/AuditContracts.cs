@@ -50,6 +50,8 @@ public static class AuditLabels
         ["auth.invitation.sent"] = "Invitation sent",
         ["auth.invitation.resent"] = "Invitation sent again",
         ["auth.invitation.revoked"] = "Invitation withdrawn",
+        ["auth.tenant.suspended"] = "Organisation suspended",
+        ["auth.tenant.reactivated"] = "Organisation reactivated",
         ["auth.invitation.accepted"] = "Invitation accepted",
         ["auth.admin.audit_read"] = "Platform audit log viewed",
         ["auth.application.registered"] = "Product registered",

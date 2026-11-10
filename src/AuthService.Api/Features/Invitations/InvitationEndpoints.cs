@@ -152,6 +152,9 @@ public static class InvitationEndpoints
             AcceptInvitationResult.WrongUser => ApiProblem.Create(StatusCodes.Status403Forbidden, "wrong_account", "Wrong account",
                 "This invitation is for a different email address than the account you are logged in as."),
 
+            AcceptInvitationResult.TenantSuspended => ApiProblem.Create(StatusCodes.Status403Forbidden, "tenant_suspended", "Organisation suspended",
+                "This organisation is suspended, so nobody can join it right now. The link keeps working if it is reactivated."),
+
             _ => ApiProblem.Create(StatusCodes.Status410Gone, "invitation_invalid", "Invitation no longer valid",
                 "This invitation is unknown, expired, already used or withdrawn."),
         };

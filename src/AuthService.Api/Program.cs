@@ -128,6 +128,7 @@ builder.Services.AddScoped<ServiceTokenService>();
 builder.Services.AddScoped<SecretRotationService>();
 builder.Services.AddScoped<SubscribeTenantService>();
 builder.Services.AddScoped<SeatLimitService>();
+builder.Services.AddScoped<TenantStatusService>();
 builder.Services.AddScoped<SubscriptionStatusService>();
 builder.Services.AddScoped<PermissionResolver>();
 builder.Services.Configure<TokenExchangeOptions>(builder.Configuration.GetSection(TokenExchangeOptions.SectionName));
@@ -235,6 +236,7 @@ var admin = app.MapAdminGroup();
 admin.MapSigningKeyAdmin();
 admin.MapAuditAdmin();
 admin.MapApplicationsAdmin();
+admin.MapTenantsAdmin();
 admin.MapWebhooksAdmin();
 
 app.Run();

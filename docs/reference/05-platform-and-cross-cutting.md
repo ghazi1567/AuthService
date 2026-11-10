@@ -93,6 +93,7 @@ column holds the value shown, or nothing where the cell says "none".
 | Products | `RoleTemplatesApplied` | `auth.application.role_templates_applied` | Product or User (whoever subscribed the organisation, or the platform admin who copied the roles) | yes | product key |
 | Webhooks | `WebhookConfigured` | `auth.application.webhook_configured` | Product | no | product key |
 | Webhooks | `WebhookSecretRotated` | `auth.webhook.secret_rotated` | Product | no | `overlap_hours_<n>` |
+| Organisations | `TenantSuspended` / `TenantReactivated` | `auth.tenant.suspended` / `auth.tenant.reactivated` | User (platform admin) | yes | reason code (`non_payment`, `abuse`, `security`, `customer_request`, `resolved`, `other`) |
 | Webhooks | `WebhookResent` | `auth.webhook.resent` | User (platform admin) | no | webhook id |
 | Subscriptions | `TenantSubscribed` | `auth.subscription.subscribed` | Product (a User when a platform admin subscribes the tenant, ONB-02) | yes | product key |
 | Subscriptions | `SubscriptionSuspended` / `SubscriptionCancelled` | `auth.subscription.suspended` / `auth.subscription.cancelled` | Product | yes | product key |
@@ -761,7 +762,7 @@ Collected from every `ApiProblem.Create` call (and the signup `Results.Problem`)
 | `no_seat_available` | 409 | Seat limit reached | invite, enable member, grant access, resend an expired invitation |
 | `application_not_subscribed` | 400 | The tenant has no active subscription to the product | invite, grant access |
 | `tenant_access_denied` | 403 | Not an active member of the organisation | my applications |
-| `tenant_suspended` | 403 (my applications, token exchange), 409 (subscribe) | Organisation suspended | several |
+| `tenant_suspended` | 403 (my applications, token exchange, accepting an invitation), 401 (any tenant-admin call), 409 (subscribe, seat limit) | Organisation suspended | several |
 | `tenant_not_found` | 404 | No such tenant | subscribe, tenant profile |
 | `exchange_denied` | 403 | No access to this application in this tenant | token exchange |
 | `application_not_found` | 404 | No application has this id | platform admin |
@@ -792,7 +793,7 @@ None. Problem responses do not depend on settings.
 ### Decisions and open questions
 
 - Identical answers for different causes (login, refresh, verification, reset, invitation, client credentials) on purpose, so responses reveal nothing about which part failed.
-- **Inconsistency:** `tenant_suspended` is `403` in two places and `409` in subscribe; `not_found` is generic where other lookups have specific codes (`application_not_found`, `webhook_not_found`).
+- **Inconsistency:** `tenant_suspended` is `403` in three places, `401` for a tenant-admin token (on purpose: the token is no longer accepted, and the exchange says why; decision 0013) and `409` in subscribe and seat limit; `not_found` is generic where other lookups have specific codes (`application_not_found`, `webhook_not_found`).
 - **Inconsistency:** `resend_too_soon` is a `429` that is not produced by the rate limiter (no `rate_limited` code); clients must handle both.
 - **Gap:** `403` from policies has no `code`, unlike every other error. **Unknown:** whether a uniform `forbidden` code is planned.
 
@@ -854,7 +855,7 @@ Everything under `/api/auth/admin` is mapped through `AdminEndpoints.MapAdminGro
 
 **Platform admin** (`PlatformAdmin`, all under `/api/auth/admin`): `GET` and `POST /applications`, `GET` and `POST /applications/{id}/permissions`,
 `PUT /applications/{id}/launch-url`, `PUT /applications/{id}/active`, `POST /applications/{id}/secret/rotate`, `POST /signing-keys/rotate`,
-`GET /audit`, `GET /webhooks`, `POST /webhooks/{webhookId}/resend`.
+`GET /tenants`, `PUT /tenants/{tenantId}/status`, `GET /audit`, `GET /webhooks`, `POST /webhooks/{webhookId}/resend`.
 
 **Tenant context only** (read-only; any member's tenant token): `GET /api/auth/tenant/me`.
 

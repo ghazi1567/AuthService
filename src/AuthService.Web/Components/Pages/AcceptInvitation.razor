@@ -297,7 +297,12 @@
             return Task.CompletedTask;
         }
 
-        problem = apiProblem.Code == "rate_limited" ? Problem.RateLimited : Problem.Unavailable;
+        problem = apiProblem.Code switch
+        {
+            "rate_limited" => Problem.RateLimited,
+            "tenant_suspended" => Problem.Suspended,
+            _ => Problem.Unavailable,
+        };
         waitSeconds = problem == Problem.RateLimited && apiProblem.RetryAfter is { } retryAfter
             ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
             : null;
@@ -322,6 +327,12 @@
                 <p class="alert-body">@(waitSeconds is { } seconds ? $"Wait {seconds} seconds, then try again." : "Wait a moment, then try again.")</p>
             </AlertBanner>
         }
+        else if (problem == Problem.Suspended)
+        {
+            <AlertBanner Kind="AlertKind.Warning" Title="This organisation is suspended" Class="auth-alert">
+                <p class="alert-body">Nobody can join it right now. Your invitation is still good, so try again later, or ask the person who invited you.</p>
+            </AlertBanner>
+        }
         else if (problem == Problem.Unavailable)
         {
             <AlertBanner Kind="AlertKind.Error" Title="We couldn't accept the invitation" Class="auth-alert">
@@ -344,6 +355,7 @@
     {
         None,
         RateLimited,
+        Suspended,
         Unavailable,
     }
 

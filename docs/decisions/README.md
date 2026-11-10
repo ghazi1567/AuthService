@@ -55,3 +55,4 @@ What becomes easier, what becomes harder, and what must be revisited if circumst
 | [0010](0010-publish-the-authorization-package-publicly-on-nuget-org.md) | Also publish the authorization package publicly on nuget.org, under MIT | Accepted |
 | [0011](0011-one-client-secret-and-one-address-for-a-product.md) | A product is set up from one address and one client secret | Accepted |
 | [0012](0012-expired-invitations-stop-counting-toward-seats.md) | An expired invitation stops counting toward seats, and an invitation can be withdrawn | Accepted |
+| [0013](0013-tenant-suspension-through-the-api.md) | Suspending an organisation is an audited admin action, checked on every tenant-admin call | Accepted |
