@@ -782,10 +782,37 @@ console's **Subscribe organisation** and **Test organisation** actions use:
   described under "Webhooks to products" below.
 - Subscribing is audit-logged with the product as the actor and the tenant it concerns.
 
+#### Entitlement events
+
+Products learn a tenant's limits from events, never from the token (ENT-04). Two events carry them, both with `"schemaVersion": 1`:
+
+- **`EntitlementsChanged`** is sent once each time a subscription's `version` rises: a plan assigned or edited, an override set or cleared, a
+  limit added or its default changed. A plan edit sends one to each tenant whose numbers changed, and none to a tenant whose override hides it.
+- **`ApplicationSubscribed`** now carries the same fields, so a newly subscribed tenant needs no second call and gets no separate
+  `EntitlementsChanged` for the same moment. Its existing fields (`eventId`, `eventType`, `occurredAt`, `tenantId`, `applicationId`, `maxSeats`)
+  are unchanged; `maxSeats` is now the effective seat limit.
+
+```json
+{
+  "eventId": "…", "eventType": "EntitlementsChanged", "occurredAt": "2026-11-10T18:30:00Z", "schemaVersion": 1,
+  "tenantId": "…", "applicationId": "…", "planKey": "growth", "planName": "Growth", "version": 7,
+  "entitlements": { "contacts.reachable": 75000, "journeys.live": 20, "seats": 5, "storage.assets": null },
+  "overridden": ["contacts.reachable"]
+}
+```
+
+- `entitlements` is always the **complete** set (every limit of the product), never a difference, with keys in no particular order; `null` is unlimited.
+- **Apply an event only if its `version` is higher than the one you hold.** Delivery is at-least-once and unordered, so an equal version is a
+  duplicate and a lower one is old news. Drop duplicates by `eventId` too.
+- Within schema version 1 only new optional fields are added; ignore fields you do not know.
+- A product subscribing a tenant can pass `"planKey"` to `POST /api/auth/tenants/{tenantId}/subscriptions` (an active plan of the product:
+  **404** `plan_not_found`, **409** `plan_inactive`); the answer then includes `planKey`, `entitlementsVersion` and `entitlements`. A platform
+  admin subscribing from the console can pass it too. Re-subscribing an already active tenant still changes nothing, plan included.
+
 #### Webhooks to products
 
 When a tenant is subscribed (`ApplicationSubscribed`), or suspended or cancelled (`ApplicationUnsubscribed`, with the new `status`),
-the service tells the product. Events are written to the `webhook_outbox` table in the same transaction as the change, so an event
+or its limits change (`EntitlementsChanged`, see "Entitlement events" below), the service tells the product. Events are written to the `webhook_outbox` table in the same transaction as the change, so an event
 exists if and only if the change does, and a background worker delivers them.
 
 **Registering where to send them.** A product calls, with its **service token**:
@@ -830,7 +857,7 @@ So a product can store the new secret as soon as it is rotated, keep the old one
 | Header | Value |
 |---|---|
 | `X-Auth-Event-Id` | The event id, the same on every retry. **Use it to drop duplicates**: delivery is at-least-once. |
-| `X-Auth-Event-Type` | `ApplicationSubscribed` or `ApplicationUnsubscribed`. |
+| `X-Auth-Event-Type` | `ApplicationSubscribed`, `ApplicationUnsubscribed` or `EntitlementsChanged`. |
 | `X-Auth-Timestamp` | When this attempt was made, in Unix seconds. Reject one that is too old to stop replays. |
 | `X-Auth-Signature` | `v1=` and the lowercase hex HMAC-SHA256, with the signing secret, of `{timestamp}.{body}`. During a secret rotation's overlap, one such entry per secret, comma-separated (see above). |
 

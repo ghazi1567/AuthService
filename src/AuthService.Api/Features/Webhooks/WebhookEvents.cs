@@ -8,6 +8,15 @@ public static class WebhookEvents
     public const string ApplicationSubscribed = "ApplicationSubscribed";
     public const string ApplicationUnsubscribed = "ApplicationUnsubscribed";
 
+    /// <summary>A tenant's effective limits changed (ENT-04): plan assigned or edited, override set or cleared, a limit added or its default changed.</summary>
+    public const string EntitlementsChanged = "EntitlementsChanged";
+
+    /// <summary>
+    /// The shape of the events that carry entitlements (ENT-04). Within version 1 only optional fields are added and products ignore fields they
+    /// do not know; a breaking change would ship as version 2 beside it.
+    /// </summary>
+    public const int SchemaVersion = 1;
+
     /// <summary>
     /// Builds an event for the outbox. The caller adds it to its own context, so it is committed in the same transaction as the
     /// change that caused it. The event id is the outbox id and is also inside the payload, so a product can drop a duplicate: delivery

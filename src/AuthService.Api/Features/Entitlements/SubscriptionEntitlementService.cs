@@ -143,7 +143,8 @@ public sealed class SubscriptionEntitlementService(
     /// product's seat-limit endpoint, which writes a <c>seats</c> override when the product has that limit.
     /// </summary>
     public async Task<EntitlementResult?> ApplyOverrideAsync(
-        AuditActor actor, TenantApplicationSubscription subscription, string limitKey, long? value, string reason, CancellationToken cancellationToken)
+        AuditActor actor, TenantApplicationSubscription subscription, string limitKey, long? value, string reason, CancellationToken cancellationToken,
+        bool sendEvents = true)
     {
         var limit = await db.LimitDefinitions.SingleOrDefaultAsync(
             candidate => candidate.ApplicationId == subscription.ApplicationId && candidate.Key == limitKey, cancellationToken);
@@ -196,7 +197,7 @@ public sealed class SubscriptionEntitlementService(
         audit.Record(AuditActions.SubscriptionOverrideSet, actor, subscription.TenantId, await ApplicationKeyAsync(subscription.ApplicationId, cancellationToken));
 
         await db.SaveChangesAsync(cancellationToken);
-        await state.CommitAsync(subscription.ApplicationId, [subscription.Id], before, cancellationToken);
+        await state.CommitAsync(subscription.ApplicationId, [subscription.Id], before, cancellationToken, sendEvents);
         return null;
     }
 

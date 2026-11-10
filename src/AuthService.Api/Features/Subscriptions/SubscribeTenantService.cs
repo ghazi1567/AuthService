@@ -10,8 +10,11 @@ using Microsoft.Extensions.Options;
 
 namespace AuthService.Api.Features.Subscriptions;
 
-/// <summary>Body of <c>POST /api/auth/tenants/{tenantId}/subscriptions</c>. The whole body is optional: no body means unlimited seats.</summary>
-public sealed record SubscribeRequest(int? MaxSeats);
+/// <summary>
+/// Body of <c>POST /api/auth/tenants/{tenantId}/subscriptions</c>. The whole body is optional: no body means unlimited seats and no plan.
+/// <c>PlanKey</c> (ENT-04) starts the subscription on one of the product's active plans.
+/// </summary>
+public sealed record SubscribeRequest(int? MaxSeats, string? PlanKey = null);
 
 public sealed record SubscriptionResponse(
     Guid TenantId,
@@ -20,7 +23,10 @@ public sealed record SubscriptionResponse(
     int? MaxSeats,
     int SeatsUsed,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    string? PlanKey = null,
+    long? EntitlementsVersion = null,
+    IReadOnlyDictionary<string, long?>? Entitlements = null);
 
 public abstract record SubscribeResult
 {
@@ -35,20 +41,27 @@ public abstract record SubscribeResult
     public sealed record TenantSuspended : SubscribeResult;
 
     public sealed record ApplicationNotActive : SubscribeResult;
+
+    /// <summary>The plan asked for is not one of the product's plans.</summary>
+    public sealed record PlanNotFound : SubscribeResult;
+
+    /// <summary>The plan asked for is deactivated, so it cannot be newly assigned.</summary>
+    public sealed record PlanInactive : SubscribeResult;
 }
 
 /// <summary>SUB-01: subscribes a tenant to the product that is calling, and tells that product about it.</summary>
 public sealed class SubscribeTenantService(
     AuthDbContext db, AuditLog audit, TimeProvider timeProvider, IOptions<WebhookOptions> webhookOptions,
-    EntitlementState entitlements, SubscriptionEntitlementService overrides)
+    EntitlementState entitlements, SubscriptionEntitlementService overrides, EntitlementHistory history)
 {
     public const string ApplicationSubscribedEvent = WebhookEvents.ApplicationSubscribed;
 
     /// <param name="actor">Who is subscribing the tenant for the audit log. By default the product itself (SUB-01); a platform admin
     /// subscribing a tenant from the console (ONB-02) passes themselves.</param>
     public async Task<SubscribeResult> SubscribeAsync(
-        Guid applicationId, Guid tenantId, int? maxSeats, CancellationToken cancellationToken, AuditActor? actor = null)
+        Guid applicationId, Guid tenantId, int? maxSeats, CancellationToken cancellationToken, AuditActor? actor = null, string? planKey = null)
     {
+        var who = actor ?? AuditActor.Product(applicationId);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
         // Requests for the same tenant and product, such as a retry arriving while the first is still running, take turns.
@@ -91,7 +104,27 @@ public sealed class SubscribeTenantService(
             return new SubscribeResult.AlreadySubscribed(await db.ToResponseAsync(subscription, now, cancellationToken));
         }
 
+        // A plan asked for must be one of the product's active plans, checked before anything is written.
+        Plan? plan = null;
+        if (planKey is not null)
+        {
+            plan = await db.Plans.SingleOrDefaultAsync(candidate => candidate.ApplicationId == applicationId && candidate.Key == planKey, cancellationToken);
+            if (plan is null)
+            {
+                return new SubscribeResult.PlanNotFound();
+            }
+
+            if (!plan.IsActive)
+            {
+                return new SubscribeResult.PlanInactive();
+            }
+        }
+
+        // A subscription coming back keeps one version history; one whose entitlements were never computed (from before ENT-03) starts it now.
         var isNew = subscription is null;
+        var before = subscription is { EntitlementsVersion: > 0 }
+            ? await entitlements.SnapshotAsync(applicationId, [subscription.Id], cancellationToken)
+            : new Dictionary<Guid, EntitlementSnapshot>();
         if (subscription is null)
         {
             subscription = new TenantApplicationSubscription
@@ -109,6 +142,17 @@ public sealed class SubscribeTenantService(
         subscription.MaxSeats = maxSeats;
         subscription.UpdatedAt = now;
 
+        if (plan is not null && subscription.PlanId != plan.Id)
+        {
+            var oldPlanKey = subscription.PlanId is { } oldId
+                ? await db.Plans.Where(candidate => candidate.Id == oldId).Select(candidate => candidate.Key).SingleAsync(cancellationToken)
+                : null;
+            subscription.PlanId = plan.Id;
+            plan.EverAssigned = true;
+            history.Record(who, applicationId, EntitlementChanges.PlanAssigned, tenantId, planKey: plan.Key,
+                oldValue: oldPlanKey, newValue: plan.Key, hadOldValue: true, hasNewValue: true);
+        }
+
         await GrantOwnersAccessAsync(tenantId, applicationId, now, cancellationToken);
 
         // The roles the product ships with become ordinary roles in the organisation the first time it subscribes (ONB-04), never again: a
@@ -118,56 +162,75 @@ public sealed class SubscribeTenantService(
             var copied = await RoleTemplateCopier.CopyToTenantAsync(db, tenantId, applicationId, now, cancellationToken);
             if (copied.Created > 0)
             {
-                audit.Record(AuditActions.RoleTemplatesApplied, actor ?? AuditActor.Product(applicationId), tenantId, application.Key);
+                audit.Record(AuditActions.RoleTemplatesApplied, who, tenantId, application.Key);
             }
         }
 
-        // The event is written with the change, so it exists if and only if the subscription does.
+        await db.SaveChangesAsync(cancellationToken);
+        await ApplyEntitlementsAsync(subscription, before, maxSeats, who, cancellationToken);
+
+        // The event carries the subscription's entitlements as they now stand (ENT-04), so the product needs no second call and gets no separate
+        // EntitlementsChanged for the same change. It is written with the change, so it exists if and only if the subscription does.
+        var snapshot = (await entitlements.SnapshotAsync(applicationId, [subscription.Id], cancellationToken))[subscription.Id];
+        var planNames = await entitlements.PlanNamesAsync([subscription.PlanId], cancellationToken);
+        var current = subscription.PlanId is { } planId ? planNames[planId] : default((string Key, string Name)?);
+        var payload = EntitlementState.Payload(snapshot, subscription.EntitlementsVersion, current?.Key, current?.Name);
         db.WebhookOutbox.Add(WebhookEvents.Create(applicationId, ApplicationSubscribedEvent, now, webhookOptions.Value.RetryWindowHours, eventId => new
         {
             eventId,
             eventType = ApplicationSubscribedEvent,
             occurredAt = now,
+            schemaVersion = WebhookEvents.SchemaVersion,
             tenantId,
             applicationId,
-            maxSeats,
+            maxSeats = subscription.MaxSeats,
+            planKey = payload.PlanKey,
+            planName = payload.PlanName,
+            version = payload.Version,
+            entitlements = payload.Entitlements,
+            overridden = payload.Overridden,
         }));
 
-        audit.Record(AuditActions.TenantSubscribed, actor ?? AuditActor.Product(applicationId), tenantId, application.Key);
+        audit.Record(AuditActions.TenantSubscribed, who, tenantId, application.Key);
 
         await db.SaveChangesAsync(cancellationToken);
-        await ApplyEntitlementsAsync(subscription, isNew, maxSeats, actor ?? AuditActor.Product(applicationId), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new SubscribeResult.Subscribed(await db.ToResponseAsync(subscription, now, cancellationToken), isNew);
+        var response = await db.ToResponseAsync(subscription, now, cancellationToken) with
+        {
+            PlanKey = payload.PlanKey,
+            EntitlementsVersion = payload.Version,
+            Entitlements = payload.Entitlements,
+        };
+        return new SubscribeResult.Subscribed(response, isNew);
     }
 
     /// <summary>
-    /// ENT-03: a new subscription gets its first entitlements (version 1). When the product has a <c>seats</c> limit, a seat limit asked for
-    /// while subscribing becomes a <c>seats</c> override, and <c>maxSeats</c> follows the effective <c>seats</c> so the two never disagree.
+    /// ENT-03: a new subscription gets its first entitlements (version 1), and one coming back gets a new version if its plan changed. When the
+    /// product has a <c>seats</c> limit, a seat limit asked for while subscribing becomes a <c>seats</c> override, and <c>maxSeats</c> follows the
+    /// effective <c>seats</c> so the two never disagree. No EntitlementsChanged events: ApplicationSubscribed carries the result.
     /// </summary>
     private async Task ApplyEntitlementsAsync(
-        TenantApplicationSubscription subscription, bool isNew, int? maxSeats, AuditActor actor, CancellationToken cancellationToken)
+        TenantApplicationSubscription subscription, IReadOnlyDictionary<Guid, EntitlementSnapshot> before, int? maxSeats, AuditActor actor,
+        CancellationToken cancellationToken)
     {
-        if (isNew)
-        {
-            await entitlements.CommitAsync(subscription.ApplicationId, [subscription.Id], new Dictionary<Guid, EntitlementSnapshot>(), cancellationToken);
-        }
+        await entitlements.CommitAsync(subscription.ApplicationId, [subscription.Id], before, cancellationToken, sendEvents: false);
 
         var hasSeatsLimit = await db.LimitDefinitions.AnyAsync(
             limit => limit.ApplicationId == subscription.ApplicationId && limit.Key == LimitDefinitionValidator.SeatsKey, cancellationToken);
-        if (!hasSeatsLimit)
+        if (hasSeatsLimit)
         {
-            return;
+            if (maxSeats is not null)
+            {
+                await overrides.ApplyOverrideAsync(actor, subscription, LimitDefinitionValidator.SeatsKey, maxSeats, SeatLimitService.SeatsOverrideReason,
+                    cancellationToken, sendEvents: false);
+            }
+
+            var snapshot = await entitlements.SnapshotAsync(subscription.ApplicationId, [subscription.Id], cancellationToken);
+            await entitlements.SyncSeatsAsync(snapshot[subscription.Id], cancellationToken);
         }
 
-        if (maxSeats is not null)
-        {
-            await overrides.ApplyOverrideAsync(actor, subscription, LimitDefinitionValidator.SeatsKey, maxSeats, SeatLimitService.SeatsOverrideReason, cancellationToken);
-        }
-
-        var snapshot = await entitlements.SnapshotAsync(subscription.ApplicationId, [subscription.Id], cancellationToken);
-        await entitlements.SyncSeatsAsync(snapshot[subscription.Id], cancellationToken);
+        // The version and seat limit were changed by statements that bypass the tracked entity, so read them back.
         await db.Entry(subscription).ReloadAsync(cancellationToken);
     }
 

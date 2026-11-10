@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 namespace AuthService.Api.Features.Applications;
 
 /// <summary>Body of <c>POST /api/auth/admin/applications/{id}/subscriptions</c>. The seat limit is optional: left out, seats are unlimited.</summary>
-public sealed record AdminSubscribeRequest(Guid? TenantId, int? MaxSeats);
+public sealed record AdminSubscribeRequest(Guid? TenantId, int? MaxSeats, string? PlanKey = null);
 
 /// <summary>Body of <c>POST /api/auth/admin/applications/{id}/test-organisations</c>: a new organisation for trying a product, owned by an existing person.</summary>
 public sealed record CreateTestOrganisationRequest(string? Name, string? OwnerEmail, int? MaxSeats);
@@ -67,7 +67,8 @@ public static class ApplicationSubscriptionAdminEndpoints
         }
 
         var adminId = caller.GetUserId() ?? throw new InvalidOperationException("The platform-admin policy guarantees a user id.");
-        var result = await subscriptions.SubscribeAsync(applicationId, request!.TenantId!.Value, request.MaxSeats, cancellationToken, AuditActor.User(adminId));
+        var planKey = string.IsNullOrWhiteSpace(request!.PlanKey) ? null : request.PlanKey.Trim().ToLowerInvariant();
+        var result = await subscriptions.SubscribeAsync(applicationId, request.TenantId!.Value, request.MaxSeats, cancellationToken, AuditActor.User(adminId), planKey);
 
         return result switch
         {
@@ -76,6 +77,8 @@ public static class ApplicationSubscriptionAdminEndpoints
             SubscribeResult.AlreadySubscribed existing => Results.Ok(existing.Subscription),
             SubscribeResult.ApplicationNotActive => NotActive(),
             SubscribeResult.TenantSuspended => TenantSuspended(),
+            SubscribeResult.PlanNotFound => SubscriptionEndpoints.PlanNotFound(),
+            SubscribeResult.PlanInactive => SubscriptionEndpoints.PlanInactive(),
             _ => ApiProblem.Create(StatusCodes.Status404NotFound, "tenant_not_found", "Organisation not found", "No organisation has this id."),
         };
     }
