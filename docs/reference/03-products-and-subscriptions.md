@@ -12,6 +12,7 @@ from, how a tenant subscribes to it, and how the Auth Service tells the product 
 - [Platform admin role and admin API group](#platform-admin-role-and-admin-api-group)
 - [Product registration and the admin product list](#product-registration-and-the-admin-product-list)
 - [Product permission catalogs and activation](#product-permission-catalogs-and-activation)
+- [Product limit definitions](#product-limit-definitions)
 - [Product credentials and the service token](#product-credentials-and-the-service-token)
 - [Launch URL and the "my products" read](#launch-url-and-the-my-products-read)
 - [Subscriptions](#subscriptions)
@@ -337,6 +338,69 @@ None.
 - **Open:** no way to remove a stale permission from the catalog (by design, but it grows without bound).
 - **Open:** `auth.application.permissions_registered` is written even when `created = updated = 0`; the audit log therefore cannot tell a real
   change from a repeat.
+
+---
+
+## Product limit definitions
+
+### What it does
+
+The first part of plans and entitlements (ENT-01, epic AUTH-277). A product names the **numbers it limits**, such as `contacts.reachable` or
+`storage.assets`. The Auth Service only knows the key, a label, a display unit and a **default value**; the product decides what a key means and
+counts its own usage. Plans (ENT-02) and per-tenant overrides (ENT-03) give the keys values later. A platform admin adds and changes limits; the
+product reads its own with its service token.
+
+Rules (`LimitDefinitionValidator`, `LimitDefinitionService`):
+
+- 1 to 100 limits per request, and at most 100 per product in total (`MaxLimitsPerProduct = 100`). A request that would pass 100 is `409 too_many_limits`
+  and saves nothing; changing limits already there is always allowed.
+- **Key:** the same rules as a permission key (trimmed, lowercased, 1 to 100 characters, pattern `^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`), unique within
+  the product (index `ux_limit_definitions_application_id_key`). A key repeated in one request is `400`.
+- **Label:** required, at most 200 characters. **Description:** optional, at most 1000. **Unit:** optional display text, at most 50 (`MaxUnitLength`).
+- **Default value:** required, a whole number of at least 0, or `null` for unlimited (`TryReadValue`). Leaving it out is `400`, because a missing value
+  must never quietly mean "unlimited". A decimal, a string or a negative number is `400`. The column also has a check constraint
+  (`ck_limit_definitions_default_value_not_negative`).
+- **On/off features:** a limit whose unit is `flag` (any case, `FlagUnit`) can only default to `0` (off) or `1` (on).
+- **Upsert, never delete or rename.** A new key is created; an existing key with any difference (label, description, unit, default) is updated in place;
+  an identical entry is left alone. A field left out (description, unit) is cleared, so send the whole limit each time. `201` when something was added,
+  otherwise `200`. The body is `applicationId`, `created`, `updated`, `unchanged` and every limit of the product by key.
+- Only a request that changed something writes the audit entry `auth.application.limits_registered` (detail = product key).
+- The built-in Auth Service product is never found by these routes.
+
+### How it is implemented
+
+| Verb and route | Auth required | Handler | Service/method | What it does |
+|---|---|---|---|---|
+| `POST /api/auth/admin/applications/{applicationId}/limits` | platform admin | `LimitDefinitionEndpoints.RegisterAsync` | `LimitDefinitionValidator.TryValidate`, `LimitDefinitionService.RegisterAsync` | Upsert. `201`/`200`, `400`, `404 application_not_found`, `409 too_many_limits`. |
+| `GET /api/auth/admin/applications/{applicationId}/limits` | platform admin | `LimitDefinitionEndpoints.ListAsync` | `PageQuery.ByNameAsync` | Pages by key: `key`, `label`, `description`, `unit`, `defaultValue`, `createdAt`, `updatedAt`. `404` for unknown and built-in. |
+| `GET /api/auth/applications/me/limits` | service token | `LimitDefinitionEndpoints.ListOwnAsync` | `PageQuery.ByNameAsync` | The same page, for the product named by the token only. |
+
+Flow of registration: validate every entry; open a transaction and `db.LockApplicationAsync` (so registrations of one product take turns); load the
+product's limits; refuse with `TooMany` if the new keys would pass 100; create, update or count each entry; audit and save only when something changed;
+commit.
+
+Data: `limit_definitions` (entity `LimitDefinition`): `id`, `application_id`, `key`, `label`, `description`, `unit`, `default_value` (bigint, null =
+unlimited), `created_at`, `updated_at`; FK to `applications` with restrict delete. Migration `AddLimitDefinitions`.
+
+### Configuration and environment
+
+None.
+
+### Failure modes and production debugging
+
+| Caller sees | When |
+|---|---|
+| `400` validation problem (`Limits`, `Limits[n].Key`, `.Label`, `.Description`, `.Unit`, `.DefaultValue`) | Empty list, more than 100, bad field, missing or wrong default, duplicate key, a `flag` default other than 0 or 1. |
+| `404` `application_not_found` | Unknown product id or the built-in product. |
+| `409` `too_many_limits` | The product would have more than 100 limits. |
+
+- A product that reads `GET /api/auth/applications/me/limits` with a person's token gets `403`: only a service token is accepted.
+- "A limit did not change": `SELECT key, label, unit, default_value, updated_at FROM limit_definitions WHERE application_id = '<id>' ORDER BY key;`
+
+### Decisions and open questions
+
+- Same shape as the permission catalog on purpose: upsert by key, never removed, so plans and overrides can refer to keys safely.
+- The default must be sent outright (decision in the epic AUTH-277). Changing a default will change tenants' effective limits once ENT-03 exists.
 
 ---
 

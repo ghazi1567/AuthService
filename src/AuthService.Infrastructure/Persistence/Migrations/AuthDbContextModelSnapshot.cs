@@ -547,6 +547,63 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                     b.ToTable("invitations", (string)null);
                 });
 
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.LimitDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("application_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("DefaultValue")
+                        .HasColumnType("bigint")
+                        .HasColumnName("default_value");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("unit");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_limit_definitions");
+
+                    b.HasIndex("ApplicationId", "Key")
+                        .IsUnique()
+                        .HasDatabaseName("ux_limit_definitions_application_id_key");
+
+                    b.ToTable("limit_definitions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_limit_definitions_default_value_not_negative", "default_value IS NULL OR default_value >= 0");
+                        });
+                });
+
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipApplicationAccess", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1258,6 +1315,16 @@ namespace AuthService.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_invitations_tenant_memberships_tenant_id_membership_id");
+                });
+
+            modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.LimitDefinition", b =>
+                {
+                    b.HasOne("AuthService.Infrastructure.Persistence.Entities.Application", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_limit_definitions_applications_application_id");
                 });
 
             modelBuilder.Entity("AuthService.Infrastructure.Persistence.Entities.MembershipApplicationAccess", b =>
