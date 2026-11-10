@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.Entitlements;
 using AuthService.Infrastructure.Persistence;
 using AuthService.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -65,8 +66,11 @@ public static class SeatLimitValidator
 }
 
 /// <summary>SUB-04: a product sets the number of seats a tenant's plan allows. Billing stays in the product; only the number crosses.</summary>
-public sealed class SeatLimitService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
+public sealed class SeatLimitService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider, SubscriptionEntitlementService overrides)
 {
+    /// <summary>The reason written on a <c>seats</c> override that came from the product's own seat-limit call (ENT-03).</summary>
+    public const string SeatsOverrideReason = "Seat limit set by the product.";
+
     public async Task<SetSeatLimitResult> SetAsync(Guid applicationId, Guid tenantId, int? maxSeats, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -85,7 +89,20 @@ public sealed class SeatLimitService(AuthDbContext db, AuditLog audit, TimeProvi
         }
 
         // Accepted whatever the current usage: people who already have access keep it, and only new grants are blocked (SUB-05).
-        subscription.MaxSeats = maxSeats;
+        // When the product has a seats limit (ENT-03) the number is kept as a seats override, so there is one source for it and maxSeats follows.
+        var hasSeatsLimit = await db.LimitDefinitions.AnyAsync(
+            limit => limit.ApplicationId == applicationId && limit.Key == LimitDefinitionValidator.SeatsKey, cancellationToken);
+        if (hasSeatsLimit)
+        {
+            await db.LockSubscriptionAsync(tenantId, applicationId, cancellationToken);
+            await overrides.ApplyOverrideAsync(AuditActor.Product(applicationId), subscription, LimitDefinitionValidator.SeatsKey, maxSeats, SeatsOverrideReason, cancellationToken);
+            await db.Entry(subscription).ReloadAsync(cancellationToken);
+        }
+        else
+        {
+            subscription.MaxSeats = maxSeats;
+        }
+
         subscription.UpdatedAt = timeProvider.GetUtcNow();
 
         var applicationKey = await db.Applications.AsNoTracking()

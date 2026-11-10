@@ -48,6 +48,14 @@ public static class AuditActions
     public const string PlanDeactivated = "auth.plan.deactivated";
     public const string PlanDeleted = "auth.plan.deleted";
 
+    /// <summary>A platform admin put a tenant's subscription on a plan, or took it off one (ENT-03). The tenant is the tenant, the detail is the product's key.</summary>
+    public const string SubscriptionPlanAssigned = "auth.subscription.plan_assigned";
+
+    /// <summary>A platform admin, or the product through its seat-limit call, set or removed a per-tenant override (ENT-03). The reason is kept in the
+    /// entitlement history, never here. The tenant is the tenant, the detail is the product's key.</summary>
+    public const string SubscriptionOverrideSet = "auth.subscription.override_set";
+    public const string SubscriptionOverrideCleared = "auth.subscription.override_cleared";
+
     /// <summary>A platform admin made a product available to subscribe to, or withdrew it. The detail is the product's key.</summary>
     public const string ApplicationActivated = "auth.application.activated";
     public const string ApplicationDeactivated = "auth.application.deactivated";

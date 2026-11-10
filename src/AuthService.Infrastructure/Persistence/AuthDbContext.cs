@@ -54,6 +54,10 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<PlanValue> PlanValues => Set<PlanValue>();
 
+    public DbSet<SubscriptionOverride> SubscriptionOverrides => Set<SubscriptionOverride>();
+
+    public DbSet<EntitlementChange> EntitlementChanges => Set<EntitlementChange>();
+
     public DbSet<ApplicationRoleTemplate> RoleTemplates => Set<ApplicationRoleTemplate>();
 
     public DbSet<ApplicationRoleTemplatePermission> RoleTemplatePermissions => Set<ApplicationRoleTemplatePermission>();
@@ -64,11 +68,16 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
 
     public DbSet<WebhookOutboxMessage> WebhookOutbox => Set<WebhookOutboxMessage>();
 
+    public const string EntitlementChangeSequence = "entitlement_change_seq";
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // citext backs case-insensitive columns such as User.Email (see TEN-01 / AUTH-8).
         // Declared in the model so the migrations and the model stay in sync (TST_TC2).
         modelBuilder.HasPostgresExtension("citext");
+
+        // One number for every change to any subscription's effective limits (ENT-03), so products can page in change order.
+        modelBuilder.HasSequence<long>(EntitlementChangeSequence);
 
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AuthDbContext).Assembly);
 

@@ -162,7 +162,8 @@ public static partial class LimitDefinitionValidator
 }
 
 /// <summary>ENT-01: the numbers a product can limit. Plans (ENT-02) and per-tenant overrides (ENT-03) give them values.</summary>
-public sealed class LimitDefinitionService(AuthDbContext db, AuditLog audit, TimeProvider timeProvider)
+public sealed class LimitDefinitionService(
+    AuthDbContext db, AuditLog audit, EntitlementHistory history, EntitlementState state, TimeProvider timeProvider)
 {
     public async Task<RegisterLimitsResult> RegisterAsync(
         Guid adminId, Guid applicationId, IReadOnlyList<ValidLimit> limits, CancellationToken cancellationToken)
@@ -185,8 +186,10 @@ public sealed class LimitDefinitionService(AuthDbContext db, AuditLog audit, Tim
             return new RegisterLimitsResult.TooMany(total);
         }
 
+        var actor = AuditActor.User(adminId);
         var now = timeProvider.GetUtcNow();
         int created = 0, updated = 0, unchanged = 0;
+        var tenantsAffected = false;
         foreach (var input in limits)
         {
             if (!existing.TryGetValue(input.Key, out var limit))
@@ -205,17 +208,25 @@ public sealed class LimitDefinitionService(AuthDbContext db, AuditLog audit, Tim
                 };
                 db.LimitDefinitions.Add(limit);
                 existing[input.Key] = limit;
+                history.Record(actor, applicationId, EntitlementChanges.LimitAdded, limitKey: limit.Key, newValue: Describe(limit));
                 created++;
+
+                // Every tenant's set now has one more limit, at its default.
+                tenantsAffected = true;
             }
             else if (limit.Label != input.Label || limit.Description != input.Description || limit.Unit != input.Unit
                 || limit.DefaultValue != input.DefaultValue)
             {
+                var old = Describe(limit);
+                tenantsAffected |= limit.DefaultValue != input.DefaultValue;
+
                 // Updated in place under the same key, which is what plans and overrides refer to.
                 limit.Label = input.Label;
                 limit.Description = input.Description;
                 limit.Unit = input.Unit;
                 limit.DefaultValue = input.DefaultValue;
                 limit.UpdatedAt = now;
+                history.Record(actor, applicationId, EntitlementChanges.LimitChanged, limitKey: limit.Key, oldValue: old, newValue: Describe(limit));
                 updated++;
             }
             else
@@ -227,8 +238,12 @@ public sealed class LimitDefinitionService(AuthDbContext db, AuditLog audit, Tim
         // Repeating what is already there changes nothing, so it leaves no audit entry.
         if (created + updated > 0)
         {
-            audit.Record(AuditActions.LimitsRegistered, AuditActor.User(adminId), detail: application.Key);
+            // Taken before the save: the snapshot reads what is stored, which is still the old limits.
+            var before = tenantsAffected ? await state.SnapshotAsync(applicationId, null, cancellationToken) : [];
+
+            audit.Record(AuditActions.LimitsRegistered, actor, detail: application.Key);
             await db.SaveChangesAsync(cancellationToken);
+            await state.CommitAsync(applicationId, before.Keys, before, cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -239,4 +254,6 @@ public sealed class LimitDefinitionService(AuthDbContext db, AuditLog audit, Tim
 
     public static LimitDefinitionDto ToDto(LimitDefinition limit) =>
         new(limit.Key, limit.Label, limit.Description, limit.Unit, limit.DefaultValue, limit.CreatedAt, limit.UpdatedAt);
+
+    private static object Describe(LimitDefinition limit) => new { limit.Label, limit.Unit, limit.DefaultValue };
 }

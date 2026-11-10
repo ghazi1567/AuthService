@@ -592,6 +592,30 @@ A **plan** is a named template of limit values for one product, such as Growth o
   (`auth.plan.*`, detail `<product key>.<plan key>`); a repeat with no change is not.
 
 
+#### A tenant's plan, overrides and effective limits
+
+A platform admin puts a tenant's subscription on a plan and can give the tenant exceptions (ENT-03, decision 0014). The tenant's **effective**
+value for each limit is its override if it has one, otherwise its plan's value, otherwise the limit's default; every limit of the product is
+always listed.
+
+| Call | What it does |
+|---|---|
+| `GET /api/auth/admin/tenants/{tenantId}/subscriptions/{applicationId}/entitlements` | Plan, `version`, `maxSeats`, every limit with its `value` and `source` (`Default`, `Plan`, `Override`), and the overrides with reason, who and when. |
+| `PUT .../plan` | `{"planKey": "growth"}` (an active plan; **409** `plan_inactive` otherwise) or `{"planKey": null}` for no plan. |
+| `PUT .../overrides/{limitKey}` | `{"value": 75000, "reason": "Goodwill after the outage"}`. `value` must be sent (null is unlimited); the reason is required, up to 200 characters. At most 100 per tenant. |
+| `DELETE .../overrides/{limitKey}` | Removes the override; the value falls back to the plan or the default. |
+| `GET /api/auth/admin/entitlement-history` | Every change to limits, plans, assignments and overrides, newest first; filter with `applicationId`, `tenantId`, `planKey`. |
+
+- **Versions:** each subscription has a `version` that rises by one only when its effective set changes (a value, or which limits are overridden).
+  A plan edit that a tenant's override hides leaves that tenant alone. A new subscription starts at 1. Products will use it to ignore old or
+  repeated events (ENT-04).
+- **Seats:** when the product has a `seats` limit, the effective `seats` value is the subscription's seat limit (`maxSeats`), always. The
+  product's existing `PATCH .../seats` call, and a `maxSeats` sent while subscribing, then become a `seats` override marked as set by the product.
+- A plan that was ever assigned can never be deleted, only deactivated. A deactivated plan stays on the tenants that have it.
+- Override reasons are kept in the entitlement history, which only platform admins read; the audit log records `auth.subscription.plan_assigned`,
+  `auth.subscription.override_set` and `auth.subscription.override_cleared` with the product's key.
+
+
 ### Working on a tenant (the built-in Auth Service product)
 
 A tenant's own people (roles, members, subscriptions, invitations) are managed through endpoints under `/api/auth/tenants/me/...`
