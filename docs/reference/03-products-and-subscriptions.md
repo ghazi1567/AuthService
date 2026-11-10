@@ -16,6 +16,7 @@ from, how a tenant subscribes to it, and how the Auth Service tells the product 
 - [Plans](#plans)
 - [Plan assignment, overrides and effective entitlements](#plan-assignment-overrides-and-effective-entitlements)
 - [Entitlement events](#entitlement-events)
+- [Entitlement reads](#entitlement-reads)
 - [Product credentials and the service token](#product-credentials-and-the-service-token)
 - [Launch URL and the "my products" read](#launch-url-and-the-my-products-read)
 - [Subscriptions](#subscriptions)
@@ -485,7 +486,8 @@ Rules (`EffectiveEntitlements`, `EntitlementState`, `SubscriptionEntitlementServ
   (`MaxOverridesPerSubscription`, `409 too_many_overrides`). The same value and reason again is a no-op. **Clear** (`DELETE`) is `404 override_not_found` when absent.
 - **Versions** (`EntitlementState.CommitAsync`): callers snapshot the subscriptions a change can reach, save, then commit. A subscription whose set
   differs (`EffectiveEntitlements.Differ`: a value, or whether a limit is overridden), or that had no snapshot (a new subscription), gets
-  `entitlements_version + 1` and `entitlements_change_seq = nextval('entitlement_change_seq')` in one `UPDATE ... RETURNING`.
+  `entitlements_version + 1` and `entitlements_change_seq = nextval('entitlement_change_seq')` in one `UPDATE ... RETURNING`, after locking those
+  rows and then the product's change-number lock (decision 0015, see "Entitlement reads").
 - **Who triggers a recompute:** plan assignment and overrides (one subscription); `PlanService.ReplaceAsync` when values change (every subscription
   on the plan); `LimitDefinitionService.RegisterAsync` when a limit is added or a default changes (every subscription of the product);
   `SubscribeTenantService` for a new subscription; `SeatLimitService` through a `seats` override.
@@ -552,7 +554,7 @@ Rules:
 - Subscribing accepts `planKey` (`SubscribeRequest.PlanKey`, `AdminSubscribeRequest.PlanKey`): lowercased, must be an active plan of the product
   (`404 plan_not_found`, `409 plan_inactive`, checked before anything is written). Assigning it on subscribe sets `plans.ever_assigned` and writes a
   `plan_assigned` history row. The response (`SubscriptionResponse`) then has `planKey`, `entitlementsVersion` and `entitlements`.
-- A subscription from before ENT-03 (version 0) gets version 1 when it is subscribed again.
+- A subscription from before ENT-03 had version 0 until migration `BackfillEntitlementChangeNumbers` (ENT-05) gave it version 1.
 
 ### How it is implemented
 
@@ -573,6 +575,52 @@ Rules:
 
 - `ApplicationSubscribed` carries the entitlements instead of a second event, so a new tenant arrives complete in one message.
 - **Open:** a plan with thousands of tenants writes thousands of outbox rows in one request; delivery is paced by the worker, not throttled per product.
+
+---
+
+## Entitlement reads
+
+### What it does
+
+ENT-05 (epic AUTH-277, decision 0015). Reading entitlements instead of waiting for an event. A product reads one tenant, or all its tenants in
+the order their entitlements changed (first sync, and catching up after missed events). A tenant admin reads their own plan and limits.
+
+Rules (`EntitlementReadEndpoints`):
+
+- **Product, one tenant** (`ProductTenantAsync`): the application is the token's own (`GetApplicationId`); any status is returned, with `status`;
+  `404 subscription_not_found` when no subscription exists. Shape `TenantEntitlements`: the event's fields (built with `EntitlementState.Payload`)
+  plus `status` and `changeNumber` (`subscriptions.entitlements_change_seq`).
+- **Product, all tenants** (`ProductFeedAsync`): `entitlements_change_seq > after` (default 0), ordered by it, `limit` 1 to 500, default 100
+  (`EntitlementFeedQuery`, `400` otherwise). Response `PagedResponse<TenantEntitlements, ChangeCursor>`; `next.after` is the last item's number, null on
+  the last page. Status changes do not move a subscription in this order (they do not change entitlements).
+- **Tenant admin** (`TenantAsync`): `subscriptions.read`, tenant from `tid` only. `TenantOwnEntitlements` with `TenantLimitItem`s (label, description,
+  unit, value, overridden); override reasons are never included. The built-in application and products never subscribed: `404 subscription_not_found`.
+- **No skipped changes:** `EntitlementState.CommitAsync` locks the rows (`SELECT ... FOR UPDATE`, ordered by id), then takes
+  `pg_advisory_xact_lock(hashtextextended('entitlement-change:<applicationId>', 0))` (`ChangeNumberLockPrefix`), then takes numbers. The lock is held to
+  commit, so one product's numbers become visible in order.
+- Migration `BackfillEntitlementChangeNumbers`: subscriptions still at change number 0 get version 1 and a number. No events.
+
+### How it is implemented
+
+| Verb and route | Auth required | Handler | What it does |
+|---|---|---|---|
+| `GET /api/auth/tenants/{tenantId}/subscriptions/me/entitlements` | service token | `EntitlementReadEndpoints.ProductTenantAsync` | `200 TenantEntitlements`, `404`. |
+| `GET /api/auth/applications/me/entitlements` | service token | `EntitlementReadEndpoints.ProductFeedAsync` | `{items,next}` by change number, `400` for bad paging. |
+| `GET /api/auth/tenants/me/subscriptions/{applicationId}/entitlements` | tenant token, `subscriptions.read` | `EntitlementReadEndpoints.TenantAsync` | `200 TenantOwnEntitlements`, `403`, `404`. |
+
+The list uses the existing index on `(application_id, entitlements_change_seq)`; each page computes its rows with one `EntitlementState.SnapshotAsync`.
+
+### Failure modes and production debugging
+
+- "The product missed a change": compare its stored change number with `SELECT tenant_id, entitlements_version, entitlements_change_seq FROM subscriptions
+  WHERE application_id = '<id>' ORDER BY entitlements_change_seq DESC LIMIT 20;`.
+- "Entitlement changes to one product are slow": a long plan edit holds the product's change-number lock until it commits; look for a waiting
+  `pg_advisory_xact_lock` among the database's active queries.
+
+### Decisions and open questions
+
+- See decision 0015. The page size goes to 500 here (other lists stop at 200), because a first sync reads every tenant.
+- **Open:** the list has no "since time" filter; products page by change number only.
 
 ---
 

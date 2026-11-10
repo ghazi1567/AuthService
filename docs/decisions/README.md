@@ -57,3 +57,4 @@ What becomes easier, what becomes harder, and what must be revisited if circumst
 | [0012](0012-expired-invitations-stop-counting-toward-seats.md) | An expired invitation stops counting toward seats, and an invitation can be withdrawn | Accepted |
 | [0013](0013-tenant-suspension-through-the-api.md) | Suspending an organisation is an audited admin action, checked on every tenant-admin call | Accepted |
 | [0014](0014-effective-entitlements-versions-and-history.md) | A tenant's limits are computed, versioned only when they change, and every change is kept in a separate history | Accepted |
+| [0015](0015-entitlement-change-numbers-follow-commit-order.md) | Entitlement change numbers become visible in the order they were given out | Accepted |
