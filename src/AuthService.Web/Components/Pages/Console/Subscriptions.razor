@@ -57,6 +57,7 @@ else
                 <thead>
                     <tr>
                         <th scope="col">Product</th>
+                        <th scope="col">Limits</th>
                         <th scope="col">Status</th>
                         <th scope="col">Seats</th>
                         <th scope="col"><span class="visually-hidden">Actions</span></th>
@@ -67,7 +68,34 @@ else
                     {
                         var full = !subscription.HasFreeSeat;
                         <tr>
-                            <td data-label="Product"><span class="person-name">@subscription.ApplicationName</span></td>
+                            <td data-label="Product">
+                                <span class="person-name">@subscription.ApplicationName</span>
+                                @if (entitlements.TryGetValue(subscription.ApplicationId, out var plan))
+                                {
+                                    <span class="status-note">@(plan.PlanName is null ? "No plan" : $"{plan.PlanName} plan")</span>
+                                }
+                            </td>
+                            <td data-label="Limits">
+                                @if (entitlements.TryGetValue(subscription.ApplicationId, out var limits) && limits.Limits is { Count: > 0 })
+                                {
+                                    <ul class="limit-list">
+                                        @foreach (var entitlement in limits.Limits)
+                                        {
+                                            <li>
+                                                @entitlement.Label: @EntitlementText.Describe(entitlement.Value, entitlement.Unit)
+                                                @if (entitlement.Overridden)
+                                                {
+                                                    <span class="seat-flag is-warning"><Icon Name="shield" />Customised for @console.TenantName</span>
+                                                }
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                                else
+                                {
+                                    <span class="muted">None set</span>
+                                }
+                            </td>
                             <td data-label="Status" class="status-cell">
                                 @switch (subscription.Status)
                                 {
@@ -116,7 +144,7 @@ else
                 </tbody>
             </table>
         </div>
-        <p class="table-foot">Showing @subscriptions.Count @(subscriptions.Count == 1 ? "subscription" : "subscriptions")</p>
+        <p class="table-foot">Showing @subscriptions.Count @(subscriptions.Count == 1 ? "subscription" : "subscriptions"). Plans and limits are managed by the platform administrator: contact them to change a plan.</p>
     }
 }
 
@@ -130,6 +158,7 @@ else
     private bool canManageAccess;
     private string? reference;
     private List<SubscriptionItem> subscriptions = [];
+    private readonly Dictionary<Guid, TenantEntitlements> entitlements = [];
 
     [Parameter] public Guid TenantId { get; set; }
 
@@ -219,6 +248,17 @@ else
 
         // Working products first, then paused or ended ones, each group by name.
         subscriptions = [.. list.Value!.OrderBy(subscription => subscription.IsActive ? 0 : 1).ThenBy(subscription => subscription.ApplicationName, StringComparer.OrdinalIgnoreCase)];
+
+        // Each product's plan and limits (ENT-05), read-only. A product whose limits can't be read still shows its seats; it just has no plan line.
+        var reads = subscriptions.Select(async subscription => (subscription.ApplicationId,
+            Read: await Api.GetAsync<TenantEntitlements>($"/api/auth/tenants/me/subscriptions/{subscription.ApplicationId}/entitlements", console.Token, HttpContext.RequestAborted)));
+        foreach (var (applicationId, read) in await Task.WhenAll(reads))
+        {
+            if (read.IsSuccess)
+            {
+                entitlements[applicationId] = read.Value!;
+            }
+        }
     }
 
     private string? Reference() =>

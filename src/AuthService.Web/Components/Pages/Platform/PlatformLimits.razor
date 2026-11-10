@@ -1,0 +1,355 @@
+@page "/platform/products/{ProductId:guid}/limits"
+@attribute [Authorize]
+@layout PlatformLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>@(product is null ? "Limits" : $"{product.Name} limits") · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Limits</h1>
+    <ErrorState Title="We couldn't load the limits" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (product is null)
+{
+    <h1 class="page-title">That product isn't here</h1>
+    <p class="page-lead">It may have been removed. Go back to the list to see what is there now.</p>
+    <a class="btn btn-secondary" href="/platform/products">Back to products</a>
+}
+else
+{
+    <p class="back-link"><a href="/platform/products"><Icon Name="chevron-right" />Products</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@product.Name limits</h1>
+            <p class="page-lead">The numbers a plan can set for @product.Name, such as how many contacts or users an organisation gets. @product.Name reads them; Auth Service itself only enforces "seats".</p>
+        </div>
+        <div class="page-actions">
+            <a class="btn btn-secondary" href="/platform/products/@ProductId/plans">Plans</a>
+            <a class="btn btn-primary" href="@PagePath?add=1"><Icon Name="plus" />Add a limit</a>
+        </div>
+    </div>
+
+    @if (NoticeCode is "added" or "changed" or "unchanged")
+    {
+        <AlertBanner Kind="AlertKind.Success" Title="@NoticeTitle" Class="auth-alert">
+            <p class="alert-body">@NoticeBody</p>
+        </AlertBanner>
+    }
+
+    <AlertBanner Kind="AlertKind.Info" Title="Limits are kept for good" Class="auth-alert">
+        <p class="alert-body">A limit can't be renamed or removed, because plans and organisations already use its key. You can change its label, description, unit and default at any time. A new limit or a new default reaches every organisation straight away.</p>
+    </AlertBanner>
+
+    @if (limits.Count == 0)
+    {
+        <EmptyState Title="No limits yet" IconName="key">
+            <p class="empty-body">Add the first limit @product.Name checks, such as "contacts.reachable". Plans can then give each organisation its own number.</p>
+            <a class="btn btn-primary" href="@PagePath?add=1">Add a limit</a>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Limit</th>
+                        <th scope="col">Key</th>
+                        <th scope="col">Unit</th>
+                        <th scope="col">Default</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var limit in limits)
+                    {
+                        <tr>
+                            <td data-label="Limit">
+                                <span class="person-name">@limit.Label</span>
+                                @if (!string.IsNullOrWhiteSpace(limit.Description))
+                                {
+                                    <span class="status-note">@limit.Description</span>
+                                }
+                            </td>
+                            <td data-label="Key"><code class="mono">@limit.Key</code></td>
+                            <td data-label="Unit">@(limit.IsFlag ? "On or off" : string.IsNullOrWhiteSpace(limit.Unit) ? "None" : limit.Unit)</td>
+                            <td data-label="Default">@EntitlementText.Describe(limit.DefaultValue, limit.Unit)</td>
+                            <td data-label="Actions" class="row-actions">
+                                <a class="btn btn-secondary btn-sm" href="@PagePath?edit=@Uri.EscapeDataString(limit.Key)" aria-label="Edit @limit.Label">Edit</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @limits.Count @(limits.Count == 1 ? "limit" : "limits")</p>
+    }
+
+    @if (editing)
+    {
+        <div class="modal-backdrop">
+            <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="limit-title">
+                <form method="post" @onsubmit="SaveAsync" @formname="limit" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <div class="modal-body">
+                        <h2 id="limit-title" class="modal-title">@(existing is null ? $"Add a limit to {product.Name}" : $"Edit {existing.Label}")</h2>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="limit-key">Key</label>
+                            @if (existing is null)
+                            {
+                                <input id="limit-key" name="key" class="input mono" value="@form.Key" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="limit-key-help" required />
+                                <p id="limit-key-help" class="field-message">What @product.Name checks for, like "contacts.reachable": lowercase letters, digits and . _ - characters. It can't be changed later.</p>
+                            }
+                            else
+                            {
+                                <input type="hidden" name="key" value="@existing.Key" />
+                                <input id="limit-key" class="input mono" value="@existing.Key" disabled aria-describedby="limit-key-help" />
+                                <p id="limit-key-help" class="field-message">A key can't be changed: plans and organisations already use it.</p>
+                            }
+                        </div>
+                        <div class="field">
+                            <label for="limit-label">Label</label>
+                            <input id="limit-label" name="label" class="input" value="@form.Label" maxlength="200" required />
+                            <p class="field-message">What people read, like "Reachable contacts".</p>
+                        </div>
+                        <div class="field">
+                            <label for="limit-description">Description <span class="muted">(optional)</span></label>
+                            <textarea id="limit-description" name="description" class="input textarea" rows="2" maxlength="1000">@form.Description</textarea>
+                        </div>
+                        <div class="field">
+                            <label for="limit-unit">Unit <span class="muted">(optional)</span></label>
+                            <input id="limit-unit" name="unit" class="input" value="@form.Unit" maxlength="50" aria-describedby="limit-unit-help" />
+                            <p id="limit-unit-help" class="field-message">Shown after the number, like "contacts" or "MB". Write "flag" for a feature that is either on (1) or off (0).</p>
+                        </div>
+                        <div class="field">
+                            <label for="limit-default">Default</label>
+                            <input id="limit-default" name="defaultValue" class="input" inputmode="numeric" value="@form.DefaultText" aria-describedby="limit-default-help" />
+                            <p id="limit-default-help" class="field-message">What an organisation gets when its plan doesn't set this limit, or it has no plan. A whole number of 0 or more.</p>
+                            <label class="check">
+                                <input type="checkbox" name="unlimited" value="true" checked="@form.Unlimited" />
+                                <span>Unlimited by default</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Saving…">@(existing is null ? "Add limit" : "Save changes")</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool editing;
+    private string? reference;
+    private AdminProductItem? product;
+    private LimitItem? existing;
+    private LimitForm form = new("", "", "", "", "", false);
+    private readonly List<string> errors = [];
+    private List<LimitItem> limits = [];
+
+    [Parameter] public Guid ProductId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "add")] private string? Add { get; set; }
+
+    [SupplyParameterFromQuery(Name = "edit")] private string? EditKey { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "key")] private string? NoticeKey { get; set; }
+
+    private string PagePath => $"/platform/products/{ProductId}/limits";
+
+    private string NoticeTitle => NoticeCode switch
+    {
+        "added" => "The limit is added",
+        "changed" => "The limit is saved",
+        _ => "Nothing needed changing",
+    };
+
+    private string NoticeBody => NoticeCode switch
+    {
+        "added" => $"Every organisation now has '{NoticeKey}', at the default until a plan or an override sets it.",
+        "changed" => $"'{NoticeKey}' is saved. If its default changed, organisations that use the default have the new number.",
+        _ => $"'{NoticeKey}' already had these values.",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var products = await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
+        if (!products.IsSuccess)
+        {
+            Fail(products.Problem!);
+            return;
+        }
+
+        product = products.Value!.FirstOrDefault(candidate => candidate.Id == ProductId);
+        if (product is null)
+        {
+            return;
+        }
+
+        var list = await Api.GetAllAsync<LimitItem>($"/api/auth/admin/applications/{ProductId}/limits", access.Token!, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            Fail(list.Problem!);
+            return;
+        }
+
+        limits = [.. list.Value!.OrderBy(limit => limit.Key, StringComparer.Ordinal)];
+
+        // A posted form must already be on the page when the post arrives.
+        var posted = HttpContext.Request.HasFormContentType && HttpContext.Request.Form["_handler"] == "limit";
+        var key = posted ? HttpContext.Request.Form["key"].ToString() : EditKey;
+        existing = string.IsNullOrEmpty(key) ? null : limits.FirstOrDefault(limit => limit.Key == key);
+        editing = Add == "1" || existing is not null || posted;
+        if (existing is not null && !posted)
+        {
+            form = new LimitForm(existing.Key, existing.Label, existing.Description ?? "", existing.Unit ?? "",
+                existing.DefaultValue?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "", existing.DefaultValue is null);
+        }
+    }
+
+    private void Fail(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+
+    private async Task SaveAsync()
+    {
+        var posted = HttpContext!.Request.Form;
+        form = new LimitForm(
+            existing?.Key ?? posted["key"].ToString().Trim().ToLowerInvariant(),
+            posted["label"].ToString().Trim(),
+            posted["description"].ToString().Trim(),
+            posted["unit"].ToString().Trim(),
+            posted["defaultValue"].ToString().Trim(),
+            posted["unlimited"] == "true");
+        errors.Clear();
+
+        if (form.Key.Length == 0)
+        {
+            errors.Add("Write a key, like \"contacts.reachable\".");
+        }
+
+        if (form.Label.Length == 0)
+        {
+            errors.Add("Write a label people can read.");
+        }
+
+        long? defaultValue = null;
+        if (!form.Unlimited)
+        {
+            if (!EntitlementText.TryRead(form.DefaultText, out var given, out var number) || !given)
+            {
+                errors.Add("Write the default as a whole number of 0 or more, or tick \"Unlimited by default\".");
+            }
+            else
+            {
+                defaultValue = number;
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var request = new RegisterLimitsRequest([new LimitToRegister(form.Key, form.Label, NullIfEmpty(form.Description), NullIfEmpty(form.Unit), defaultValue)]);
+        var result = await Api.PostAsync<RegisterLimitsRequest, RegisterLimitsResult>(
+            $"/api/auth/admin/applications/{ProductId}/limits", request, HttpContext.RequestAborted, access.Token);
+        if (result.IsSuccess)
+        {
+            var notice = result.Value!.Created > 0 ? "added" : result.Value.Updated > 0 ? "changed" : "unchanged";
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?notice={notice}&key={Uri.EscapeDataString(form.Key)}");
+            return;
+        }
+
+        var problem = result.Problem;
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            errors.AddRange(apiErrors.Values.SelectMany(reasons => reasons).Take(5));
+        }
+        else
+        {
+            errors.Add(problem?.Code switch
+            {
+                "too_many_limits" => "A product can have at most 100 limits.",
+                "application_not_found" => "That product isn't here any more.",
+                _ when problem?.Status == StatusCodes.Status403Forbidden => "You don't have permission to change products.",
+                _ => "Auth Service isn't responding right now. Nothing was saved. Try again in a moment.",
+            });
+        }
+    }
+
+    private static string? NullIfEmpty(string text) => text.Length == 0 ? null : text;
+
+    private sealed record LimitForm(string Key, string Label, string Description, string Unit, string DefaultText, bool Unlimited);
+}

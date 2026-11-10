@@ -126,6 +126,7 @@ else
                             <td data-label="People">@organisation.MemberCount</td>
                             <td data-label="Created"><time datetime="@organisation.CreatedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)">@organisation.CreatedAt.UtcDateTime.ToString("d MMM yyyy", CultureInfo.InvariantCulture)</time></td>
                             <td data-label="Actions" class="row-actions">
+                                <a class="btn btn-secondary btn-sm" href="/platform/organisations/@organisation.Id" aria-label="Products and plans of @organisation.Name">Products</a>
                                 @if (organisation.Status == "Suspended")
                                 {
                                     <a class="btn btn-secondary btn-sm" href="@Link(organisation.Id, "Active")">Reactivate</a>

@@ -1,0 +1,315 @@
+@page "/platform/entitlement-history"
+@attribute [Authorize]
+@layout PlatformLayout
+@using System.Globalization
+@using System.Text.Json
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>Plan history · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Plan history</h1>
+    <ErrorState Title="We couldn't load the plan history" RetryHref="@Link(Take)" Reference="@reference" />
+}
+else
+{
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">Plan history</h1>
+            <p class="page-lead">Every change to limits, plans and organisations' plans and overrides, newest first, with who made it and why. Times are UTC.</p>
+        </div>
+    </div>
+
+    <form method="get" action="/platform/entitlement-history" class="filter-bar filter-bar-wide" aria-label="Filter the plan history">
+        <div class="field">
+            <label for="f-product">Product</label>
+            <select id="f-product" name="applicationId" class="input">
+                <option value="">Any product</option>
+                @foreach (var choice in products.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase))
+                {
+                    <option value="@choice.Id" selected="@(choice.Id == productFilter)">@choice.Name</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="f-tenant">Organisation</label>
+            <select id="f-tenant" name="tenantId" class="input">
+                <option value="">Any organisation</option>
+                @foreach (var choice in organisations.OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase))
+                {
+                    <option value="@choice.Id" selected="@(choice.Id == tenantFilter)">@choice.Name</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label for="f-plan">Plan key</label>
+            <input id="f-plan" name="planKey" class="input mono" value="@PlanKey" autocomplete="off" spellcheck="false" placeholder="Any plan" />
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-secondary">Apply filters</button>
+            @if (Filtered)
+            {
+                <a class="btn btn-ghost" href="/platform/entitlement-history">Clear filters</a>
+            }
+        </div>
+    </form>
+
+    @if (problem is not null)
+    {
+        <AlertBanner Kind="AlertKind.Warning" Title="Check the filters" Class="auth-alert">
+            <p class="alert-body">@problem</p>
+        </AlertBanner>
+    }
+    else if (items.Count == 0)
+    {
+        <EmptyState Title="@(Filtered ? "Nothing matches these filters" : "No changes yet")" IconName="clock">
+            <p class="empty-body">@(Filtered ? "Try another product, organisation or plan." : "Changes appear here when limits, plans or overrides are saved.")</p>
+            @if (Filtered)
+            {
+                <a class="btn btn-secondary" href="/platform/entitlement-history">Clear filters</a>
+            }
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">When</th>
+                        <th scope="col">What changed</th>
+                        <th scope="col">From → to</th>
+                        <th scope="col">Why</th>
+                        <th scope="col">Who</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr>
+                            <td data-label="When" class="tabular"><time datetime="@item.OccurredAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)">@item.OccurredAt.UtcDateTime.ToString("d MMM yyyy HH:mm", CultureInfo.InvariantCulture)</time></td>
+                            <td data-label="What changed">
+                                <span class="person-name">@Sentence(item)</span>
+                                <span class="status-note">@Context(item)</span>
+                            </td>
+                            <td data-label="From → to" class="tabular">@Value(item.OldValue) → @Value(item.NewValue)</td>
+                            <td data-label="Why">@(item.Reason ?? "")</td>
+                            <td data-label="Who">@Who(item)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="table-foot-row">
+            @if (hasMore && Take < MaxTake)
+            {
+                <p class="table-foot">Showing @items.Count changes</p>
+                <a class="btn btn-secondary" href="@Link(Take + Step)">Load more</a>
+            }
+            else
+            {
+                <p class="table-foot">@(hasMore ? $"Showing the newest {items.Count} changes. Filter to see older ones." : $"Showing all {items.Count} {(items.Count == 1 ? "change" : "changes")}")</p>
+            }
+        </div>
+    }
+}
+
+@code {
+    private const int Step = 50;
+    private const int MaxTake = 200;
+
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private bool hasMore;
+    private string? reference;
+    private string? problem;
+    private Guid? productFilter;
+    private Guid? tenantFilter;
+    private List<EntitlementHistoryItem> items = [];
+    private List<AdminProductItem> products = [];
+    private List<OrganisationItem> organisations = [];
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "applicationId")] private string? ApplicationId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "tenantId")] private string? TenantId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "planKey")] private string? PlanKey { get; set; }
+
+    [SupplyParameterFromQuery(Name = "take")] private int? TakeParameter { get; set; }
+
+    private int Take => Math.Clamp(TakeParameter ?? Step, 1, MaxTake);
+
+    private bool Filtered => productFilter is not null || tenantFilter is not null || !string.IsNullOrWhiteSpace(PlanKey);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var token = access.Token!;
+        var cancel = HttpContext.RequestAborted;
+        var productList = await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", token, cancel);
+        var organisationList = productList.IsSuccess ? await Api.GetAllAsync<OrganisationItem>("/api/auth/admin/tenants", token, cancel) : ApiResult<List<OrganisationItem>>.Failure(productList.Problem!);
+        if (!organisationList.IsSuccess)
+        {
+            Fail(organisationList.Problem!);
+            return;
+        }
+
+        products = productList.Value!;
+        organisations = organisationList.Value!;
+
+        if (!string.IsNullOrWhiteSpace(ApplicationId) && !Guid.TryParse(ApplicationId, out _) || !string.IsNullOrWhiteSpace(TenantId) && !Guid.TryParse(TenantId, out _))
+        {
+            problem = "Choose the product and organisation from the lists.";
+            return;
+        }
+
+        productFilter = Guid.TryParse(ApplicationId, out var productId) ? productId : null;
+        tenantFilter = Guid.TryParse(TenantId, out var tenantId) ? tenantId : null;
+
+        var query = new List<string> { $"limit={Take}" };
+        if (productFilter is { } byProduct)
+        {
+            query.Add($"applicationId={byProduct}");
+        }
+
+        if (tenantFilter is { } byTenant)
+        {
+            query.Add($"tenantId={byTenant}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(PlanKey))
+        {
+            query.Add($"planKey={Uri.EscapeDataString(PlanKey.Trim())}");
+        }
+
+        var page = await Api.GetAsync<HistoryPage>($"/api/auth/admin/entitlement-history?{string.Join('&', query)}", token, cancel);
+        if (!page.IsSuccess)
+        {
+            if (page.Problem!.Status == StatusCodes.Status400BadRequest)
+            {
+                problem = "One of the filters isn't something the history can search by.";
+                return;
+            }
+
+            Fail(page.Problem);
+            return;
+        }
+
+        items = page.Value!.Items;
+        hasMore = page.Value.Next is not null;
+    }
+
+    private void Fail(ApiProblem apiProblem)
+    {
+        if (apiProblem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(Link(Take))}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+
+    private string Link(int take)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(ApplicationId))
+        {
+            query.Add($"applicationId={Uri.EscapeDataString(ApplicationId)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(TenantId))
+        {
+            query.Add($"tenantId={Uri.EscapeDataString(TenantId)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(PlanKey))
+        {
+            query.Add($"planKey={Uri.EscapeDataString(PlanKey)}");
+        }
+
+        if (take != Step)
+        {
+            query.Add($"take={take}");
+        }
+
+        return query.Count == 0 ? "/platform/entitlement-history" : $"/platform/entitlement-history?{string.Join('&', query)}";
+    }
+
+    private string ProductName(Guid id) => products.FirstOrDefault(item => item.Id == id)?.Name ?? "A removed product";
+
+    private string OrganisationName(Guid id) => organisations.FirstOrDefault(item => item.Id == id)?.Name ?? "a removed organisation";
+
+    /// <summary>The change in plain words, naming what it was about.</summary>
+    private static string Sentence(EntitlementHistoryItem item) => item.Change switch
+    {
+        "limit_added" => $"Limit '{item.LimitKey}' added",
+        "limit_changed" => $"Limit '{item.LimitKey}' changed",
+        "plan_created" => $"Plan '{item.PlanKey}' created",
+        "plan_updated" => $"Plan '{item.PlanKey}' changed",
+        "plan_activated" => $"Plan '{item.PlanKey}' activated",
+        "plan_deactivated" => $"Plan '{item.PlanKey}' deactivated",
+        "plan_deleted" => $"Plan '{item.PlanKey}' deleted",
+        "plan_assigned" => item.PlanKey is null ? "Taken off its plan" : $"Put on plan '{item.PlanKey}'",
+        "override_set" => $"Override on '{item.LimitKey}' set",
+        "override_cleared" => $"Override on '{item.LimitKey}' cleared",
+        _ => item.Change,
+    };
+
+    private string Context(EntitlementHistoryItem item) =>
+        item.TenantId is { } tenantId ? $"{ProductName(item.ApplicationId)} · {OrganisationName(tenantId)}" : ProductName(item.ApplicationId);
+
+    /// <summary>
+    /// A stored value as people read it: a number, a plan key, or "see the plan" for a whole plan's settings. The API sends null both for
+    /// "unlimited" and for "nothing before", so null is shown as a dash rather than guessed.
+    /// </summary>
+    private static string Value(JsonElement? value) => value switch
+    {
+        null or { ValueKind: JsonValueKind.Null } => "—",
+        { ValueKind: JsonValueKind.Number } number when number.TryGetInt64(out var whole) => whole.ToString("N0", CultureInfo.InvariantCulture),
+        { ValueKind: JsonValueKind.String } text => text.GetString() ?? "",
+        _ => "see the plan",
+    };
+
+    private static string Who(EntitlementHistoryItem item) => item.ActorType switch
+    {
+        "User" => "A platform admin",
+        "Product" => "The product",
+        _ => "Auth Service",
+    };
+}

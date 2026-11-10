@@ -169,7 +169,8 @@ What is in place:
 - **Subscriptions** (`/console/{tenantId}/subscriptions`, UI03_T3). One row per product the organisation uses: a status badge (Active, Suspended, Cancelled) with a sentence on what it
   means for people, and seats used against the limit as the API reports them (a meter with "Almost full" at 80% and "No seats left" at the limit, or "no seat limit"). Working
   products come first. Active products link to Product access (for someone who may manage it); a banner says how many products aren't active. Read-only: subscriptions are
-  created and changed by the platform administrator, so there are no actions here.
+  created and changed by the platform administrator, so there are no actions here. Each product also shows its **plan** and its **limits** in words ("Reachable contacts:
+  75,000 contacts", "Unlimited", "On"/"Off" for a feature), with "Customised for Acme Ltd" beside a limit an override sets (ENT-06); the reason for an override is never shown.
 - **Organisation in the header** (UI03_T5). Every console page reads `GET /api/auth/tenant/me` with the console token and shows the organisation's name with its status as a badge (Active,
   Trial, Suspended; "Status unknown" if the profile can't be read, the page still works), and in the menu for small screens. A suspended organisation gets a banner on every page saying
   what is blocked: people can't open its products, its API keys have stopped working and no new products can be added.
@@ -187,6 +188,20 @@ What is in place:
 - **Organisations** (`/platform/organisations`, AUTH-268). Every organisation by name with a status badge (Active, Suspended), how many people it has and when it was created, and a name search. **Suspend** and **Reactivate** each ask first, in a dialog naming
   the organisation and what it does (a suspension: nobody there can open products or manage it, even when signed in, its API keys stop, and nothing is deleted), and need a reason from a short list, which goes into the audit log with the admin's name.
   Without a reason nothing is sent and the question comes back. An organisation that is not in the list, or is already in the state asked for, opens no question. Needs a platform admin.
+- **Limits** (`/platform/products/{id}/limits`, ENT-06). A product's limits by key: label and description, unit ("On or off" for a `flag`) and default ("Unlimited" when it has
+  none). **Add a limit** and **Edit** use one dialog (key, label, description, unit, default or "Unlimited by default"); when editing, the key is shown but can't be changed. The page
+  says a limit is kept for good and that a new limit or default reaches every organisation at once. Typing mistakes are explained before the API is asked; the API's reasons
+  (bad key, 100 limits, no permission, down) are shown in the dialog.
+- **Plans** (`/platform/products/{id}/plans`, ENT-06). Each plan with its status and every limit's value ("default (…)" when the plan leaves it out). **Create a plan**,
+  **Edit**, **Copy** (a new plan starting from this one's values, with a new key to choose), **Activate**/**Deactivate**, and **Delete** only for a plan never given to an
+  organisation (it asks first). The editor has one row per limit: a number, "Unlimited", or empty for the default. **Saving an edit first shows how many organisations it
+  changes** ("12 of the 40 organisations on Growth get new limits", from the API's preview) and asks again; an edit that changes nobody's numbers is saved straight away.
+- **An organisation's products** (`/platform/organisations/{id}`, the **Products** button on the organisations list): each product it uses with status, plan and seat limit.
+  **Plan and limits** (`/platform/organisations/{id}/products/{productId}`) shows every limit with its value and where it comes from (Override, Plan, Default), an override's reason,
+  who set it and when; **Change plan** (active plans only, or no plan), **Override** a limit (value or Unlimited, and a reason of up to 200 characters, required), and **Clear** an
+  override (asks first). The product is told about every change (ENT-04).
+- **Plan history** (`/platform/entitlement-history`, ENT-06). Every change to limits, plans, plan assignments and overrides, newest first: when, what changed in words, the product
+  and organisation by name, from and to, why, and who (a platform admin, the product, or Auth Service). Filter by product, organisation and plan key; Load more up to 200.
 - **Webhook events** (`/platform/webhooks`, UI04_T4). What the platform has tried to tell products about, newest first: product, the event in plain words, a status badge (Pending, Delivered,
   Failed), attempts, what happened or happens next (delivered at, next try, gave up at) and the short reason such as `HTTP 503`. Filter by status and product; Load more up to 200. A
   **Failed** event offers **Send again**, which asks first, naming the event and product, then calls the API as the signed-in person. The API's reasons (not failed any more, not found, no

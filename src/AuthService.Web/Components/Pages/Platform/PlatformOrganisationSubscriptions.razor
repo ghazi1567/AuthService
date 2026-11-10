@@ -1,0 +1,163 @@
+@page "/platform/organisations/{TenantId:guid}"
+@attribute [Authorize]
+@layout PlatformLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>@(organisation is null ? "Organisation" : organisation.Name) · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Organisation</h1>
+    <ErrorState Title="We couldn't load the organisation's products" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (organisation is null)
+{
+    <h1 class="page-title">That organisation isn't here</h1>
+    <p class="page-lead">Go back to the list to see the organisations there are now.</p>
+    <a class="btn btn-secondary" href="/platform/organisations">Back to organisations</a>
+}
+else
+{
+    <p class="back-link"><a href="/platform/organisations"><Icon Name="chevron-right" />Organisations</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@organisation.Name</h1>
+            <p class="page-lead">The products @organisation.Name uses, and the plan each is on. Open one to change its plan or give it its own limits.</p>
+        </div>
+    </div>
+
+    @if (organisation.Status == "Suspended")
+    {
+        <AlertBanner Kind="AlertKind.Warning" Title="@($"{organisation.Name} is suspended")" Class="auth-alert">
+            <p class="alert-body">Nobody in it can sign in to its products until it is reactivated. Its plans and limits are kept.</p>
+        </AlertBanner>
+    }
+
+    @if (subscriptions.Count == 0)
+    {
+        <EmptyState Title="No products yet" IconName="building">
+            <p class="empty-body">@organisation.Name doesn't use any products. A product subscribes it, or you can from the product list.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Product</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Plan</th>
+                        <th scope="col">Seats</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var subscription in subscriptions)
+                    {
+                        <tr>
+                            <td data-label="Product"><span class="person-name">@subscription.ApplicationName</span></td>
+                            <td data-label="Status" class="status-cell">
+                                @switch (subscription.Status)
+                                {
+                                    case "Active": <StatusBadge Kind="success" IconName="check" Label="Active" /> break;
+                                    case "Suspended": <StatusBadge Kind="error" IconName="alert-circle" Label="Suspended" /> break;
+                                    default: <StatusBadge Kind="neutral" IconName="x" Label="@subscription.Status" /> break;
+                                }
+                            </td>
+                            <td data-label="Plan">@(subscription.PlanName ?? "No plan")</td>
+                            <td data-label="Seats" class="tabular">@(subscription.MaxSeats is { } seats ? $"Up to {seats}" : "No seat limit")</td>
+                            <td data-label="Actions" class="row-actions">
+                                <a class="btn btn-secondary btn-sm" href="@PagePath/products/@subscription.ApplicationId" aria-label="Plan and limits for @subscription.ApplicationName">Plan and limits</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @subscriptions.Count @(subscriptions.Count == 1 ? "product" : "products")</p>
+    }
+}
+
+@code {
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private string? reference;
+    private OrganisationItem? organisation;
+    private List<AdminTenantSubscriptionItem> subscriptions = [];
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private string PagePath => $"/platform/organisations/{TenantId}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var organisations = await Api.GetAllAsync<OrganisationItem>("/api/auth/admin/tenants", access.Token!, HttpContext.RequestAborted);
+        if (!organisations.IsSuccess)
+        {
+            Fail(organisations.Problem!);
+            return;
+        }
+
+        organisation = organisations.Value!.FirstOrDefault(candidate => candidate.Id == TenantId);
+        if (organisation is null)
+        {
+            return;
+        }
+
+        var list = await Api.GetAllAsync<AdminTenantSubscriptionItem>($"/api/auth/admin/tenants/{TenantId}/subscriptions", access.Token!, HttpContext.RequestAborted);
+        if (!list.IsSuccess)
+        {
+            Fail(list.Problem!);
+            return;
+        }
+
+        subscriptions = list.Value!;
+    }
+
+    private void Fail(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+}

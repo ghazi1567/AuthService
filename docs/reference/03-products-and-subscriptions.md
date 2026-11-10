@@ -17,6 +17,7 @@ from, how a tenant subscribes to it, and how the Auth Service tells the product 
 - [Plan assignment, overrides and effective entitlements](#plan-assignment-overrides-and-effective-entitlements)
 - [Entitlement events](#entitlement-events)
 - [Entitlement reads](#entitlement-reads)
+- [Entitlement portal reads](#entitlement-portal-reads)
 - [Product credentials and the service token](#product-credentials-and-the-service-token)
 - [Launch URL and the "my products" read](#launch-url-and-the-my-products-read)
 - [Subscriptions](#subscriptions)
@@ -621,6 +622,27 @@ The list uses the existing index on `(application_id, entitlements_change_seq)`;
 
 - See decision 0015. The page size goes to 500 here (other lists stop at 200), because a first sync reads every tenant.
 - **Open:** the list has no "since time" filter; products page by change number only.
+
+---
+
+## Entitlement portal reads
+
+### What it does
+
+ENT-06 (epic AUTH-277). Two platform-admin reads the portal needs beside ENT-01 to ENT-05.
+
+- **Plan preview** (`POST /api/auth/admin/applications/{id}/plans/{planKey}/preview`, `PlanEndpoints.PreviewAsync` -> `PlanService.PreviewAsync`): the
+  same body as the replace, validated the same way (`400`, `404 plan_not_found`, `400 limit_unknown`, `400 value_invalid`). Answers `PlanPreviewDto`:
+  `subscriptions` on the plan and how many would be `changed`. A subscription changes exactly when the replace would raise its version: its overrides
+  are kept (`EffectiveEntitlements.Compute` with the new values and the snapshot's overrides, compared with `EffectiveEntitlements.Differ`). Writes nothing.
+- **An organisation's subscriptions** (`GET /api/auth/admin/tenants/{tenantId}/subscriptions`, `SubscriptionEntitlementEndpoints.ListForTenantAsync`): every
+  status, built-in product left out, paged by product name (`PageQuery.ByNameAsync`). Items `AdminTenantSubscriptionItem`: product id, key and name,
+  status, plan key and name, `maxSeats`, `entitlementsVersion`, created. `404 tenant_not_found` for an unknown organisation.
+
+### Failure modes and production debugging
+
+- "The preview said 12 but 13 changed": a tenant subscribed to the plan, or an override changed, between the preview and the save. The preview is advice,
+  not a lock.
 
 ---
 

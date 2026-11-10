@@ -321,6 +321,59 @@ public sealed class FakeAuthApi : HttpMessageHandler
 
     public Func<HttpResponseMessage>? ProductsResponse { get; set; }
 
+    /// <summary>
+    /// ENT-06: what the entitlement calls answer (limits, plans, a tenant's subscriptions, entitlements, overrides, history), keyed by
+    /// "METHOD path" without the query, like "GET /api/auth/admin/applications/{id}/limits". A JSON array is served as one page. A call with
+    /// no entry gets an empty page for a list read and a plain success otherwise.
+    /// </summary>
+    public Dictionary<string, string> EntitlementJson { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Answers an entitlement call instead (given the method, the path with its query and the body); null falls through.</summary>
+    public Func<string, string, string, HttpResponseMessage?>? EntitlementResponse { get; set; }
+
+    /// <summary>Every entitlement call: the method, the path with its query, the bearer token and the body.</summary>
+    public List<(string Method, string PathAndQuery, string? Authorization, string Body)> EntitlementCalls { get; } = [];
+
+    private static bool IsEntitlementCall(string path) =>
+        (path.StartsWith("/api/auth/admin/applications/", StringComparison.Ordinal) && (path.Contains("/limits", StringComparison.Ordinal) || path.Contains("/plans", StringComparison.Ordinal)))
+        || (path.StartsWith("/api/auth/admin/tenants/", StringComparison.Ordinal) && path.Contains("/subscriptions", StringComparison.Ordinal))
+        || path == "/api/auth/admin/entitlement-history"
+        || (path.StartsWith("/api/auth/tenants/me/subscriptions/", StringComparison.Ordinal) && path.EndsWith("/entitlements", StringComparison.Ordinal));
+
+    private HttpResponseMessage AnswerEntitlementCall(HttpRequestMessage request, string path, string body)
+    {
+        var method = request.Method.Method;
+        lock (_gate)
+        {
+            EntitlementCalls.Add((method, request.RequestUri!.PathAndQuery, request.Headers.Authorization?.ToString(), body));
+        }
+
+        if (EntitlementResponse?.Invoke(method, request.RequestUri!.PathAndQuery, body) is { } answered)
+        {
+            return answered;
+        }
+
+        if (EntitlementJson.TryGetValue($"{method} {path}", out var json))
+        {
+            return new HttpResponseMessage(method == "POST" && !path.EndsWith("/preview", StringComparison.Ordinal) ? HttpStatusCode.Created : HttpStatusCode.OK)
+            {
+                Content = new StringContent(method == "GET" ? Paged(json) : json, Encoding.UTF8, "application/json"),
+            };
+        }
+
+        if (path.StartsWith("/api/auth/tenants/me/", StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("""{"status":404,"title":"x","code":"subscription_not_found"}""", Encoding.UTF8, "application/problem+json") };
+        }
+
+        return method switch
+        {
+            "GET" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Paged("[]"), Encoding.UTF8, "application/json") },
+            "DELETE" => new HttpResponseMessage(HttpStatusCode.NoContent),
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}", Encoding.UTF8, "application/json") },
+        };
+    }
+
     public List<string> AccessTokensIssued { get; } = [];
 
     public List<string> RefreshTokensIssued { get; } = [];
@@ -388,6 +441,11 @@ public sealed class FakeAuthApi : HttpMessageHandler
             if (!IsPlatformAdmin)
             {
                 return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            }
+
+            if (IsEntitlementCall(path))
+            {
+                return AnswerEntitlementCall(request, path, body);
             }
 
             if (path == "/api/auth/admin/signing-keys/rotate" && request.Method == HttpMethod.Post)
@@ -643,6 +701,11 @@ public sealed class FakeAuthApi : HttpMessageHandler
                 _ => "{}",
             };
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(adminJson, Encoding.UTF8, "application/json") };
+        }
+
+        if (IsEntitlementCall(path))
+        {
+            return AnswerEntitlementCall(request, path, body);
         }
 
         if (path == "/api/auth/apikeys")
