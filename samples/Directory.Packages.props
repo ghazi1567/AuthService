@@ -8,6 +8,8 @@
 
   <ItemGroup Label="The package under test">
     <PackageVersion Include="AuthService.Authorization" Version="$(AuthorizationPackageVersion)" />
+    <PackageVersion Include="AuthService.Entitlements" Version="$(EntitlementsPackageVersion)" />
+    <PackageVersion Include="AuthService.Entitlements.Testing" Version="$(EntitlementsPackageVersion)" />
   </ItemGroup>
 
   <ItemGroup Label="Tokens (kept in step with the repository)">

@@ -7,5 +7,7 @@
     <!-- Which AuthService.Authorization package the samples install. A release workflow passes the published version; otherwise the
          locally packed one (dotnet pack src/AuthService.Authorization -o artifacts/packages). -->
     <AuthorizationPackageVersion Condition="'$(AuthorizationPackageVersion)' == ''">0.0.0-local</AuthorizationPackageVersion>
+    <!-- Which AuthService.Entitlements (and .Testing) the samples install, the same way. -->
+    <EntitlementsPackageVersion Condition="'$(EntitlementsPackageVersion)' == ''">0.0.0-local</EntitlementsPackageVersion>
   </PropertyGroup>
 </Project>

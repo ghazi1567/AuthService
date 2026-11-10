@@ -31,6 +31,29 @@ internal sealed class AuthServiceClient(ProductConnection connection) : IAuthSer
         return new AuthServiceSubscription(subscription.TenantId, subscription.ApplicationId, subscription.Status ?? "", subscription.MaxSeats, subscription.SeatsUsed);
     }
 
+    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        // A request (and its body) is disposed once sent, so the body is read once and a fresh copy goes with each attempt.
+        var body = content is null ? null : await content.ReadAsByteArrayAsync(cancellationToken);
+        var contentType = content?.Headers.ContentType;
+        return await SendAsync(
+            () =>
+            {
+                var request = new HttpRequestMessage(method, connection.Resolve(path));
+                if (body is not null)
+                {
+                    request.Content = new ByteArrayContent(body);
+                    request.Content.Headers.ContentType = contentType;
+                }
+
+                return request;
+            },
+            cancellationToken);
+    }
+
     private async Task<HttpResponseMessage> SendAsync(Func<HttpRequestMessage> build, CancellationToken cancellationToken)
     {
         try

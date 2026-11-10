@@ -2,10 +2,13 @@
   <Folder Name="/src/">
     <Project Path="src/AuthService.Api/AuthService.Api.csproj" />
     <Project Path="src/AuthService.Authorization/AuthService.Authorization.csproj" />
+    <Project Path="src/AuthService.Entitlements/AuthService.Entitlements.csproj" />
+    <Project Path="src/AuthService.Entitlements.Testing/AuthService.Entitlements.Testing.csproj" />
     <Project Path="src/AuthService.Infrastructure/AuthService.Infrastructure.csproj" />
     <Project Path="src/AuthService.Web/AuthService.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/AuthService.Entitlements.Tests/AuthService.Entitlements.Tests.csproj" />
     <Project Path="tests/AuthService.IntegrationTests/AuthService.IntegrationTests.csproj" />
     <Project Path="tests/AuthService.Web.Tests/AuthService.Web.Tests.csproj" />
   </Folder>

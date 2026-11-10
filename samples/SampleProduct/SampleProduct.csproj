@@ -3,6 +3,7 @@
   <ItemGroup>
     <!-- The published package, not a project reference: this is what a product outside this repository does. -->
     <PackageReference Include="AuthService.Authorization" />
+    <PackageReference Include="AuthService.Entitlements" />
   </ItemGroup>
 
 </Project>

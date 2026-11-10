@@ -19,7 +19,7 @@ namespace SampleProduct.Tests;
 /// and so show that the package works for someone who only has the package. Tokens are made here and signed with a test key whose public
 /// half is served as the JWKS, so no Auth Service needs to run.
 /// </summary>
-public sealed class SampleProductTests : IDisposable
+public sealed partial class SampleProductTests : IDisposable
 {
     private const string Audience = "sample-product-api";
 
@@ -129,9 +129,9 @@ public sealed class SampleProductTests : IDisposable
     {
         (await _client.GetAsync("/health", TestContext.Current.CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        // /me asks only for a tenant, on purpose; the audit looks for endpoints with no permission policy, so it is named as exempt.
+        // /me asks only for a tenant, on purpose, and /auth-webhooks checks the Auth Service's signature instead of a token; the audit looks for
         var open = await EndpointPolicyAudit.FindEndpointsWithoutPermissionPolicyAsync(
-            _factory.Services, isExempt: endpoint => endpoint.RoutePattern.RawText is "/health" or "/me");
+            _factory.Services, isExempt: endpoint => endpoint.RoutePattern.RawText is "/health" or "/me" or "/auth-webhooks");
 
         open.ShouldBeEmpty();
     }

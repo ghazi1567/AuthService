@@ -88,6 +88,15 @@ Auth Service, runs on your backend.
 - Your API answers `200` for that token, `401` for no token, and `403` for a person whose role lacks the permission.
 - To subscribe organisations from your own sign-up, inject `IAuthServiceClient` and call `SubscribeTenantAsync`.
 
+## 5. Know each organisation's plan and limits (if you use plans)
+
+1. The platform admin adds your limits and plans in the console (**Products → Limits**, **Products → Plans**) and puts organisations on plans.
+2. Register your webhook address with your service token (`PUT /api/auth/applications/me/webhook`) and keep the signing secret it shows once.
+3. Install `AuthService.Entitlements`, call `AddAuthServiceEntitlements` with the secret (`AuthService__Entitlements__WebhookSecrets__0`) and
+   `app.MapAuthServiceWebhook("/auth-webhooks")`.
+4. Check limits with `IEntitlements.GetLimitAsync(tenantId, "contacts.reachable")`; on start, call `IEntitlementsClient.CatchUpAsync` with the
+   last change number you kept. The [package README](../src/AuthService.Entitlements/README.md) has the details.
+
 ## Before going live
 
 - Replace any `http://localhost` launch address with the real `https` one (**Products → Opens at**).

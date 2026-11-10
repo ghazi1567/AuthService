@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- The package a product installs to know each organisation's plan and limits (ENT-07): webhook verification, a store that keeps the
+         newest version, the catch-up reads and a limit check. It builds on AuthService.Authorization's client and token handling. -->
+    <PackageId>AuthService.Entitlements</PackageId>
+    <IsPackable>true</IsPackable>
+    <Description>Keeps an Auth Service product up to date with each organisation's plan and limits: verifies and applies the Auth Service's webhooks, reads what was missed, and answers "what is this organisation's limit?".</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Version">
+    <!-- A release is tagged entitlements-v1.2.3 and passes -p:EntitlementsVersion. The package version is set apart from Version, because
+         Version is what the AuthService.Authorization dependency is packed with (the lowest version this package needs). -->
+    <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
+    <PackageVersion Condition="'$(EntitlementsVersion)' != ''">$(EntitlementsVersion)</PackageVersion>
+    <!-- The lowest AuthService.Authorization release this package works with (it needs IAuthServiceClient.SendAsync). The publish workflow
+         packs with -p:Version set to it, so the dependency is written as ">= this". Raise it when the package needs something newer. -->
+    <MinimumAuthorizationVersion>1.2.0</MinimumAuthorizationVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package contents">
+    <Authors>Auth Service</Authors>
+    <PackageTags>entitlements;plans;limits;webhooks;multi-tenant;aspnetcore</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AuthService.Authorization\AuthService.Authorization.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="AuthService.Entitlements.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -16,6 +16,7 @@ This service is deployed on its own and owns its own PostgreSQL database.
 src/AuthService.Api/               ASP.NET Core host
 src/AuthService.Infrastructure/    AuthDbContext, shared DB registration, EF Core migrations
 src/AuthService.Authorization/     The package a product installs to enforce Auth Service tokens (published from a version tag)
+src/AuthService.Entitlements(.Testing)/ The package a product installs to know each organisation's plan and limits, and its test kit (ENT-07)
 samples/SampleProduct(.Tests)/     A product API that installs the packed package, as a product outside this repository does
 src/AuthService.Web/               The Blazor web console (setup only so far)
 Dockerfile, deploy/                API, web console and migration images (published to ghcr.io from a v* tag), and a docker-compose with HTTPS for one Ubuntu server
@@ -278,9 +279,12 @@ artifact for 14 days.
 requests. GitHub offers this on private repositories only with a paid plan (GitHub Pro, Team or Enterprise); on the Free
 plan the repository must be public. Until that is enabled, a red check is advisory only.
 
-**The sample product.** The `sample-product` job packs `AuthService.Authorization` and runs `samples/SampleProduct.Tests` against it, so the
-package is exercised the way a product uses it, with no project reference. Locally: `dotnet pack src/AuthService.Authorization -o artifacts/packages`
-then `dotnet test samples/SampleProduct.Tests`. Releasing the package is a separate workflow, triggered by a tag; see the package's README.
+**The sample product.** The `sample-product` job packs `AuthService.Authorization`, `AuthService.Entitlements` and `AuthService.Entitlements.Testing`
+and runs `samples/SampleProduct.Tests` against them, so the packages are exercised the way a product uses them, with no project reference. Locally:
+`dotnet pack` each of the three into `artifacts/packages` with one version (`-p:Version=0.0.0-dev.1 -p:EntitlementsVersion=0.0.0-dev.1`), then
+`dotnet test samples/SampleProduct.Tests -p:AuthorizationPackageVersion=0.0.0-dev.1 -p:EntitlementsPackageVersion=0.0.0-dev.1` (a new version each
+time, because NuGet caches a version once restored). Releasing is a separate workflow per package, triggered by a tag; see the packages' READMEs.
+The sample's `/contacts/import` refuses an import past the organisation's `contacts.reachable` limit, which arrives by signed webhook.
 
 ## Configuration
 
