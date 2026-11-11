@@ -27,6 +27,8 @@
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
+    <!-- Parses rendered pages for the web console's accessibility check (AUTH-213, UI00_T6). Tests only. -->
+    <PackageVersion Include="HtmlAgilityPack" Version="1.11.72" />
     <!-- Stay on 2.x (VSTest logger): 3.x targets Microsoft.Testing.Platform 2.0, which xunit.v3 3.2.2 does not ship. -->
     <PackageVersion Include="GitHubActionsTestLogger" Version="2.4.1" />
   </ItemGroup>
