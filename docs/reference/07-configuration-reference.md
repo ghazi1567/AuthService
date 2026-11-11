@@ -194,6 +194,14 @@ The five policies and their behaviour are explained in [05](05-platform-and-cros
 
 ---
 
+## Web console security headers
+
+Bound to `Security` (`SecurityHeadersOptions`, AUTH-271) in the web app.
+
+| Setting (colon / environment) | Default | Required | What it controls and what changes if it differs | Danger |
+|---|---|---|---|---|
+| `Security:ScriptPolicyReportOnly` / `Security__ScriptPolicyReportOnly` | `false` | No | `true` sends `script-src` as `Content-Security-Policy-Report-Only`: browsers log what they would block and run it anyway | Left on, injected scripts are not blocked. For a first rollout only |
+
 ## Audit
 
 Bound to `Auth:Audit` (`AuditOptions`).

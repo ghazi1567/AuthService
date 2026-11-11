@@ -8,7 +8,8 @@
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["AuthService.Web.styles.css"]" />
-    <ImportMap />
+    @* The import map is the one inline script on every page, so it carries the request's nonce (AUTH-271). *@
+    <ImportMap nonce="@Nonce" />
     <HeadOutlet />
 </head>
 
@@ -20,3 +21,9 @@
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private string? Nonce => HttpContext is null ? null : AuthService.Web.Security.SecurityHeaders.Nonce(HttpContext);
+}

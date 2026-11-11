@@ -557,8 +557,8 @@ Error codes mapped by `ProductEndpoints.Code`: 429 `rate_limited`; 403 with `ten
     caches it) when none is cached. That is one extra API call on the first picker load. A rate limit there never stops the person
     choosing a product (test `ARateLimitedConsoleExchangeNeverStopsThePersonChoosingAProduct`).
 - **Likely production causes.**
-  - *The hand-off page does nothing.* The inline script did not run (blocked by a browser extension, or a future CSP `script-src`; there
-    is none today), in which case the Continue button still works. Otherwise the product's launch address rejects the post. Check the
+  - *The hand-off page does nothing.* The inline script did not run (blocked by a browser extension, or the script policy if its nonce
+    is missing), in which case the Continue button still works. Otherwise the product's launch address rejects the post. Check the
     product's endpoint accepts `POST` of `application/x-www-form-urlencoded` with `access_token`, `token_type`, `expires_in`
     (decision 0007), and the address is `https` (the API refuses `http` except localhost).
   - *Blank or blocked after the post.* The CSP allows the form to post to the launch origin only. **Assumption (confirm):** some browsers
@@ -943,12 +943,16 @@ Protections that apply to the whole console.
   - `Referrer-Policy: no-referrer`
   - `X-Content-Type-Options: nosniff`
   - `X-Frame-Options: DENY`
-  - `Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; form-action 'self'[ <origin>]; object-src 'none'`
+  - `Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; form-action 'self'[ <origin>]; object-src 'none'; script-src 'self' 'nonce-<n>'`
   - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`
   - `Cache-Control: no-store` on every `text/html` response
-- **Deliberately not set yet:** a `script-src` (and `default-src`, `style-src`, `connect-src`) policy. The code comment says it is decided
-  with the finished design, because Blazor's own scripts need a nonce or hash policy that must be tested against it. There is also no
-  HSTS from the web app; the Caddy proxy sets `Strict-Transport-Security: max-age=15552000` (six months, no `includeSubDomains`).
+- **Script policy (AUTH-271).** `script-src 'self' 'nonce-<n>'`: scripts load only from this site (`blazor.web.js`, `app.js`,
+  `ReconnectModal.razor.js`), and the only inline scripts carry the response's nonce: the import map (`App.razor`, `<ImportMap nonce>`) and the
+  hand-off page's one line (`ProductEndpoints.HandOffPage`). `SecurityHeaders.Nonce(context)` makes 18 random bytes, base64, once per response.
+  No `unsafe-inline`, no `unsafe-eval`, no inline event handlers. `Security:ScriptPolicyReportOnly` (`SecurityHeadersOptions`, default false)
+  moves `script-src` to a `Content-Security-Policy-Report-Only` header for a first rollout; the rest stays enforced. `default-src`, `style-src`
+  (two pages set an inline `style` width) and `connect-src` are still not set. Checked in a real browser on 2026-11-11 (sign-up, sign-in,
+  verify and reset links, picker, every console and platform page, the hand-off): no violations. There is also no HSTS from the web app; the Caddy proxy sets `Strict-Transport-Security: max-age=15552000` (six months, no `includeSubDomains`).
 - **Anti-forgery.** `app.UseAntiforgery()` protects Blazor form posts (`EditForm` and `<AntiforgeryToken />`). Every custom POST
   endpoint (`/logout`, `/choose-product/open`, `ConsoleEndpoints`, `PlatformEndpoints`) calls `IAntiforgery.ValidateRequestAsync` by
   hand and answers an empty HTTP 400 on `AntiforgeryValidationException`.
@@ -1000,8 +1004,9 @@ Protections that apply to the whole console.
     elsewhere is blocked by the browser.
   - `form-action 'self'` also covers the `/logout` and console posts, which are same-origin.
 - **Likely production causes.**
-  - *Pages broken by a future script policy.* If someone adds `script-src` without a hash or nonce, `blazor.web.js` (loaded from the
-    same origin), `app.js`, `ReconnectModal.razor.js` and the inline script in the hand-off page are the places to check.
+  - *A page is broken by the script policy.* The browser console says "Refused to execute inline script" or "Refused to load the script".
+    A new inline `<script>` needs `nonce="@SecurityHeaders.Nonce(HttpContext)"`; a script from another site is not allowed at all. To
+    roll back quickly, set `Security__ScriptPolicyReportOnly=true` (reported, not enforced) and restart the web app.
   - *Forms rejected everywhere after a restart.* Data protection keys were lost (see the session section).
   - *Framing.* The console cannot be shown inside another site (`frame-ancestors 'none'`, `X-Frame-Options: DENY`).
 
@@ -1141,8 +1146,8 @@ Other files: `wwwroot/app.js` (see the public pages section), `Properties/launch
    rotation). It would lock an affected person out of every page until the token renews. Reproduce and, if real, make a 401 on an
    identity token end the session or make `Login` check the session before redirecting. Review `ConsoleSession.OpenAsync`,
    `ChooseOrganisation.razor`, `PlatformSession.OpenAsync`, `Login.razor` `OnInitialized`.
-3. **No content-security `script-src`, and the token hand-off passes through the browser.** An injected script would not be stopped by
-   policy, and the hand-off page carries a live 15-minute product token in a form. Review `SecurityHeaders.cs`, `ProductEndpoints.HandOffPage`,
+3. **The token hand-off passes through the browser.** A nonce `script-src` now blocks injected scripts (AUTH-271), but the hand-off page
+   still carries a live 15-minute product token in a form. Review `SecurityHeaders.cs`, `ProductEndpoints.HandOffPage`,
    and the single-use code alternative in decision 0007.
 4. **Proxy and forwarded-address trust on both apps.** A wrong setting either puts every visitor in one rate-limit budget or lets an
    address be chosen by a visitor. Review `ProxyOptions`, `ClientAddressHandler`, the compose environment, and the API's `Auth:Proxy`.

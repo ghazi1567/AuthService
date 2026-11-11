@@ -44,6 +44,9 @@ builder.Services.AddHttpClient<AuthApiClient>((provider, client) =>
 
 builder.Services.AddSessionAuthentication(builder.Environment);
 
+// The script policy can be reported instead of enforced for a first rollout (Security:ScriptPolicyReportOnly, AUTH-271).
+builder.Services.AddOptions<SecurityHeadersOptions>().Bind(builder.Configuration.GetSection(SecurityHeadersOptions.SectionName));
+
 var app = builder.Build();
 
 // Checked here, before the host starts, as well as by ValidateOnStart: reading the value runs the validators, so a missing or unusable API
