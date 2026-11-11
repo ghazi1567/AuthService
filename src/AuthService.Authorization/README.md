@@ -36,7 +36,7 @@ var product = await authService.GetProductAsync();     // your audience, whether
 A refusal is an `AuthServiceException` with the status and the Auth Service's own `Code`, such as `tenant_not_found`. It never carries the
 secret or a token.
 
-From 1.2.0, `SendAsync(method, path, content)` calls any other Auth Service endpoint with the same service token (renewed once if refused);
+From 1.2.0 (on nuget.org, 1.2.1), `SendAsync(method, path, content)` calls any other Auth Service endpoint with the same service token (renewed once if refused);
 the caller reads the response. `AuthService.Entitlements` builds on it (decision 0016).
 
 ### Setting it up by hand

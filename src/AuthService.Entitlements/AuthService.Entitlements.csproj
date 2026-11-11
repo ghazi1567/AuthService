@@ -16,7 +16,7 @@
     <PackageVersion Condition="'$(EntitlementsVersion)' != ''">$(EntitlementsVersion)</PackageVersion>
     <!-- The lowest AuthService.Authorization release this package works with (it needs IAuthServiceClient.SendAsync). The publish workflow
          packs with -p:Version set to it, so the dependency is written as ">= this". Raise it when the package needs something newer. -->
-    <MinimumAuthorizationVersion>1.2.0</MinimumAuthorizationVersion>
+    <MinimumAuthorizationVersion>1.2.1</MinimumAuthorizationVersion>
   </PropertyGroup>
 
   <PropertyGroup Label="Package contents">

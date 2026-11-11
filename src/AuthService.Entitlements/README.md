@@ -74,5 +74,5 @@ events signed like the real ones.
 
 ## Releases
 
-Released together with the `AuthService.Authorization` version it needs (1.2.0 or later, for `IAuthServiceClient.SendAsync`). Tag
+Released together with the `AuthService.Authorization` version it needs (1.2.1 or later on nuget.org, for `IAuthServiceClient.SendAsync`). Tag
 `entitlements-v<version>` on main; see `.github/workflows/publish-entitlements-package.yml`.
