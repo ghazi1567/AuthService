@@ -212,6 +212,21 @@ Bound to `Auth:Audit` (`AuditOptions`).
 | `Auth:Audit:RetentionEnabled` | `true` | No | `false`: the worker logs `The audit retention worker is disabled; old entries will not be deleted automatically.` and exits | Disables all automatic deletion; the table grows. The tests set it `false` |
 | `Auth:Audit:RetentionCheckSeconds` | `86400` | No | How often the job runs (minimum 1); it also runs once at startup | |
 
+## Cleanup
+
+Bound to `Auth:Cleanup` (`CleanupOptions`, AUTH-270). Each retention counts from when a row stopped being usable, never from when it was created.
+
+| Setting (colon / environment) | Default | Required | What it controls and what changes if it differs | Danger |
+|---|---|---|---|---|
+| `Auth:Cleanup:Enabled` / `Auth__Cleanup__Enabled` | `true` | No | `false`: the worker logs `The cleanup worker is disabled; ...` and exits | The token and outbox tables grow without bound. The tests set it `false` |
+| `Auth:Cleanup:IntervalSeconds` | `3600` | No | How often a run starts (minimum 1) | |
+| `Auth:Cleanup:BatchSize` / `MaxBatchesPerKind` | `500` / `200` | No | Rows per delete statement, and the most statements per kind per run (a larger backlog goes over several runs) | |
+| `Auth:Cleanup:RefreshTokenDays` | `7` | No | Days after a refresh token **expires** before it is removed. A revoked token waits for this too, so a replayed old token is still found and revokes its sign-in (reuse detection) | Do not set below 0 |
+| `Auth:Cleanup:VerificationTokenDays` / `ResetTokenDays` | `7` / `7` | No | Days after a link was used or expired | |
+| `Auth:Cleanup:EmailOutboxDays` | `14` | No | Days after an email was sent (or, for one given up on, written) | |
+| `Auth:Cleanup:DeliveredWebhookDays` / `FailedWebhookDays` | `14` / `30` | No | Days after delivery / after the delivery deadline. Failed events stay longer because an admin can resend them | A short value removes events before anyone can resend them |
+| `Auth:Cleanup:ExpiredSecretDays` | `7` | No | Days after a previous product secret stopped working; the current secret never expires | |
+
 ---
 
 ## Web console
@@ -299,6 +314,7 @@ default must set it back through `HarnessOptions.Settings`:
 | `Auth:LoginProtection:IpLimit` | `1000` | `20` |
 | `Auth:TokenExchange:UserLimit` | `1000` | `30` |
 | `Auth:Audit:RetentionEnabled` | `false` | `true` |
+| `Auth:Cleanup:Enabled` | `false` | `true` |
 | `Auth:Webhooks:DispatcherEnabled` | `false` | `true` |
 | `Auth:Webhooks:DispatchIntervalMilliseconds` | `50` | `2000` |
 | `Auth:Webhooks:AllowPrivateAddresses` | `true` | `false` |

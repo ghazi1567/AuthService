@@ -47,6 +47,9 @@ public sealed class AuthApiFactory(string connectionString, HarnessOptions optio
                 // plants old entries and calls the job itself cannot race the worker; the worker has its own test.
                 ["Auth:Audit:RetentionEnabled"] = "false",
 
+                // The cleanup worker (AUTH-270) is off for the same reason: the cleanup tests plant old rows and run it themselves.
+                ["Auth:Cleanup:Enabled"] = "false",
+
                 // The webhook worker is off by default so queued events stay put for the tests that look at them; the tests about
                 // delivery turn it on and swap in a fake receiver. Callbacks may be plain http, as a test product has no certificate.
                 ["Auth:Webhooks:DispatcherEnabled"] = "false",
