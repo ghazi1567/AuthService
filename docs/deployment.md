@@ -511,6 +511,9 @@ the same with one instance or ten. A migration is not undone by going back to an
   `Auth__Tokens__KeyEncryptionKey` separately, somewhere that is not the same place as the database backup.
 - **Logs:** to standard output. Set `Logging__LogLevel__Microsoft.EntityFrameworkCore=Warning` to drop the line per database command.
   Webhook logs name only ids and outcomes, never a callback URL, because a URL can hold a secret.
+- **Script policy (web console):** the console allows scripts only from itself and inline ones with a per-response nonce. If a browser
+  console shows "Refused to execute" after an upgrade, set `Security__ScriptPolicyReportOnly=true` on the web container to report instead of
+  block while it is fixed, then turn it off again.
 - **Signing keys** rotate themselves every 90 days with a day of overlap; `POST /api/auth/admin/signing-keys/rotate` replaces the key
   at once if one leaks, which invalidates every token it signed.
 - **Products** check tokens locally against `https://<your host>/.well-known/jwks.json` with the `AuthService.Authorization` package

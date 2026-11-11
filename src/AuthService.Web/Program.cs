@@ -44,6 +44,9 @@ builder.Services.AddHttpClient<AuthApiClient>((provider, client) =>
 
 builder.Services.AddSessionAuthentication(builder.Environment);
 
+// The script policy can be reported instead of enforced for a first rollout (Security:ScriptPolicyReportOnly, AUTH-271).
+builder.Services.AddOptions<SecurityHeadersOptions>().Bind(builder.Configuration.GetSection(SecurityHeadersOptions.SectionName));
+
 var app = builder.Build();
 
 var proxy = app.Services.GetRequiredService<IOptions<ProxyOptions>>().Value;

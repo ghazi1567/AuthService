@@ -243,7 +243,7 @@ Review these first, most risky first. Each links to the part that explains it. T
 12. **Unbounded growth.** No cleanup for refresh, verification and reset tokens, finished email and webhook outbox rows, or expired product secrets;
     audit retention can be switched off. Parts [1](01-accounts-and-sign-in.md), [5](05-platform-and-cross-cutting.md), [3](03-products-and-subscriptions.md).
 13. **The platform admin flag is an unaudited database column** that gates everything, including signing-key rotation. Part [3](03-products-and-subscriptions.md).
-14. **Browser-side exposure in the console:** no `script-src` content policy, a live product token carried through the browser in the hand-off form,
+14. **Browser-side exposure in the console:** a live product token carried through the browser in the hand-off form (a nonce `script-src` policy now blocks injected scripts, AUTH-271),
     and a possible sign-in redirect loop if the API rejects a token the console still thinks is fresh. Part [6](06-web-console.md).
 15. **The audit log's append-only protection is a database trigger the application's own database user could drop.** Use a restricted role if the
     log is a compliance record. Part [5](05-platform-and-cross-cutting.md).
