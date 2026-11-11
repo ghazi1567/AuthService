@@ -21,6 +21,11 @@ public sealed class AuthMetrics
     private readonly ConcurrentDictionary<(string Method, string Route, int Status), long> _requests = new();
     private readonly ConcurrentDictionary<(string Method, string Route), Histogram> _durations = new();
     private readonly ConcurrentDictionary<string, long> _loginFailures = new();
+    private readonly ConcurrentDictionary<string, long> _cleanupRemoved = new();
+
+    /// <summary>Counts rows the cleanup removed (AUTH-270). <paramref name="kind"/> is one of the fixed words in <c>CleanupKinds</c>.</summary>
+    public void RecordCleanup(string kind, int removed) =>
+        _cleanupRemoved.AddOrUpdate(kind, removed, (_, count) => count + removed);
 
     /// <summary>Counts one finished request. A route that matched nothing is counted as <c>unmatched</c>, so scanners cannot create labels.</summary>
     public void RecordRequest(string method, string? routeTemplate, int statusCode, TimeSpan duration)
@@ -82,6 +87,14 @@ public sealed class AuthMetrics
         foreach (var (reason, count) in _loginFailures.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
             text.Append("auth_login_failures_total{reason=\"").Append(Escape(reason)).Append("\"} ")
+                .AppendLine(count.ToString(CultureInfo.InvariantCulture));
+        }
+
+        text.AppendLine("# HELP auth_cleanup_rows_removed_total Finished rows the cleanup removed, by kind.");
+        text.AppendLine("# TYPE auth_cleanup_rows_removed_total counter");
+        foreach (var (kind, count) in _cleanupRemoved.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            text.Append("auth_cleanup_rows_removed_total{kind=\"").Append(Escape(kind)).Append("\"} ")
                 .AppendLine(count.ToString(CultureInfo.InvariantCulture));
         }
     }

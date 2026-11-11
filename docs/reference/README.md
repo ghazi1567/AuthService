@@ -240,8 +240,8 @@ Review these first, most risky first. Each links to the part that explains it. T
     "reuse detected" audit entry is also written for ordinary logout and reset. Part [1](01-accounts-and-sign-in.md).
 11. **Organisation rules enforced only in code, with gaps.** Unaccepted invitations can now be withdrawn and expire out of the seat count (AUTH-269), but the "tenant keeps an Owner" rule has no
     database constraint. Part [2](02-organisations-members-and-roles.md).
-12. **Unbounded growth.** No cleanup for refresh, verification and reset tokens, finished email and webhook outbox rows, or expired product secrets;
-    audit retention can be switched off. Parts [1](01-accounts-and-sign-in.md), [5](05-platform-and-cross-cutting.md), [3](03-products-and-subscriptions.md).
+12. **Unbounded growth (mostly fixed).** The cleanup (AUTH-270) removes finished tokens, outbox rows and expired product secrets after a
+    retention; it and audit retention can still be switched off, and expired invitations are kept on purpose. Parts [1](01-accounts-and-sign-in.md), [5](05-platform-and-cross-cutting.md), [3](03-products-and-subscriptions.md).
 13. **The platform admin flag is an unaudited database column** that gates everything, including signing-key rotation. Part [3](03-products-and-subscriptions.md).
 14. **Browser-side exposure in the console:** no `script-src` content policy, a live product token carried through the browser in the hand-off form,
     and a possible sign-in redirect loop if the API rejects a token the console still thinks is fresh. Part [6](06-web-console.md).

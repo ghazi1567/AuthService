@@ -7,6 +7,7 @@ using AuthService.Api.Features.Admin;
 using AuthService.Api.Features.Applications;
 using AuthService.Api.Features.ApiKeys;
 using AuthService.Api.Features.Audit;
+using AuthService.Api.Features.Cleanup;
 using AuthService.Api.Features.BuiltIn;
 using AuthService.Api.Features.CurrentUser;
 using AuthService.Api.Features.Discovery;
@@ -97,6 +98,11 @@ builder.Services.Configure<AuditOptions>(builder.Configuration.GetSection(AuditO
 builder.Services.AddScoped<AuditLog>();
 builder.Services.AddScoped<AuditRetention>();
 builder.Services.AddHostedService<AuditRetentionWorker>();
+
+// Cleanup (AUTH-270): finished tokens, sent and delivered outbox rows and expired product secrets are removed after a retention, hourly.
+builder.Services.Configure<CleanupOptions>(builder.Configuration.GetSection(CleanupOptions.SectionName));
+builder.Services.AddScoped<DataCleanup>();
+builder.Services.AddHostedService<DataCleanupWorker>();
 
 // Password reset (TEN-10).
 builder.Services.Configure<PasswordResetOptions>(builder.Configuration.GetSection(PasswordResetOptions.SectionName));
