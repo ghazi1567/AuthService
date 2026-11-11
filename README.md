@@ -243,8 +243,9 @@ What is in place:
   `AuthService:Session:CookieName`, `RememberedDays` (30), `DefaultHours` (12), `RefreshBeforeSeconds` (60). Nothing logs a password,
   token or session id.
 - **Security headers** on every response: `Referrer-Policy: no-referrer`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, a
-  `frame-ancestors`/`form-action` policy and `Permissions-Policy`; HTML pages are `Cache-Control: no-store`. A script-source policy is
-  decided with the finished design, because Blazor's scripts need a tested nonce policy.
+  `frame-ancestors`/`form-action` policy, a script policy (`script-src 'self' 'nonce-…'`: scripts only from this site, the inline ones
+  carry a new nonce per response; AUTH-271) and `Permissions-Policy`; HTML pages are `Cache-Control: no-store`. `Security__ScriptPolicyReportOnly=true`
+  reports the script policy instead of enforcing it, for a first rollout.
 - **`GET /healthz`** answers `ok` while the app runs, and says nothing about the API.
 - **Not yet:** a shared session store for more than one copy of the console, a script-source content policy, and the Figma designs. (The auth screens,
   the picker, both consoles and the container image exist.)

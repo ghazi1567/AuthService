@@ -72,6 +72,21 @@ public sealed class ProductHandOffTests
     }
 
     [Fact]
+    public async Task AUTH271_TheHandOffScriptCarriesTheResponsesNonceSoTheScriptPolicyAllowsIt()
+    {
+        var api = Api();
+        await using var factory = new WebAppFactory(api);
+        using var client = await SignedInAsync(factory);
+
+        var response = await OpenAsync(client, Helpdesk);
+        var html = await response.Content.ReadAsStringAsync(Token);
+
+        var nonce = ContentSecurityPolicyTests.NonceOf(response);
+        string.Join(' ', response.Headers.GetValues("Content-Security-Policy")).ShouldContain($"script-src 'self' 'nonce-{nonce}'");
+        html.ShouldContain($"<script nonce=\"{System.Net.WebUtility.HtmlEncode(nonce)}\">document.querySelector(\"[data-autosubmit]\").submit();</script>");
+    }
+
+    [Fact]
     public async Task TheTokenIsNeverLogged()
     {
         var logs = new CapturingLogs();

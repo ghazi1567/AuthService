@@ -293,7 +293,7 @@ public sealed class PasswordResetPageTests
     /// <summary>Anti-forgery tokens and Blazor's encrypted state differ on every page; everything else must be identical.</summary>
     private static string Normalise(string html) =>
         Regex.Replace(
-            Regex.Replace(html, "value=\"[^\"]{40,}\"", "value=\"TOKEN\""),
+            Regex.Replace(Regex.Replace(html, "value=\"[^\"]{40,}\"", "value=\"TOKEN\""), "nonce=\"[^\"]*\"", "nonce=\"NONCE\""),
             "<!--Blazor-Server-Component-State:[^>]*-->",
             "<!--STATE-->");
 

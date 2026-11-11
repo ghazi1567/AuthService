@@ -512,6 +512,9 @@ the same with one instance or ten. A migration is not undone by going back to an
   `Auth__Tokens__KeyEncryptionKey` separately, somewhere that is not the same place as the database backup.
 - **Logs:** to standard output. Set `Logging__LogLevel__Microsoft.EntityFrameworkCore=Warning` to drop the line per database command.
   Webhook logs name only ids and outcomes, never a callback URL, because a URL can hold a secret.
+- **Script policy (web console):** the console allows scripts only from itself and inline ones with a per-response nonce. If a browser
+  console shows "Refused to execute" after an upgrade, set `Security__ScriptPolicyReportOnly=true` on the web container to report instead of
+  block while it is fixed, then turn it off again.
 - **Cleanup:** an hourly job removes used and expired tokens, sent emails, delivered and failed webhook events and expired product secrets
   after a retention (7 to 30 days; `Auth__Cleanup__*`, see the configuration reference). It deletes in small batches, so it is safe to leave on
   in production and on several instances. Pending emails and events, the current product secret and the audit log are never removed.

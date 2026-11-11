@@ -77,7 +77,7 @@ public static class ProductEndpoints
         // This one response may post a form to the product's own address, and nowhere else.
         SecurityHeaders.AllowFormPostTo(context, address);
         context.Response.Headers.CacheControl = "no-store";
-        return Results.Content(HandOffPage(product.Name, address, exchange.Value!, $"{picker}&stay=1"), "text/html", Encoding.UTF8);
+        return Results.Content(HandOffPage(product.Name, address, exchange.Value!, $"{picker}&stay=1", SecurityHeaders.Nonce(context)), "text/html", Encoding.UTF8);
     }
 
     private static string Code(ApiProblem problem) => problem.Status switch
@@ -91,9 +91,9 @@ public static class ProductEndpoints
 
     /// <summary>
     /// A small page whose only job is to post the token to the product. Every value is HTML-encoded. It posts at once when scripts run
-    /// (one inline line, so it needs no other file) and has a Continue button when they don't.
+    /// (one inline line with the request's script nonce, so it needs no other file) and has a Continue button when they don't.
     /// </summary>
-    private static string HandOffPage(string productName, Uri address, TokenExchangeResponse token, string back)
+    private static string HandOffPage(string productName, Uri address, TokenExchangeResponse token, string back, string nonce)
     {
         string E(string value) => WebUtility.HtmlEncode(value);
         return $$"""
@@ -122,7 +122,7 @@ public static class ProductEndpoints
                 <a class="btn" href="{{E(back)}}">Choose another</a>
               </form>
             </main>
-            <script>document.querySelector("[data-autosubmit]").submit();</script>
+            <script nonce="{{E(nonce)}}">document.querySelector("[data-autosubmit]").submit();</script>
             </body>
             </html>
             """;
