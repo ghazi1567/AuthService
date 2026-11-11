@@ -809,6 +809,27 @@ Products learn a tenant's limits from events, never from the token (ENT-04). Two
   **404** `plan_not_found`, **409** `plan_inactive`); the answer then includes `planKey`, `entitlementsVersion` and `entitlements`. A platform
   admin subscribing from the console can pass it too. Re-subscribing an already active tenant still changes nothing, plan included.
 
+#### Reading entitlements
+
+Events can be missed (a product down for longer than the retry window, or a new product syncing for the first time), so a product can also read
+entitlements with its service token (ENT-05). Each answer has the same fields as `EntitlementsChanged`, plus the subscription's `status` and its
+`changeNumber`.
+
+| Read | What it returns |
+|---|---|
+| `GET /api/auth/tenants/{tenantId}/subscriptions/me/entitlements` | One tenant, whatever its status. **404** `subscription_not_found` if it never subscribed to your product. |
+| `GET /api/auth/applications/me/entitlements?after=&limit=` | Every tenant of your product as `{items, next}`, oldest change first. `limit` 1 to 500 (default 100). |
+
+- **First sync:** call the list with no `after` and follow `next.after` until `next` is null.
+- **Catching up:** keep the `changeNumber` of the last item you read, and pass it as `after` next time: you get only the tenants whose
+  entitlements changed since. A change is never skipped: numbers become visible in the order they were given out (decision 0015).
+- Apply a row only if its `version` is higher than the one you hold, exactly as for events. Suspending or cancelling does not change entitlements,
+  so it does not move a tenant in this list; `status` is always current.
+
+A tenant admin with `subscriptions.read` can see their own organisation's plan and limits, read-only:
+`GET /api/auth/tenants/me/subscriptions/{applicationId}/entitlements` returns the product, the plan, and each limit's label, description, unit,
+value and whether it is overridden (never the reason). A product the organisation never subscribed to, and the built-in one, are **404**.
+
 #### Webhooks to products
 
 When a tenant is subscribed (`ApplicationSubscribed`), or suspended or cancelled (`ApplicationUnsubscribed`, with the new `status`),

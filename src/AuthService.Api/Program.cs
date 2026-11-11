@@ -224,6 +224,7 @@ app.MapServiceToken();
 app.MapCurrentApplication();
 app.MapCurrentApplicationLimits();
 app.MapCurrentApplicationPlans();
+app.MapEntitlementReads();
 app.MapWebhookConfig();
 app.MapListApplications();
 app.MapMyApplications();

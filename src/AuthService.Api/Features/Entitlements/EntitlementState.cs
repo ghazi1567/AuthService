@@ -21,6 +21,8 @@ public sealed record ChangedEntitlements(Guid SubscriptionId, Guid TenantId, lon
 /// </summary>
 public sealed class EntitlementState(AuthDbContext db, TimeProvider timeProvider, IOptions<WebhookOptions> webhookOptions)
 {
+    private const string ChangeNumberLockPrefix = "entitlement-change:";
+
     /// <param name="subscriptionIds">The subscriptions to look at, or null for every subscription of the product.</param>
     public async Task<Dictionary<Guid, EntitlementSnapshot>> SnapshotAsync(
         Guid applicationId, IReadOnlyCollection<Guid>? subscriptionIds, CancellationToken cancellationToken)
@@ -97,7 +99,17 @@ public sealed class EntitlementState(AuthDbContext db, TimeProvider timeProvider
             return [];
         }
 
-        var changedIds = changed.Select(snapshot => snapshot.SubscriptionId).ToArray();
+        var changedIds = changed.Select(snapshot => snapshot.SubscriptionId).OrderBy(id => id).ToArray();
+
+        // Change numbers must become visible in the order they were given out, or a product reading "what changed since 10" could see 11
+        // while 10 is still uncommitted, and then never see 10 (ENT-05). So the rows are locked first (never waiting for them while holding the
+        // product's lock), then the product's lock is taken and held until this transaction ends: a second change to the same product gets its
+        // number only after this one is committed.
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM subscriptions WHERE id = ANY({changedIds}) ORDER BY id FOR UPDATE", cancellationToken);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({ChangeNumberLockPrefix + applicationId}, 0))", cancellationToken);
+
         var versions = await db.Database.SqlQuery<VersionRow>($"""
             UPDATE subscriptions
             SET entitlements_version = entitlements_version + 1, entitlements_change_seq = nextval('entitlement_change_seq')
