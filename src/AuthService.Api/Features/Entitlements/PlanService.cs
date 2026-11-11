@@ -32,6 +32,9 @@ public abstract record PlanResult
 
     /// <summary>The plan was assigned to a subscription at some point, so it can only be deactivated.</summary>
     public sealed record InUse : PlanResult;
+
+    /// <summary>What saving these values would do (ENT-06): how many subscriptions are on the plan, and how many of them would get new numbers.</summary>
+    public sealed record Previewed(PlanPreviewDto Preview) : PlanResult;
 }
 
 public static class PlanValidator
@@ -297,6 +300,46 @@ public sealed class PlanService(AuthDbContext db, AuditLog audit, EntitlementHis
     public static PlanDto ToDto(Plan plan, IReadOnlyDictionary<string, long?> values) =>
         new(plan.Key, plan.Name, plan.Description, plan.IsActive, !plan.EverAssigned,
             new SortedDictionary<string, long?>(values.ToDictionary(), StringComparer.Ordinal), plan.CreatedAt, plan.UpdatedAt);
+
+    /// <summary>
+    /// ENT-06: what replacing a plan's values with <paramref name="values"/> would do, without writing anything. A subscription "changes" exactly
+    /// when <see cref="ReplaceAsync"/> would raise its version: its overrides are kept, so a value an override hides changes nothing.
+    /// </summary>
+    public async Task<PlanResult> PreviewAsync(Guid applicationId, string key, IReadOnlyDictionary<string, long?> values, CancellationToken cancellationToken)
+    {
+        if (!await db.Applications.AsNoTracking().AnyAsync(application => application.Id == applicationId && !application.IsBuiltIn, cancellationToken))
+        {
+            return new PlanResult.ApplicationNotFound();
+        }
+
+        var plan = await db.Plans.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.ApplicationId == applicationId && candidate.Key == key, cancellationToken);
+        if (plan is null)
+        {
+            return new PlanResult.PlanNotFound();
+        }
+
+        var limits = await LimitsAsync(applicationId, cancellationToken);
+        if (CheckValues(values, limits) is { } refused)
+        {
+            return refused;
+        }
+
+        var defaults = limits.ToDictionary(pair => pair.Key, pair => pair.Value.DefaultValue, StringComparer.Ordinal);
+        var subscriptionIds = await db.Subscriptions.AsNoTracking()
+            .Where(subscription => subscription.PlanId == plan.Id)
+            .Select(subscription => subscription.Id)
+            .ToListAsync(cancellationToken);
+        var now = await state.SnapshotAsync(applicationId, subscriptionIds, cancellationToken);
+        var changed = now.Values.Count(snapshot =>
+        {
+            var overrides = snapshot.Limits
+                .Where(pair => pair.Value.Source == EntitlementSource.Override)
+                .ToDictionary(pair => pair.Key, pair => pair.Value.Value, StringComparer.Ordinal);
+            return EffectiveEntitlements.Differ(snapshot.Limits, EffectiveEntitlements.Compute(defaults, values, overrides));
+        });
+
+        return new PlanResult.Previewed(new PlanPreviewDto(subscriptionIds.Count, changed));
+    }
 
     private Task<Dictionary<string, LimitDefinition>> LimitsAsync(Guid applicationId, CancellationToken cancellationToken) =>
         db.LimitDefinitions.Where(limit => limit.ApplicationId == applicationId).ToDictionaryAsync(limit => limit.Key, cancellationToken);

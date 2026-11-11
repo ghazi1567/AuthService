@@ -1,0 +1,359 @@
+@page "/platform/products/{ProductId:guid}/plans/new"
+@page "/platform/products/{ProductId:guid}/plans/{PlanKey}/edit"
+@attribute [Authorize]
+@layout PlatformLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>@Title · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Plan</h1>
+    <ErrorState Title="We couldn't load the plan" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (product is null || (IsEdit && existing is null))
+{
+    <h1 class="page-title">@(product is null ? "That product isn't here" : "That plan isn't here")</h1>
+    <p class="page-lead">It may have been removed. Go back to the list to see what is there now.</p>
+    <a class="btn btn-secondary" href="@(product is null ? "/platform/products" : PlansPath)">@(product is null ? "Back to products" : "Back to plans")</a>
+}
+else
+{
+    <p class="back-link"><a href="@PlansPath"><Icon Name="chevron-right" />@product.Name plans</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@Title</h1>
+            <p class="page-lead">Choose a value for each limit. Leave a value empty to use the limit's default.</p>
+        </div>
+    </div>
+
+    <form method="post" @onsubmit="SaveAsync" @formname="plan" class="editor" data-unsaved-guard>
+        <AntiforgeryToken />
+        @if (errors.Count > 0)
+        {
+            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="auth-alert">
+                <ul>
+                    @foreach (var error in errors)
+                    {
+                        <li>@error</li>
+                    }
+                </ul>
+            </AlertBanner>
+        }
+
+        @if (review is not null)
+        {
+            <AlertBanner Kind="AlertKind.Warning" Title="@ReviewTitle" Class="auth-alert">
+                <p class="alert-body">@review.Changed of the @review.Subscriptions @(review.Subscriptions == 1 ? "organisation" : "organisations") on @existing!.Name get new limits when you save, and @product.Name is told about each one. Organisations whose override covers a changed limit keep their number.</p>
+                <div class="alert-actions">
+                    <button type="submit" name="confirm" value="1" class="btn btn-primary btn-sm" data-busy-label="Saving…">Save and update @review.Changed @(review.Changed == 1 ? "organisation" : "organisations")</button>
+                </div>
+            </AlertBanner>
+        }
+
+        @if (IsEdit)
+        {
+            <input type="hidden" name="key" value="@existing!.Key" />
+        }
+        else
+        {
+            <div class="field">
+                <label for="plan-key">Key</label>
+                <input id="plan-key" name="key" class="input mono" value="@entered.Key" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="plan-key-help" required />
+                <p id="plan-key-help" class="field-message">How @product.Name refers to the plan, like "growth": lowercase letters, digits and . _ - characters. It can't be changed later.</p>
+            </div>
+        }
+
+        <div class="field">
+            <label for="plan-name">Name</label>
+            <input id="plan-name" name="name" class="input" value="@entered.Name" maxlength="200" required />
+            <p class="field-message">What people read, like "Growth".</p>
+        </div>
+        <div class="field">
+            <label for="plan-description">Description <span class="muted">(optional)</span></label>
+            <textarea id="plan-description" name="description" class="input textarea" rows="2" maxlength="1000">@entered.Description</textarea>
+        </div>
+        @if (!IsEdit)
+        {
+            <label class="check">
+                <input type="checkbox" name="isActive" value="true" checked="@entered.IsActive" />
+                <span>Active</span>
+                <span class="muted">An active plan can be given to organisations. You can change this later.</span>
+            </label>
+        }
+
+        <h2 class="section-title">Limits</h2>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Limit</th>
+                        <th scope="col">Default</th>
+                        <th scope="col">This plan</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var limit in limits)
+                    {
+                        var value = entered.Values.GetValueOrDefault(limit.Key) ?? new EnteredValue("", false);
+                        <tr>
+                            <td data-label="Limit">
+                                <span class="person-name">@limit.Label</span>
+                                <span class="status-note"><code class="mono">@limit.Key</code>@(limit.IsFlag ? " · 0 is off, 1 is on" : "")</span>
+                            </td>
+                            <td data-label="Default">@EntitlementText.Describe(limit.DefaultValue, limit.Unit)</td>
+                            <td data-label="This plan">
+                                <div class="value-cell">
+                                    <label class="visually-hidden" for="value-@limit.Key">@limit.Label for this plan</label>
+                                    <input id="value-@limit.Key" name="value.@limit.Key" class="input" inputmode="numeric" value="@value.Text" placeholder="Default" />
+                                    <label class="check">
+                                        <input type="checkbox" name="unlimited.@limit.Key" value="true" checked="@value.Unlimited" />
+                                        <span>Unlimited</span>
+                                    </label>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="editor-actions">
+            <a class="btn btn-secondary" href="@PlansPath">Cancel</a>
+            <button type="submit" class="btn btn-primary" data-busy-label="Saving…">@(IsEdit ? "Save changes" : "Create plan")</button>
+        </div>
+    </form>
+}
+
+@code {
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private string? reference;
+    private AdminProductItem? product;
+    private PlanItem? existing;
+    private PlanPreview? review;
+    private Entered entered = new("", "", "", true, []);
+    private readonly List<string> errors = [];
+    private List<LimitItem> limits = [];
+
+    [Parameter] public Guid ProductId { get; set; }
+
+    [Parameter] public string? PlanKey { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "from")] private string? FromKey { get; set; }
+
+    private bool IsEdit => PlanKey is not null;
+
+    private string PlansPath => $"/platform/products/{ProductId}/plans";
+
+    private string PagePath => IsEdit ? $"{PlansPath}/{PlanKey}/edit" : $"{PlansPath}/new";
+
+    private string Title => IsEdit ? $"Edit {existing?.Name ?? "plan"}" : product is null ? "New plan" : $"New {product.Name} plan";
+
+    private string ReviewTitle => $"This changes the limits of {review!.Changed} {(review.Changed == 1 ? "organisation" : "organisations")}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var products = await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
+        if (!products.IsSuccess)
+        {
+            Fail(products.Problem!);
+            return;
+        }
+
+        product = products.Value!.FirstOrDefault(candidate => candidate.Id == ProductId);
+        if (product is null)
+        {
+            return;
+        }
+
+        var limitList = await Api.GetAllAsync<LimitItem>($"/api/auth/admin/applications/{ProductId}/limits", access.Token!, HttpContext.RequestAborted);
+        var planList = limitList.IsSuccess
+            ? await Api.GetAllAsync<PlanItem>($"/api/auth/admin/applications/{ProductId}/plans", access.Token!, HttpContext.RequestAborted)
+            : ApiResult<List<PlanItem>>.Failure(limitList.Problem!);
+        if (!planList.IsSuccess)
+        {
+            Fail(planList.Problem!);
+            return;
+        }
+
+        limits = [.. limitList.Value!.OrderBy(limit => limit.Key, StringComparer.Ordinal)];
+        existing = IsEdit ? planList.Value!.FirstOrDefault(plan => plan.Key == PlanKey) : null;
+
+        // Editing starts from the plan; a copy starts from the plan it copies, with a new key and name to choose.
+        var source = existing ?? (FromKey is null ? null : planList.Value!.FirstOrDefault(plan => plan.Key == FromKey));
+        if (source is not null)
+        {
+            entered = new Entered(
+                existing is null ? "" : source.Key,
+                existing is null ? $"{source.Name} (copy)" : source.Name,
+                source.Description ?? "",
+                existing?.IsActive ?? true,
+                source.Values.ToDictionary(
+                    pair => pair.Key,
+                    pair => new EnteredValue(pair.Value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "", pair.Value is null)));
+        }
+    }
+
+    private void Fail(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+
+    private async Task SaveAsync()
+    {
+        var form = HttpContext!.Request.Form;
+        entered = new Entered(
+            existing?.Key ?? form["key"].ToString().Trim().ToLowerInvariant(),
+            form["name"].ToString().Trim(),
+            form["description"].ToString().Trim(),
+            form["isActive"] == "true",
+            limits.ToDictionary(limit => limit.Key, limit => new EnteredValue(form[$"value.{limit.Key}"].ToString().Trim(), form[$"unlimited.{limit.Key}"] == "true")));
+        errors.Clear();
+        review = null;
+
+        if (!IsEdit && entered.Key.Length == 0)
+        {
+            errors.Add("Write a key, like \"growth\".");
+        }
+
+        if (entered.Name.Length == 0)
+        {
+            errors.Add("Write a name people can read.");
+        }
+
+        var values = new Dictionary<string, long?>(StringComparer.Ordinal);
+        foreach (var limit in limits)
+        {
+            var value = entered.Values[limit.Key];
+            if (value.Unlimited)
+            {
+                values[limit.Key] = null;
+            }
+            else if (!EntitlementText.TryRead(value.Text, out var given, out var number))
+            {
+                errors.Add($"{limit.Label}: write a whole number of 0 or more, tick Unlimited, or leave it empty for the default.");
+            }
+            else if (given)
+            {
+                values[limit.Key] = number;
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var description = entered.Description.Length == 0 ? null : entered.Description;
+        if (!IsEdit)
+        {
+            var created = await Api.PostAsync<CreatePlanRequest, PlanItem>($"/api/auth/admin/applications/{ProductId}/plans",
+                new CreatePlanRequest(entered.Key, entered.Name, description, entered.IsActive, values), HttpContext.RequestAborted, access.Token);
+            Finish(created.IsSuccess, created.Problem, "created");
+            return;
+        }
+
+        var request = new ReplacePlanRequest(entered.Name, description, values);
+        var planPath = $"/api/auth/admin/applications/{ProductId}/plans/{Uri.EscapeDataString(existing!.Key)}";
+        if (form["confirm"] != "1")
+        {
+            // Show how many organisations the edit changes before saving it; an edit that changes nobody's numbers is saved straight away.
+            var preview = await Api.PostAsync<ReplacePlanRequest, PlanPreview>($"{planPath}/preview", request, HttpContext.RequestAborted, access.Token);
+            if (!preview.IsSuccess)
+            {
+                Finish(false, preview.Problem, "saved");
+                return;
+            }
+
+            if (preview.Value!.Changed > 0)
+            {
+                review = preview.Value;
+                return;
+            }
+        }
+
+        var saved = await Api.PutNoContentAsync(planPath, request, access.Token!, HttpContext.RequestAborted);
+        Finish(saved.IsSuccess, saved.Problem, "saved");
+    }
+
+    private void Finish(bool succeeded, ApiProblem? problem, string notice)
+    {
+        if (succeeded)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{PlansPath}?notice={notice}&plan={Uri.EscapeDataString(entered.Name)}");
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        if (problem?.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            errors.AddRange(apiErrors.Values.SelectMany(reasons => reasons).Take(5));
+            return;
+        }
+
+        errors.Add(problem?.Code switch
+        {
+            "plan_key_taken" => "This product already has a plan with this key. Choose another.",
+            "too_many_plans" => "A product can have at most 20 plans. Deactivate or delete one first.",
+            "limit_unknown" or "value_invalid" => problem.Detail ?? "One of the values isn't allowed.",
+            "plan_not_found" => "That plan isn't here any more.",
+            "application_not_found" => "That product isn't here any more.",
+            _ when problem?.Status == StatusCodes.Status403Forbidden => "You don't have permission to change plans.",
+            _ => "Auth Service isn't responding right now. Nothing was saved. Try again in a moment.",
+        });
+    }
+
+    private sealed record EnteredValue(string Text, bool Unlimited);
+
+    private sealed record Entered(string Key, string Name, string Description, bool IsActive, Dictionary<string, EnteredValue> Values);
+}

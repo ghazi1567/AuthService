@@ -23,6 +23,18 @@ public sealed record EntitlementHistoryItem(
     string ActorType,
     Guid? ActorId);
 
+/// <summary>One of an organisation's subscriptions as the platform admin lists them (ENT-06), with its plan and entitlements version.</summary>
+public sealed record AdminTenantSubscriptionItem(
+    Guid ApplicationId,
+    string ApplicationKey,
+    string ApplicationName,
+    string Status,
+    string? PlanKey,
+    string? PlanName,
+    int? MaxSeats,
+    long EntitlementsVersion,
+    DateTimeOffset CreatedAt);
+
 /// <summary>Filters of the history read, beside the usual newest-first paging.</summary>
 public sealed record EntitlementHistoryFilter(Guid? ApplicationId, Guid? TenantId, string? PlanKey);
 
@@ -36,12 +48,55 @@ public static class SubscriptionEntitlementEndpoints
 
     public static RouteGroupBuilder MapSubscriptionEntitlementsAdmin(this RouteGroupBuilder admin)
     {
+        admin.MapGet("/tenants/{tenantId:guid}/subscriptions", ListForTenantAsync);
         admin.MapGet(SubscriptionRoute + "/entitlements", GetAsync);
         admin.MapPut(SubscriptionRoute + "/plan", AssignPlanAsync);
         admin.MapPut(SubscriptionRoute + "/overrides/{limitKey}", SetOverrideAsync);
         admin.MapDelete(SubscriptionRoute + "/overrides/{limitKey}", ClearOverrideAsync);
         admin.MapGet("/entitlement-history", HistoryAsync);
         return admin;
+    }
+
+    /// <summary>
+    /// Every subscription of one organisation, any status, by product name (ENT-06): where the portal starts to change an organisation's plan or
+    /// overrides. An unknown organisation is <c>404 tenant_not_found</c>.
+    /// </summary>
+    private static async Task<IResult> ListForTenantAsync(Guid tenantId, AuthDbContext db, [AsParameters] PageQuery page, CancellationToken cancellationToken)
+    {
+        if (page.Problem(byName: true) is { } problem)
+        {
+            return problem;
+        }
+
+        if (!await db.Tenants.AsNoTracking().AnyAsync(tenant => tenant.Id == tenantId, cancellationToken))
+        {
+            return ApiProblem.Create(StatusCodes.Status404NotFound, "tenant_not_found", "Organisation not found", "No organisation has this id.");
+        }
+
+        var rows = await page.ByNameAsync(
+            from subscription in db.Subscriptions.AsNoTracking()
+            join application in db.Applications.AsNoTracking() on subscription.ApplicationId equals application.Id
+            join plan in db.Plans.AsNoTracking() on subscription.PlanId equals plan.Id into plans
+            from plan in plans.DefaultIfEmpty()
+            where subscription.TenantId == tenantId && !application.IsBuiltIn
+            select new
+            {
+                subscription.ApplicationId,
+                application.Key,
+                application.Name,
+                subscription.Status,
+                PlanKey = plan == null ? null : plan.Key,
+                PlanName = plan == null ? null : plan.Name,
+                subscription.MaxSeats,
+                subscription.EntitlementsVersion,
+                subscription.CreatedAt,
+            },
+            row => row.Name,
+            row => row.ApplicationId,
+            cancellationToken);
+
+        return Results.Ok(rows.Map(items => items.Select(row => new AdminTenantSubscriptionItem(
+            row.ApplicationId, row.Key, row.Name, row.Status.ToString(), row.PlanKey, row.PlanName, row.MaxSeats, row.EntitlementsVersion, row.CreatedAt)).ToList()));
     }
 
     private static async Task<IResult> GetAsync(Guid tenantId, Guid applicationId, SubscriptionEntitlementService entitlements, CancellationToken cancellationToken) =>

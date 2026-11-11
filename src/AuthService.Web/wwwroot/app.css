@@ -2039,3 +2039,38 @@ a.org-row:hover {
         align-items: baseline;
         gap: 8px;
     }
+
+/* Limits, plans and entitlements (ENT-06) */
+.section-title {
+    margin: 8px 0 0;
+    font: 600 18px/26px var(--font-ui);
+}
+
+.limit-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 2px;
+    font-variant-numeric: tabular-nums;
+}
+
+.value-cell {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+}
+
+    .value-cell .input {
+        width: 160px;
+        max-width: 100%;
+    }
+
+    .value-cell .check {
+        margin: 0;
+    }
+
+.tabular {
+    font-variant-numeric: tabular-nums;
+}

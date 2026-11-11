@@ -1,0 +1,445 @@
+@page "/platform/organisations/{TenantId:guid}/products/{ProductId:guid}"
+@attribute [Authorize]
+@layout PlatformLayout
+@using System.Globalization
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>@Title · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Plan and limits</h1>
+    <ErrorState Title="We couldn't load the plan and limits" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (organisation is null || product is null || entitlements is null)
+{
+    <h1 class="page-title">@(organisation is null ? "That organisation isn't here" : $"{organisation.Name} doesn't use this product")</h1>
+    <p class="page-lead">Go back to see what is there now.</p>
+    <a class="btn btn-secondary" href="@(organisation is null ? "/platform/organisations" : OrganisationPath)">@(organisation is null ? "Back to organisations" : $"Back to {organisation.Name}")</a>
+}
+else
+{
+    <p class="back-link"><a href="@OrganisationPath"><Icon Name="chevron-right" />@organisation.Name</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@product.Name for @organisation.Name</h1>
+            <p class="page-lead">What @organisation.Name can do in @product.Name. A limit comes from its own override, otherwise from its plan, otherwise from the limit's default. @product.Name is told about every change.</p>
+        </div>
+        <div class="page-actions">
+            <a class="btn btn-secondary" href="/platform/entitlement-history?applicationId=@ProductId&tenantId=@TenantId">History</a>
+        </div>
+    </div>
+
+    @if (Notice is { } notice)
+    {
+        <AlertBanner Kind="AlertKind.Success" Title="@notice" Class="auth-alert" />
+    }
+
+    @if (actionError is not null)
+    {
+        <AlertBanner Kind="AlertKind.Error" Title="That didn't work" Class="auth-alert">
+            <p class="alert-body">@actionError</p>
+        </AlertBanner>
+    }
+
+    <h2 class="section-title">Plan</h2>
+    <form method="post" @onsubmit="AssignPlanAsync" @formname="plan" class="filter-bar">
+        <AntiforgeryToken />
+        <div class="field">
+            <label for="plan-key">Plan</label>
+            <select id="plan-key" name="planKey" class="input" aria-describedby="plan-help">
+                <option value="" selected="@(entitlements.PlanKey is null)">No plan: every limit at its default</option>
+                @foreach (var plan in plans.Where(plan => plan.IsActive || plan.Key == entitlements.PlanKey))
+                {
+                    <option value="@plan.Key" selected="@(plan.Key == entitlements.PlanKey)">@plan.Name@(plan.IsActive ? "" : " (inactive)")</option>
+                }
+            </select>
+            <p id="plan-help" class="field-message">Now on: @(entitlements.PlanName ?? "no plan"). Only active plans can be chosen. Overrides stay when the plan changes.</p>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="btn btn-primary" data-busy-label="Saving…">Change plan</button>
+        </div>
+    </form>
+
+    <h2 class="section-title">Limits</h2>
+    @if (entitlements.Limits.Count == 0)
+    {
+        <EmptyState Title="No limits yet" IconName="key">
+            <p class="empty-body">@product.Name has no limits, so there is nothing to set.</p>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Limit</th>
+                        <th scope="col">Value</th>
+                        <th scope="col">Comes from</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var limit in entitlements.Limits)
+                    {
+                        var overridden = entitlements.Overrides.FirstOrDefault(entry => entry.LimitKey == limit.Key);
+                        <tr>
+                            <td data-label="Limit">
+                                <span class="person-name">@limit.Label</span>
+                                <span class="status-note"><code class="mono">@limit.Key</code></span>
+                            </td>
+                            <td data-label="Value" class="tabular">@EntitlementText.Describe(limit.Value, limit.Unit)</td>
+                            <td data-label="Comes from" class="status-cell">
+                                @switch (limit.Source)
+                                {
+                                    case "Override": <StatusBadge Kind="warning" IconName="shield" Label="Override" /> break;
+                                    case "Plan": <StatusBadge Kind="info" IconName="check" Label="Plan" /> break;
+                                    default: <StatusBadge Kind="neutral" IconName="circle" Label="Default" /> break;
+                                }
+                                @if (overridden is not null)
+                                {
+                                    <span class="status-note">"@overridden.Reason" · set by @(overridden.SetByType == "Product" ? product.Name : "a platform admin") on @overridden.SetAt.UtcDateTime.ToString("d MMM yyyy", CultureInfo.InvariantCulture)</span>
+                                }
+                            </td>
+                            <td data-label="Actions" class="row-actions">
+                                <a class="btn btn-secondary btn-sm" href="@PagePath?override=@Uri.EscapeDataString(limit.Key)" aria-label="Set an override for @limit.Label">@(overridden is null ? "Override" : "Change override")</a>
+                                @if (overridden is not null)
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="@PagePath?clear=@Uri.EscapeDataString(limit.Key)" aria-label="Clear the override for @limit.Label">Clear</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Version @entitlements.Version. It rises each time these numbers change, and @product.Name keeps only the newest.</p>
+    }
+
+    @if (overriding is not null)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="override-title">
+                <form method="post" @onsubmit="SetOverrideAsync" @formname="override" data-unsaved-guard>
+                    <AntiforgeryToken />
+                    <input type="hidden" name="limitKey" value="@overriding.Key" />
+                    <div class="modal-body">
+                        <h2 id="override-title" class="modal-title">Override @overriding.Label for @organisation.Name</h2>
+                        <p class="modal-text">This number replaces the plan's for @organisation.Name only, until you clear it. Now: @EntitlementText.Describe(overriding.Value, overriding.Unit).</p>
+                        @if (errors.Count > 0)
+                        {
+                            <AlertBanner Kind="AlertKind.Error" Title="@(errors.Count == 1 ? "Fix 1 problem" : $"Fix {errors.Count} problems")" Class="dialog-alert">
+                                <ul>
+                                    @foreach (var error in errors)
+                                    {
+                                        <li>@error</li>
+                                    }
+                                </ul>
+                            </AlertBanner>
+                        }
+
+                        <div class="field">
+                            <label for="override-value">Value</label>
+                            <input id="override-value" name="value" class="input" inputmode="numeric" value="@enteredValue" aria-describedby="override-value-help" />
+                            <p id="override-value-help" class="field-message">@(string.Equals(overriding.Unit, EntitlementText.FlagUnit, StringComparison.OrdinalIgnoreCase) ? "1 turns it on, 0 turns it off." : "A whole number of 0 or more.")</p>
+                            <label class="check">
+                                <input type="checkbox" name="unlimited" value="true" checked="@enteredUnlimited" />
+                                <span>Unlimited</span>
+                            </label>
+                        </div>
+                        <div class="field">
+                            <label for="override-reason">Reason</label>
+                            <textarea id="override-reason" name="reason" class="input textarea" rows="2" maxlength="@MaxReasonLength" aria-describedby="override-reason-help" required>@enteredReason</textarea>
+                            <p id="override-reason-help" class="field-message">Why @organisation.Name gets a different number, in up to @MaxReasonLength characters. Only platform admins see it.</p>
+                        </div>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Saving…">Save override</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+
+    @if (clearing is not null)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="clear-title">
+                <form method="post" @onsubmit="ClearOverrideAsync" @formname="clear">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="limitKey" value="@clearing.Key" />
+                    <div class="modal-body">
+                        <h2 id="clear-title" class="modal-title">Clear the override on @clearing.Label?</h2>
+                        <p class="modal-text">@organisation.Name goes back to @(entitlements.PlanName is null ? "the default" : $"the {entitlements.PlanName} plan's value") for @clearing.Label, and @product.Name is told. You can set an override again at any time.</p>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                        <button type="submit" class="btn btn-primary" data-busy-label="Clearing…">Clear override</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private const int MaxReasonLength = 200;
+
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private string? reference;
+    private string? actionError;
+    private OrganisationItem? organisation;
+    private AdminProductItem? product;
+    private SubscriptionEntitlements? entitlements;
+    private EffectiveLimitItem? overriding;
+    private EffectiveLimitItem? clearing;
+    private string enteredValue = "";
+    private bool enteredUnlimited;
+    private string enteredReason = "";
+    private readonly List<string> errors = [];
+    private List<PlanItem> plans = [];
+
+    [Parameter] public Guid TenantId { get; set; }
+
+    [Parameter] public Guid ProductId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "override")] private string? OverrideKey { get; set; }
+
+    [SupplyParameterFromQuery(Name = "clear")] private string? ClearKey { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    private string OrganisationPath => $"/platform/organisations/{TenantId}";
+
+    private string PagePath => $"{OrganisationPath}/products/{ProductId}";
+
+    private string ApiPath => $"/api/auth/admin/tenants/{TenantId}/subscriptions/{ProductId}";
+
+    private string Title => organisation is null || product is null ? "Plan and limits" : $"{product.Name} for {organisation.Name}";
+
+    private string? Notice => NoticeCode switch
+    {
+        "plan" => $"The plan is saved. {product?.Name} is told if the numbers changed.",
+        "override" => $"The override is saved. {product?.Name} is told about the new number.",
+        "cleared" => $"The override is cleared. {product?.Name} is told about the number now in use.",
+        _ => null,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var token = access.Token!;
+        var cancel = HttpContext.RequestAborted;
+        var organisations = await Api.GetAllAsync<OrganisationItem>("/api/auth/admin/tenants", token, cancel);
+        var products = organisations.IsSuccess ? await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", token, cancel) : ApiResult<List<AdminProductItem>>.Failure(organisations.Problem!);
+        if (!products.IsSuccess)
+        {
+            Fail(products.Problem!);
+            return;
+        }
+
+        organisation = organisations.Value!.FirstOrDefault(candidate => candidate.Id == TenantId);
+        product = products.Value!.FirstOrDefault(candidate => candidate.Id == ProductId);
+        if (organisation is null || product is null)
+        {
+            return;
+        }
+
+        var read = await Api.GetAsync<SubscriptionEntitlements>($"{ApiPath}/entitlements", token, cancel);
+        if (!read.IsSuccess)
+        {
+            if (read.Problem!.Code != "subscription_not_found")
+            {
+                Fail(read.Problem);
+            }
+
+            return;
+        }
+
+        var planList = await Api.GetAllAsync<PlanItem>($"/api/auth/admin/applications/{ProductId}/plans", token, cancel);
+        if (!planList.IsSuccess)
+        {
+            Fail(planList.Problem!);
+            return;
+        }
+
+        entitlements = read.Value!;
+        plans = [.. planList.Value!.OrderBy(plan => plan.Name, StringComparer.CurrentCultureIgnoreCase)];
+
+        // A posted form must already be on the page when the post arrives.
+        var form = HttpContext.Request.HasFormContentType ? HttpContext.Request.Form : null;
+        var handler = form?["_handler"].ToString();
+        var overrideKey = handler == "override" ? form!["limitKey"].ToString() : OverrideKey;
+        var clearKey = handler == "clear" ? form!["limitKey"].ToString() : ClearKey;
+        overriding = string.IsNullOrEmpty(overrideKey) ? null : entitlements.Limits.FirstOrDefault(limit => limit.Key == overrideKey);
+        clearing = string.IsNullOrEmpty(clearKey) ? null : entitlements.Limits.FirstOrDefault(limit => limit.Key == clearKey && limit.Source == "Override");
+        if (overriding is not null && handler != "override" && entitlements.Overrides.FirstOrDefault(entry => entry.LimitKey == overriding.Key) is { } current)
+        {
+            enteredValue = current.Value?.ToString(CultureInfo.InvariantCulture) ?? "";
+            enteredUnlimited = current.Value is null;
+            enteredReason = current.Reason;
+        }
+    }
+
+    private void Fail(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+
+    private async Task AssignPlanAsync()
+    {
+        var chosen = HttpContext!.Request.Form["planKey"].ToString();
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PutNoContentAsync($"{ApiPath}/plan", new AssignPlanRequest(chosen.Length == 0 ? null : chosen), access.Token!, HttpContext.RequestAborted);
+        if (!Finish(result, "plan"))
+        {
+            actionError = Explain(result.Problem!);
+        }
+    }
+
+    private async Task SetOverrideAsync()
+    {
+        var form = HttpContext!.Request.Form;
+        enteredValue = form["value"].ToString().Trim();
+        enteredUnlimited = form["unlimited"] == "true";
+        enteredReason = form["reason"].ToString().Trim();
+        errors.Clear();
+        if (overriding is null)
+        {
+            actionError = "That limit isn't here any more.";
+            return;
+        }
+
+        long? value = null;
+        if (!enteredUnlimited)
+        {
+            if (!EntitlementText.TryRead(enteredValue, out var given, out var number) || !given)
+            {
+                errors.Add("Write the value as a whole number of 0 or more, or tick Unlimited.");
+            }
+            else
+            {
+                value = number;
+            }
+        }
+
+        if (enteredReason.Length == 0 || enteredReason.Length > MaxReasonLength)
+        {
+            errors.Add($"Write why {organisation!.Name} gets a different number, in up to {MaxReasonLength} characters.");
+        }
+
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PutNoContentAsync($"{ApiPath}/overrides/{Uri.EscapeDataString(overriding.Key)}",
+            new SetOverrideRequest(value, enteredReason), access.Token!, HttpContext.RequestAborted);
+        if (!Finish(result, "override"))
+        {
+            errors.Add(Explain(result.Problem!));
+        }
+    }
+
+    private async Task ClearOverrideAsync()
+    {
+        if (clearing is null)
+        {
+            actionError = "That override isn't there any more.";
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext!);
+        var result = await Api.DeleteAsync($"{ApiPath}/overrides/{Uri.EscapeDataString(clearing.Key)}", access.Token!, HttpContext!.RequestAborted);
+        if (!Finish(result, "cleared"))
+        {
+            clearing = null;
+            actionError = Explain(result.Problem!);
+        }
+    }
+
+    /// <summary>Goes on after a change that worked, or to sign-in when the session ended; false when the page should explain a refusal.</summary>
+    private bool Finish(ApiResult<bool> result, string notice)
+    {
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?notice={notice}");
+            return true;
+        }
+
+        if (result.Problem!.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return true;
+        }
+
+        return false;
+    }
+
+    private string Explain(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status400BadRequest && problem.Errors is { Count: > 0 } apiErrors)
+        {
+            return string.Join(" ", apiErrors.Values.SelectMany(reasons => reasons).Take(3));
+        }
+
+        return problem.Code switch
+        {
+            "plan_inactive" => "That plan is inactive, so it can't be given to more organisations. Activate it first.",
+            "plan_not_found" => "That plan isn't here any more.",
+            "value_invalid" => problem.Detail ?? "That value isn't allowed for this limit.",
+            "too_many_overrides" => "An organisation can have at most 100 overrides for a product.",
+            "limit_unknown" => "That limit isn't here any more.",
+            "override_not_found" => "That override isn't there any more.",
+            "subscription_not_found" => $"{organisation?.Name} doesn't use {product?.Name} any more.",
+            _ when problem.Status == StatusCodes.Status403Forbidden => "You don't have permission to change plans or limits.",
+            _ => "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.",
+        };
+    }
+}

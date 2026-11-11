@@ -603,7 +603,7 @@ Pages and the permission each needs (`Security/ConsoleSession.cs` `PermissionKey
 | Member roles | `/console/{id}/members/{membershipId}/roles` | `roles.assign` (Full), `roles.read`, `members.read` | same |
 | Product access | `/console/{id}/access` | `access.manage` (ReadOnly), `subscriptions.read`, `members.read` | `access.manage` (Full) |
 | API keys | `/console/{id}/api-keys` | `apikeys.read` | `apikeys.manage` (Full); creating also needs `roles.read` |
-| Subscriptions | `/console/{id}/subscriptions` | `subscriptions.read` | none (read only) |
+| Subscriptions | `/console/{id}/subscriptions` | `subscriptions.read` | none (read only; plan and limits from `GET /api/auth/tenants/me/subscriptions/{id}/entitlements`, ENT-06) |
 | Audit log | `/console/{id}/audit` | `audit.read` | none |
 
 Rules:
@@ -791,7 +791,7 @@ The platform console (`/platform/...`) is for the people who run the whole platf
 desktop only (a "Use a larger screen" notice shows below 1024 px; the CSS media query is `min-width: 1024px`). Its header always
 says "Platform admin". The organisation console never links to it.
 
-Parts: Products, Webhook events, Signing keys, Audit log. `/platform` redirects to `/platform/audit`.
+Parts: Products, Organisations, Plan history, Webhook events, Signing keys, Audit log. `/platform` redirects to `/platform/audit`.
 
 Rules:
 
@@ -816,6 +816,12 @@ Rules:
 | `GET /platform/products/{id}/permissions` | same | `PlatformPermissions.razor` | `GET /api/auth/admin/applications/{id}/permissions` | A product's permission list. |
 | `GET /platform/products/{id}/roles` | same | `PlatformRoleTemplates.razor` | `GET /api/auth/admin/applications/{id}/role-templates`, `PUT` the same route, `POST .../role-templates/apply` | The roles a product ships with, editing the whole set as JSON, and copying them to organisations (ONB-04). |
 | `GET /platform/organisations` | same | `PlatformOrganisations.razor` | `GET /api/auth/admin/tenants` | Every organisation by name with status, people and creation date; `?q=` filters by name here; `?org={id}&to=Suspended\|Active` opens the confirmation (only for an organisation in the list that would really change). |
+| `GET /platform/products/{id}/limits` | same | `PlatformLimits.razor` | `GET` and `POST /api/auth/admin/applications/{id}/limits` | A product's limits; add or edit one (ENT-06). |
+| `GET /platform/products/{id}/plans` | same | `PlatformPlans.razor` | `GET .../plans`, `PUT .../plans/{key}/active`, `DELETE .../plans/{key}` | Plans; activate, deactivate, delete (ENT-06). |
+| `GET /platform/products/{id}/plans/new`, `.../plans/{key}/edit` | same | `PlatformPlanEditor.razor` | `POST .../plans`, `POST .../plans/{key}/preview`, `PUT .../plans/{key}` | Create, copy (`?from=`) or edit a plan; an edit is previewed first (ENT-06). |
+| `GET /platform/organisations/{id}` | same | `PlatformOrganisationSubscriptions.razor` | `GET /api/auth/admin/tenants`, `GET /api/auth/admin/tenants/{id}/subscriptions` | An organisation's products and plans (ENT-06). |
+| `GET /platform/organisations/{id}/products/{productId}` | same | `PlatformSubscriptionEntitlements.razor` | `GET .../entitlements`, `PUT .../plan`, `PUT`/`DELETE .../overrides/{key}` | Plan, effective limits and overrides (ENT-06). |
+| `GET /platform/entitlement-history` | same | `PlatformEntitlementHistory.razor` | `GET /api/auth/admin/entitlement-history?limit=&applicationId=&tenantId=&planKey=` | Plan history (ENT-06). |
 | `GET /platform/webhooks` | same | `PlatformWebhooks.razor` | `GET /api/auth/admin/webhooks?limit=&status=&applicationId=` and `GET /api/auth/applications` | Webhook events, newest first. |
 | `GET /platform/signing-keys` | same | `PlatformSigningKeys.razor` | `GET /.well-known/jwks.json` (no token) | The published public signing keys. |
 | `GET /platform/audit` | same | `PlatformAudit.razor` | `GET /api/auth/admin/audit?limit=&action=&tenantId=&actorId=&before=` | The audit log across every organisation. |
@@ -856,6 +862,12 @@ Details by part:
   the API's reasons are shown in the dialog), Replace secret (grace 0 to 720 hours, same choices as API keys), Permissions. A product
   becomes available only after it has permissions (`no_permissions_registered`).
 - **Roles.** (`/platform/products/{id}/roles`) Lists the roles a product ships with (name, what it is for, and each permission with its level in words: View only, View and create, Full access). "Edit roles" opens the whole set as JSON (`RoleTemplateText`, with "Load from a file" when the script runs); a role left out is removed, `{"roles": []}` removes them all, and the API's reasons (an unknown key, a bad level, a repeated name) appear in the dialog. "Copy to organisations" (offered only when there are roles) asks first, saying nothing is overwritten, and reports how many roles were created, in how many organisations, and how many were left alone. The register dialog reads a `roles` list from the same JSON it reads permissions from and sends it with the registration.
+- **Limits, plans and an organisation's plan (ENT-06).** Values are typed as whole numbers (thousands separators allowed) and read by
+  `EntitlementText.TryRead`; "Unlimited" sends null; an empty plan value means "use the default" and is left out of the plan. Values are shown by
+  `EntitlementText.Describe` ("75,000 contacts", "Unlimited", "On"/"Off" for a `flag`). A plan edit first calls the preview and, when it changes
+  anyone's numbers, shows how many and waits for "Save and update N organisations" (the form posts again with `confirm=1`). Forms are Blazor forms
+  (`@formname` `limit`, `plan`, `active-{key}`, `delete`, `override`, `clear`). The history shows null old and new values as a dash, because the
+  API sends null both for "unlimited" and for "nothing before".
 - **Permissions.** Lists a product's catalog by key. "Add permissions" takes one per line as `key | label | optional description`, or pasted JSON (`PermissionText`).
   The list only grows; adding an existing key changes its label and description. The page says "Up to 200 at a time"
   (`MaxPerPost`) but does not enforce it; the API does.

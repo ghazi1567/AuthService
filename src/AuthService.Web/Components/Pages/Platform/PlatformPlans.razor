@@ -1,0 +1,316 @@
+@page "/platform/products/{ProductId:guid}/plans"
+@attribute [Authorize]
+@layout PlatformLayout
+@using AuthService.Web.Api
+@inject AuthApiClient Api
+@inject PlatformSession Platform
+@inject NavigationManager Navigation
+
+<PageTitle>@(product is null ? "Plans" : $"{product.Name} plans") · Auth Service</PageTitle>
+
+@if (leaving || !ready)
+{
+    @* Being sent on, or still loading: Blazor renders once before the page has its data. *@
+}
+else if (loadFailed)
+{
+    <h1 class="page-title">Plans</h1>
+    <ErrorState Title="We couldn't load the plans" RetryHref="@PagePath" Reference="@reference" />
+}
+else if (product is null)
+{
+    <h1 class="page-title">That product isn't here</h1>
+    <p class="page-lead">It may have been removed. Go back to the list to see what is there now.</p>
+    <a class="btn btn-secondary" href="/platform/products">Back to products</a>
+}
+else
+{
+    <p class="back-link"><a href="/platform/products"><Icon Name="chevron-right" />Products</a></p>
+    <div class="page-head">
+        <div>
+            <h1 class="page-title">@product.Name plans</h1>
+            <p class="page-lead">Each plan gives organisations a set of limits. A limit a plan leaves out uses its default.</p>
+        </div>
+        <div class="page-actions">
+            <a class="btn btn-secondary" href="/platform/products/@ProductId/limits">Limits</a>
+            @if (limits.Count > 0)
+            {
+                <a class="btn btn-primary" href="@PagePath/new"><Icon Name="plus" />Create a plan</a>
+            }
+        </div>
+    </div>
+
+    @if (Notice is { } notice)
+    {
+        <AlertBanner Kind="AlertKind.Success" Title="@notice" Class="auth-alert" />
+    }
+
+    @if (actionError is not null)
+    {
+        <AlertBanner Kind="AlertKind.Error" Title="That didn't work" Class="auth-alert">
+            <p class="alert-body">@actionError</p>
+        </AlertBanner>
+    }
+
+    @if (limits.Count == 0)
+    {
+        <EmptyState Title="Add limits first" IconName="key">
+            <p class="empty-body">A plan sets values for @product.Name's limits, and it has none yet.</p>
+            <a class="btn btn-primary" href="/platform/products/@ProductId/limits?add=1">Add a limit</a>
+        </EmptyState>
+    }
+    else if (plans.Count == 0)
+    {
+        <EmptyState Title="No plans yet" IconName="key">
+            <p class="empty-body">Create a plan, such as "Growth", and choose a value for each limit.</p>
+            <a class="btn btn-primary" href="@PagePath/new">Create a plan</a>
+        </EmptyState>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Plan</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Limits</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var plan in plans)
+                    {
+                        <tr>
+                            <td data-label="Plan">
+                                <span class="person-name">@plan.Name</span>
+                                <span class="status-note"><code class="mono">@plan.Key</code>@(string.IsNullOrWhiteSpace(plan.Description) ? "" : $" · {plan.Description}")</span>
+                            </td>
+                            <td data-label="Status" class="status-cell">
+                                @if (plan.IsActive)
+                                {
+                                    <StatusBadge Kind="success" IconName="check" Label="Active" />
+                                }
+                                else
+                                {
+                                    <StatusBadge Kind="neutral" IconName="slash" Label="Inactive" />
+                                    <span class="status-note">Can't be given to more organisations. Those on it keep it.</span>
+                                }
+                            </td>
+                            <td data-label="Limits">
+                                <ul class="limit-list">
+                                    @foreach (var limit in limits)
+                                    {
+                                        var set = plan.Values.TryGetValue(limit.Key, out var value);
+                                        <li>@limit.Label: @(set ? EntitlementText.Describe(value, limit.Unit) : $"default ({EntitlementText.Describe(limit.DefaultValue, limit.Unit)})")</li>
+                                    }
+                                </ul>
+                            </td>
+                            <td data-label="Actions" class="row-actions">
+                                <a class="btn btn-secondary btn-sm" href="@PagePath/@plan.Key/edit" aria-label="Edit @plan.Name">Edit</a>
+                                <a class="btn btn-secondary btn-sm" href="@PagePath/new?from=@plan.Key" aria-label="Copy @plan.Name into a new plan">Copy</a>
+                                <form method="post" @onsubmit="SetActiveAsync" @formname="@($"active-{plan.Key}")" class="inline-form-row">
+                                    <AntiforgeryToken />
+                                    <input type="hidden" name="key" value="@plan.Key" />
+                                    <input type="hidden" name="isActive" value="@(plan.IsActive ? "false" : "true")" />
+                                    <button type="submit" class="btn btn-secondary btn-sm" data-busy-label="Saving…">@(plan.IsActive ? "Deactivate" : "Activate")</button>
+                                </form>
+                                @if (plan.CanDelete)
+                                {
+                                    <a class="btn btn-secondary btn-sm" href="@PagePath?delete=@plan.Key" aria-label="Delete @plan.Name">Delete</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="table-foot">Showing @plans.Count @(plans.Count == 1 ? "plan" : "plans"). A plan that has ever been given to an organisation can't be deleted, only deactivated.</p>
+    }
+
+    @if (deleting is not null)
+    {
+        <div class="modal-backdrop">
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+                <form method="post" @onsubmit="DeleteAsync" @formname="delete">
+                    <AntiforgeryToken />
+                    <input type="hidden" name="key" value="@deleting.Key" />
+                    <div class="modal-body">
+                        <span class="icon-tile is-error"><Icon Name="alert-triangle" /></span>
+                        <h2 id="delete-title" class="modal-title">Delete '@deleting.Name'?</h2>
+                        <p class="modal-text">No organisation has ever had this plan, so nothing else changes. This can't be undone.</p>
+                    </div>
+                    <div class="modal-foot">
+                        <a class="btn btn-secondary" href="@PagePath">Cancel</a>
+                        <button type="submit" class="btn btn-danger" data-busy-label="Deleting…">Delete plan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool leaving;
+    private bool ready;
+    private bool loadFailed;
+    private string? reference;
+    private string? actionError;
+    private AdminProductItem? product;
+    private PlanItem? deleting;
+    private List<LimitItem> limits = [];
+    private List<PlanItem> plans = [];
+
+    [Parameter] public Guid ProductId { get; set; }
+
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    [SupplyParameterFromQuery(Name = "delete")] private string? DeleteKey { get; set; }
+
+    [SupplyParameterFromQuery(Name = "notice")] private string? NoticeCode { get; set; }
+
+    [SupplyParameterFromQuery(Name = "plan")] private string? NoticePlan { get; set; }
+
+    private string PagePath => $"/platform/products/{ProductId}/plans";
+
+    private string? Notice => NoticeCode switch
+    {
+        "created" => $"'{NoticePlan}' is created",
+        "saved" => $"'{NoticePlan}' is saved",
+        "activated" => $"'{NoticePlan}' is active: it can be given to organisations",
+        "deactivated" => $"'{NoticePlan}' is inactive: organisations on it keep it, and no more can get it",
+        "deleted" => $"'{NoticePlan}' is deleted",
+        _ => null,
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadAsync();
+        }
+        finally
+        {
+            ready = true;
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (HttpContext is null)
+        {
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        if (access.Outcome != PlatformOutcome.Allowed)
+        {
+            return;
+        }
+
+        var products = await Api.GetAllAsync<AdminProductItem>("/api/auth/admin/applications", access.Token!, HttpContext.RequestAborted);
+        if (!products.IsSuccess)
+        {
+            Fail(products.Problem!);
+            return;
+        }
+
+        product = products.Value!.FirstOrDefault(candidate => candidate.Id == ProductId);
+        if (product is null)
+        {
+            return;
+        }
+
+        var limitList = await Api.GetAllAsync<LimitItem>($"/api/auth/admin/applications/{ProductId}/limits", access.Token!, HttpContext.RequestAborted);
+        var planList = limitList.IsSuccess
+            ? await Api.GetAllAsync<PlanItem>($"/api/auth/admin/applications/{ProductId}/plans", access.Token!, HttpContext.RequestAborted)
+            : ApiResult<List<PlanItem>>.Failure(limitList.Problem!);
+        if (!planList.IsSuccess)
+        {
+            Fail(planList.Problem!);
+            return;
+        }
+
+        limits = [.. limitList.Value!.OrderBy(limit => limit.Key, StringComparer.Ordinal)];
+        plans = [.. planList.Value!.OrderBy(plan => plan.Name, StringComparer.CurrentCultureIgnoreCase)];
+
+        var posted = HttpContext.Request.HasFormContentType && HttpContext.Request.Form["_handler"] == "delete";
+        var key = posted ? HttpContext.Request.Form["key"].ToString() : DeleteKey;
+        deleting = string.IsNullOrEmpty(key) ? null : plans.FirstOrDefault(plan => plan.Key == key && plan.CanDelete);
+    }
+
+    private void Fail(ApiProblem problem)
+    {
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        loadFailed = true;
+        reference = HttpContext!.TraceIdentifier.Length >= 8 ? HttpContext.TraceIdentifier[^8..].ToLowerInvariant() : null;
+    }
+
+    private async Task SetActiveAsync()
+    {
+        var key = HttpContext!.Request.Form["key"].ToString();
+        var isActive = HttpContext.Request.Form["isActive"] == "true";
+        var plan = plans.FirstOrDefault(candidate => candidate.Key == key);
+        if (plan is null)
+        {
+            actionError = "That plan isn't here any more.";
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext);
+        var result = await Api.PutNoContentAsync($"/api/auth/admin/applications/{ProductId}/plans/{Uri.EscapeDataString(key)}/active",
+            new SetPlanActiveRequest(isActive), access.Token!, HttpContext.RequestAborted);
+        Finish(result, isActive ? "activated" : "deactivated", plan.Name);
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (deleting is null)
+        {
+            actionError = "That plan can't be deleted. A plan that has ever been given to an organisation can only be deactivated.";
+            return;
+        }
+
+        var access = await Platform.LoadAsync(HttpContext!);
+        var result = await Api.DeleteAsync($"/api/auth/admin/applications/{ProductId}/plans/{Uri.EscapeDataString(deleting.Key)}", access.Token!, HttpContext!.RequestAborted);
+        var name = deleting.Name;
+        if (!result.IsSuccess)
+        {
+            deleting = null;
+        }
+
+        Finish(result, "deleted", name);
+    }
+
+    private void Finish(ApiResult<bool> result, string notice, string planName)
+    {
+        if (result.IsSuccess)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"{PagePath}?notice={notice}&plan={Uri.EscapeDataString(planName)}");
+            return;
+        }
+
+        var problem = result.Problem!;
+        if (problem.Status == StatusCodes.Status401Unauthorized)
+        {
+            leaving = true;
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(PagePath)}&reason=expired");
+            return;
+        }
+
+        actionError = problem.Code switch
+        {
+            "plan_in_use" => "This plan has been given to an organisation, so it can't be deleted. Deactivate it instead.",
+            "plan_not_found" => "That plan isn't here any more.",
+            _ when problem.Status == StatusCodes.Status403Forbidden => "You don't have permission to change plans.",
+            _ => "Auth Service isn't responding right now. Nothing was changed. Try again in a moment.",
+        };
+    }
+}

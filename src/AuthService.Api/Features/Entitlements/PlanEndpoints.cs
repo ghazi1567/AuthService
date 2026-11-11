@@ -24,6 +24,7 @@ public static class PlanEndpoints
         admin.MapPost(PlansRoute, CreateAsync);
         admin.MapGet(PlanRoute, GetAsync);
         admin.MapPut(PlanRoute, ReplaceAsync);
+        admin.MapPost(PlanRoute + "/preview", PreviewAsync);
         admin.MapPut(PlanRoute + "/active", SetActiveAsync);
         admin.MapDelete(PlanRoute, DeleteAsync);
         return admin;
@@ -63,6 +64,21 @@ public static class PlanEndpoints
         }
 
         return ToResult(await plans.ReplaceAsync(AdminId(caller), applicationId, Normalise(planKey), fields!, cancellationToken));
+    }
+
+    /// <summary>
+    /// What saving this body with <c>PUT</c> would do, without saving it (ENT-06): the portal shows how many organisations a plan edit changes
+    /// before the admin confirms. The body is validated exactly like the replace.
+    /// </summary>
+    private static async Task<IResult> PreviewAsync(
+        Guid applicationId, string planKey, ReplacePlanRequest request, PlanService plans, CancellationToken cancellationToken)
+    {
+        if (!PlanValidator.TryValidateFields(request.Name, request.Description, request.Values, out var fields, out var errors))
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        return ToResult(await plans.PreviewAsync(applicationId, Normalise(planKey), fields!.Values, cancellationToken));
     }
 
     /// <summary>A deactivated plan cannot be newly assigned; tenants that already have it keep it.</summary>
@@ -145,6 +161,7 @@ public static class PlanEndpoints
         PlanResult.Saved { Created: true } saved => Results.Json(saved.Plan, statusCode: StatusCodes.Status201Created),
         PlanResult.Saved saved => Results.Ok(saved.Plan),
         PlanResult.Deleted => Results.NoContent(),
+        PlanResult.Previewed previewed => Results.Ok(previewed.Preview),
         PlanResult.PlanNotFound => PlanNotFound(),
         PlanResult.KeyTaken => ApiProblem.Create(StatusCodes.Status409Conflict, "plan_key_taken",
             "Plan key already used", "This product already has a plan with this key."),

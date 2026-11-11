@@ -11,6 +11,12 @@ public sealed record CreatePlanRequest(string? Key, string? Name, string? Descri
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/plans/{planKey}</c>: the whole plan except its key and whether it is active.</summary>
 public sealed record ReplacePlanRequest(string? Name, string? Description, Dictionary<string, JsonElement>? Values);
 
+/// <summary>
+/// Answer of <c>POST /api/auth/admin/applications/{id}/plans/{planKey}/preview</c> (ENT-06): how many subscriptions are on the plan, and how many
+/// would get new limits (and an <c>EntitlementsChanged</c> event) if the values sent were saved.
+/// </summary>
+public sealed record PlanPreviewDto(int Subscriptions, int Changed);
+
 /// <summary>Body of <c>PUT /api/auth/admin/applications/{id}/plans/{planKey}/active</c>.</summary>
 public sealed record SetPlanActiveRequest(bool? IsActive);
 
