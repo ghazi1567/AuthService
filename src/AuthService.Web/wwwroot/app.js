@@ -193,6 +193,73 @@
         reader.readAsText(input.files[0]);
     });
 
+    // Dialogs (AUTH-213): when a dialog is open, focus moves into it, Tab and Shift+Tab stay inside it, and Esc closes it by following its
+    // Cancel link. A dialog with no Cancel link (a secret shown once) does not close on Esc. Without scripts the dialogs still work, as pages.
+    var FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex='-1'])";
+
+    function openDialog() {
+        return document.querySelector("[role='dialog'][aria-modal='true']");
+    }
+
+    function focusableIn(container) {
+        return Array.prototype.filter.call(container.querySelectorAll(FOCUSABLE), function (element) {
+            return !element.hidden && element.getClientRects().length > 0;
+        });
+    }
+
+    function startDialogs() {
+        var dialog = openDialog();
+        if (!dialog || dialog.contains(document.activeElement)) {
+            return;
+        }
+
+        // An error message in the dialog first, so it is read out; otherwise the field marked autofocus, then the first field.
+        var target = dialog.querySelector("[aria-invalid='true']")
+            || dialog.querySelector("[autofocus]")
+            || dialog.querySelector("input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled])")
+            || focusableIn(dialog)[0];
+        if (target) {
+            target.focus();
+        }
+    }
+
+    document.addEventListener("keydown", function (event) {
+        var dialog = openDialog();
+        if (!dialog) {
+            return;
+        }
+
+        if (event.key === "Escape") {
+            var cancel = dialog.querySelector("[data-dialog-cancel], .modal-foot a.btn-secondary");
+            if (cancel) {
+                event.preventDefault();
+                cancel.click();
+            }
+
+            return;
+        }
+
+        if (event.key !== "Tab") {
+            return;
+        }
+
+        var items = focusableIn(dialog);
+        if (items.length === 0) {
+            return;
+        }
+
+        var first = items[0];
+        var last = items[items.length - 1];
+        var inside = dialog.contains(document.activeElement);
+        if (event.shiftKey && (!inside || document.activeElement === first)) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && (!inside || document.activeElement === last)) {
+            event.preventDefault();
+            first.focus();
+        }
+    });
+
     function init() {
         revealToggles();
         startCountdowns();
@@ -207,6 +274,7 @@
         startRules();
         startLinkForms();
         startUnsavedGuards();
+        startDialogs();
     }
 
     if (document.readyState === "loading") {

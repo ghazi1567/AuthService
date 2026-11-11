@@ -242,6 +242,9 @@ What is in place:
   (`[Authorize]`). **One copy of the web app only** until a shared store and shared data-protection keys exist. Settings:
   `AuthService:Session:CookieName`, `RememberedDays` (30), `DefaultHours` (12), `RefreshBeforeSeconds` (60). Nothing logs a password,
   token or session id.
+- **Accessibility** (AUTH-213): an automated check in the web tests covers 30 main screens (labels, names, headings, dialogs, ids, tab order)
+  and the design tokens' contrast in light and dark; dialogs take focus when they open, keep Tab inside, and close on Esc. Sign-in, inviting a
+  member and creating a role were checked with the keyboard alone.
 - **Security headers** on every response: `Referrer-Policy: no-referrer`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, a
   `frame-ancestors`/`form-action` policy, a script policy (`script-src 'self' 'nonce-…'`: scripts only from this site, the inline ones
   carry a new nonce per response; AUTH-271) and `Permissions-Policy`; HTML pages are `Cache-Control: no-store`. `Security__ScriptPolicyReportOnly=true`

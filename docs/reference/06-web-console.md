@@ -1059,6 +1059,23 @@ Design tokens: `wwwroot/app.css` (about 2,000 lines). The "Signal Indigo" tokens
 loaded from any host, so no page calls a third party. The design source of truth is the Figma design and the portal design skill noted in
 the README; I did not review it.
 
+**Accessibility (AUTH-213, UI00_T6).** `AccessibilityTests` (web tests, run in CI) renders 30 main screens (every auth page, the picker, the
+tenant and platform console pages, including open dialogs) and checks each with HtmlAgilityPack: `lang` on the page, an `h1`, unique ids, every
+`for`/`aria-labelledby`/`aria-describedby` pointing at an existing id, a label for every field, a name for every button and link, `alt` on
+images, icons (`svg`) hidden from screen readers, dialogs with `aria-modal` and a title, and no positive `tabindex`. It also computes WCAG
+contrast from the tokens in `app.css`, light and dark: text 4.5 to 1 on the backgrounds it is used on (tinted backgrounds blended over the
+surface), borders and the focus ring 3 to 1. **Dialogs and the keyboard:** `app.js` (`startDialogs` and its `keydown` handler) moves focus
+into an open dialog (an invalid field, else the `autofocus` element, else the first field), keeps Tab and Shift+Tab inside it, and closes it on
+Esc by following its Cancel link (`[data-dialog-cancel]` or `.modal-foot a.btn-secondary`); a secret shown once has no Cancel link, so Esc
+does nothing there. Without scripts dialogs work as plain pages. A keyboard-only run of sign-in, inviting a member (including Esc and the
+focus trap) and creating a role was done on 2026-11-11.
+
+**Where the build differs from the design system (recorded, AUTH-213):** confirmations are success `AlertBanner`s on the next page, not
+toasts, because pages are statically rendered and a toast would vanish with the redirect; lists use "Load more" (cursor paging), never page
+numbers, as the design skill asks; there are no loading skeletons, because a statically rendered page arrives complete (the wait is the
+browser's own); and error wording is mapped on each page next to its action (with `ErrorState` giving the generic fallback and a reference
+id), not in one shared table, because the right words depend on what the person was doing.
+
 Other files: `wwwroot/app.js` (see the public pages section), `Properties/launchSettings.json` (development URL `http://localhost:5090`),
 `appsettings.json`, `appsettings.Development.json` (API at `http://localhost:5080`).
 

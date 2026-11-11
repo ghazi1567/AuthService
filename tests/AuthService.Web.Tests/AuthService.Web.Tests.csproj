@@ -21,6 +21,12 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Shouldly" />
+    <PackageReference Include="HtmlAgilityPack" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The design tokens, for the contrast check (AUTH-213): copied next to the tests, wherever the build output goes. -->
+    <None Include="..\..\src\AuthService.Web\wwwroot\app.css" Link="design-tokens\app.css" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

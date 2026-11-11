@@ -244,7 +244,7 @@ else
 
                         <fieldset class="choice-group">
                             <legend>Permissions</legend>
-                            @foreach (var permission in CurrentApplication.Permissions)
+                            @foreach (var permission in CurrentApplication?.Permissions ?? [])
                             {
                                 var held = HeldLevel(permission.Key);
                                 <div class="permission-row">
@@ -329,9 +329,10 @@ else
 
     private string PagePath => $"/console/{TenantId}/api-keys";
 
-    private CatalogApplication CurrentApplication =>
+    // Null only when the API's catalog lists no product at all (it always has the built-in one); the dialog then has no permissions to offer.
+    private CatalogApplication? CurrentApplication =>
         catalog!.Applications.FirstOrDefault(application => chosenApp is null ? application.IsBuiltIn : application.ApplicationId == chosenApp)
-        ?? catalog.Applications.First();
+        ?? catalog.Applications.FirstOrDefault();
 
     protected override async Task OnInitializedAsync()
     {
@@ -439,7 +440,7 @@ else
         enteredName = form["name"].ToString().Trim();
         chosen.Clear();
         var grants = new List<ApiKeyPermission>();
-        foreach (var permission in CurrentApplication.Permissions)
+        foreach (var permission in CurrentApplication?.Permissions ?? [])
         {
             var level = form[$"perm:{permission.Key}"].ToString();
             if (Levels.Any(known => known.Level == level))
@@ -468,7 +469,7 @@ else
             return;
         }
 
-        var applicationId = chosenApp is { } app && !CurrentApplication.IsBuiltIn ? app : (Guid?)null;
+        var applicationId = chosenApp is { } app && CurrentApplication is { IsBuiltIn: false } ? app : (Guid?)null;
         var result = await Api.PostAsync<CreateApiKeyRequest, CreatedApiKey>(
             "/api/auth/apikeys", new CreateApiKeyRequest(enteredName, applicationId, grants), HttpContext.RequestAborted, console!.Token);
         if (result.IsSuccess && HttpContext.User.FindFirst(SessionAuthentication.SessionIdClaim) is { } sid)
@@ -505,7 +506,7 @@ else
 
     /// <summary>How far a permission may go for this key: the creator's own level for the Auth Service, anything else is checked by the API.</summary>
     private int HeldLevel(string permissionKey) =>
-        CurrentApplication.IsBuiltIn
+        CurrentApplication?.IsBuiltIn != false
             ? Levels.Where(level => level.Rank > 0 && console!.Can(permissionKey, (AccessLevel)level.Rank)).Select(level => level.Rank).DefaultIfEmpty(0).Max()
             : 3;
 
