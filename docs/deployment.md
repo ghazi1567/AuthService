@@ -466,6 +466,7 @@ scraper arrives from the bridge gateway (often `172.17.0.1`), so list that range
 - `auth_http_requests_total{method,route,status}` and `auth_http_request_duration_seconds` (a histogram): by route **template**, so
   `/api/auth/tenants/{tenantId:guid}` and never a path with an id in it. Paths that match no route are all `unmatched`.
 - `auth_login_failures_total{reason}`: `wrong_password`, `unknown_account`, `account_locked`, `account_disabled`, `email_not_verified`.
+- `auth_cleanup_rows_removed_total{kind}`: rows the hourly cleanup removed (refresh, verification and reset tokens, emails, webhook events, old secrets).
 - `auth_email_outbox_messages{status}` and `auth_webhook_outbox_messages{status}` (`pending`, `failed`), with
   `..._oldest_pending_age_seconds`: a growing number means mail or webhooks are not getting out.
 - `auth_signing_key_age_seconds` (how long the key that signs now has been signing), `auth_signing_keys_published`,
@@ -511,6 +512,9 @@ the same with one instance or ten. A migration is not undone by going back to an
   `Auth__Tokens__KeyEncryptionKey` separately, somewhere that is not the same place as the database backup.
 - **Logs:** to standard output. Set `Logging__LogLevel__Microsoft.EntityFrameworkCore=Warning` to drop the line per database command.
   Webhook logs name only ids and outcomes, never a callback URL, because a URL can hold a secret.
+- **Cleanup:** an hourly job removes used and expired tokens, sent emails, delivered and failed webhook events and expired product secrets
+  after a retention (7 to 30 days; `Auth__Cleanup__*`, see the configuration reference). It deletes in small batches, so it is safe to leave on
+  in production and on several instances. Pending emails and events, the current product secret and the audit log are never removed.
 - **Signing keys** rotate themselves every 90 days with a day of overlap; `POST /api/auth/admin/signing-keys/rotate` replaces the key
   at once if one leaks, which invalidates every token it signed.
 - **Products** check tokens locally against `https://<your host>/.well-known/jwks.json` with the `AuthService.Authorization` package

@@ -666,6 +666,7 @@ Metrics (`AuthMetrics` in memory since process start; `ObservabilityEndpoints` f
 | `auth_http_requests_total` | counter | `method`, `route`, `status` | Requests answered. Unknown methods are `OTHER`; unmatched routes are `unmatched` |
 | `auth_http_request_duration_seconds` | histogram | `method`, `route` | Buckets 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, `+Inf` |
 | `auth_login_failures_total` | counter | `reason` | Refused logins: `wrong_password`, `unknown_account`, `account_locked`, `account_disabled`, `email_not_verified` |
+| `auth_cleanup_rows_removed_total` | counter | `kind` | Rows the cleanup removed, by kind (AUTH-270) |
 | `auth_email_outbox_messages` | gauge | `status` = `pending`, `failed` | Emails waiting or given up on |
 | `auth_email_outbox_oldest_pending_age_seconds` | gauge | none | Age of the oldest unsent email |
 | `auth_webhook_outbox_messages` | gauge | `status` = `pending`, `failed` | Same for webhooks |
@@ -969,7 +970,7 @@ Tokens (refresh, verification, reset, invitation) are stored only as hashes (`to
 
 #### Hosted background workers
 
-Five `BackgroundService` classes are registered in `Program.cs`. All run in every API instance; instances take turns using database locks (`FOR UPDATE SKIP LOCKED` for the outboxes, an advisory lock for key creation).
+Six `BackgroundService` classes are registered in `Program.cs`. All run in every API instance; instances take turns using database locks (`FOR UPDATE SKIP LOCKED` for the outboxes, an advisory lock for key creation and for the cleanup).
 
 | Worker | Class and file | Interval setting (default) | What it does | Effect if stopped |
 |---|---|---|---|---|
@@ -977,11 +978,26 @@ Five `BackgroundService` classes are registered in `Program.cs`. All run in ever
 | Email | `EmailDispatcher` (`Email/EmailDispatcher.cs`) | `Email:DispatchIntervalMilliseconds` (2000); `Email:DispatcherEnabled` (true) | Sends due emails, up to 50 per pass | Emails stay `Pending`: no verification, reset or invitation links |
 | Webhooks | `WebhookDispatcher` (`Features/Webhooks/WebhookDispatcher.cs`) | `Auth:Webhooks:DispatchIntervalMilliseconds` (2000); `Auth:Webhooks:DispatcherEnabled` (true) | Delivers due webhook events, up to 50 per pass | Products are not told about subscription changes; `webhook_outbox` fills; the 24-hour deadline can pass and events become `Failed` |
 | Audit retention | `AuditRetentionWorker` (`Features/Audit/AuditRetention.cs`) | `Auth:Audit:RetentionCheckSeconds` (86 400); `Auth:Audit:RetentionEnabled` (true) | Deletes entries older than `Auth:Audit:RetentionDays` (365) | `audit_entries` grows without bound |
+| Cleanup | `DataCleanupWorker` (`Features/Cleanup/DataCleanup.cs`) | `Auth:Cleanup:IntervalSeconds` (3 600); `Auth:Cleanup:Enabled` (true) | Removes finished tokens, sent and failed emails, delivered and failed webhook events and expired product secrets after their retention (AUTH-270) | Those tables grow without bound |
 | Rate-limit cleanup | `RateLimitCleanupWorker` (`RateLimiting/SharedRateLimit.cs`) | `Auth:RateLimit:CleanupSeconds` (60) | Deletes counters expired more than 1 minute ago | `rate_limit_counters` grows; limits still correct |
 
-Only the email and webhook dispatchers and the audit worker have an on/off setting. `SigningKeyWorker` and `RateLimitCleanupWorker` cannot be disabled by configuration.
+Only the email and webhook dispatchers, the audit worker and the cleanup worker have an on/off setting. `SigningKeyWorker` and `RateLimitCleanupWorker` cannot be disabled by configuration.
 
-**No worker removes** expired `refresh_tokens`, `email_verification_tokens`, `password_reset_tokens`, expired `invitations`, `Sent`/`Failed` `email_outbox` rows or `Delivered` `webhook_outbox` rows. I found no `ExecuteDelete` or `Remove` for them outside the audit job and role/access removal.
+**The cleanup (AUTH-270)**, `DataCleanup.RunAsync`, removes, per kind and in batches of `Auth:Cleanup:BatchSize` (500, oldest id first, one
+`DELETE ... LIMIT` statement each, at most `MaxBatchesPerKind` per run):
+
+| Kind (metric label) | Removed when | Default |
+|---|---|---|
+| `refresh_tokens` | `expires_at` older than the retention (a revoked token waits too, for reuse detection) | 7 days |
+| `email_verification_tokens`, `password_reset_tokens` | `used_at` or `expires_at` older than the retention | 7 days |
+| `email_outbox` | `Sent` with `sent_at`, or `Failed` with `created_at`, older than the retention; `Pending` never | 14 days |
+| `webhook_outbox_delivered` | `Delivered` with `delivered_at` older | 14 days |
+| `webhook_outbox_failed` | `Failed` with `deadline_at` older; `Pending` never | 30 days |
+| `application_secrets` | `expires_at` set and older (the current secret has none) | 7 days |
+
+Each batch is its own transaction that first takes `pg_try_advisory_xact_lock` (`DataCleanup.LockKey`); if another instance holds it, this
+instance stops for the round. Removed rows are counted in `auth_cleanup_rows_removed_total{kind}`. The audit log is never touched (it has its
+own retention), and expired `invitations` are not removed (decision 0012 keeps them for "resend").
 
 ### Configuration and environment
 
@@ -1026,13 +1042,13 @@ passes each as an environment variable from `deploy/.env` (for example `Connecti
 | Audit entries are missing | Event is not audited, the action rolled back, or the write was rejected | `AuditActions`, `audit.Record` call site | `SELECT action, count(*) FROM audit_entries GROUP BY 1;`; look for a `500` at that time |
 | Audit entries show the wrong IP (the proxy's) | `Auth:Proxy` missing or wrong range | `Program.cs` forwarded-headers block; `ProxyOptions` | `SELECT source_ip FROM audit_entries ORDER BY occurred_at DESC LIMIT 5;` |
 | `actorName` is `null` for a person | Tenant admin reading someone with no membership in the tenant, or system/anonymous actor | `AuditPaging.ActorNamesAsync` | `tenant_memberships` for that user and tenant; `actor_type` |
-| A worker does not seem to run | Disabled by setting, or crashed in a loop | `EmailDispatcher`, `WebhookDispatcher`, `AuditRetentionWorker`, `RateLimitCleanupWorker`, `SigningKeyWorker` | Log lines `... is disabled`, the `...failed; trying again` errors; effect column in the worker table |
+| A worker does not seem to run | Disabled by setting, or crashed in a loop | `EmailDispatcher`, `WebhookDispatcher`, `AuditRetentionWorker`, `DataCleanupWorker`, `RateLimitCleanupWorker`, `SigningKeyWorker` | Log lines `... is disabled`, the `...failed; trying again` errors; effect column in the worker table |
 | A list endpoint returns only 50 rows | Default `limit` is 50; client ignores `next` | `PageQuery` in `Common/Paging.cs` | Look for `next` in the response; pass `limit` up to 200 and the cursor |
 | List endpoint returns `400` with `errors.after` or `errors.before` | Half a cursor, or a cursor not returned by the list | `PageQuery.Problem` | Send both values exactly as returned |
 | Tenant admin gets `403` with no body on `/api/auth/tenants/me/audit` | Token lacks `audit.read`, or is not a token for the Auth Service's own product | `TenantAuthorization.TenantPermission`; role grants | Decode the token: `aud` must be `auth-service-tenant`; `permissions` must include `audit.read:ReadOnly` or higher |
 | Platform admin gets `403` on `/api/auth/admin/*` | `users.is_platform_admin` is false | `PlatformAdminHandler` | `SELECT is_platform_admin FROM users WHERE email = '...';` |
 | API will not start after a config change | A validated setting is wrong | `Program.cs` startup checks | The exception text names the setting (`Auth:Proxy`, `Auth:RateLimit`, `Observability`, `Email:`) |
-| Database size keeps growing | Expired tokens and finished outbox rows are never deleted; audit retention off | Worker table; `AuditRetentionWorker` | `SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY 2 DESC;` |
+| Database size keeps growing | Cleanup or audit retention off, or a retention set very long | Worker table; `DataCleanupWorker`, `AuditRetentionWorker`; `auth_cleanup_rows_removed_total` | `SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY 2 DESC;` |
 | Failed email never retried | `Failed` is final and the token is cleared | `EmailDeliveryService` | Ask the user to request a new link (or the admin to resend the invitation) |
 | Manual `DELETE` or `UPDATE` on `audit_entries` fails with "append-only" | Trigger working as designed | `20261031194633_AddAuditLog` | Use the retention job, not manual SQL |
 
