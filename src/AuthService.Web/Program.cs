@@ -46,7 +46,12 @@ builder.Services.AddSessionAuthentication(builder.Environment);
 
 var app = builder.Build();
 
-var proxy = app.Services.GetRequiredService<IOptions<ProxyOptions>>().Value;
+// Checked here, before the host starts, as well as by ValidateOnStart: reading the value runs the validators, so a missing or unusable API
+// address stops the app with its own message at once. Left to the host's start alone, a test host that is torn down as start fails can
+// report a disposed service provider instead of the reason (AUTH-285).
+_ = app.Services.GetRequiredService<IOptions<AuthApiOptions>>().Value;
+
+var proxy =app.Services.GetRequiredService<IOptions<ProxyOptions>>().Value;
 if (proxy.Problems().ToList() is { Count: > 0 } proxyProblems)
 {
     throw new InvalidOperationException(string.Join(" ", proxyProblems));
