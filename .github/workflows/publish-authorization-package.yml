@@ -151,6 +151,20 @@ jobs:
       - name: Make the local package folder, empty
         run: mkdir -p artifacts/packages
 
+      # The sample also installs AuthService.Entitlements (and .Testing), which may not be published yet: an Authorization release
+      # comes first. Pack them from this commit into the local folder, written to depend on the version just published, so the
+      # sample still gets AuthService.Authorization from the feed alone (only the entitlements packages are in the folder).
+      - name: Pack the entitlements packages from this commit
+        run: |
+          for project in src/AuthService.Entitlements src/AuthService.Entitlements.Testing; do
+            dotnet pack "$project" --configuration Release --output artifacts/packages \
+              -p:Version=${{ needs.version.outputs.version }} -p:EntitlementsVersion=0.0.0-local
+          done
+          if ls artifacts/packages/${PACKAGE_ID}.*.nupkg >/dev/null 2>&1; then
+            echo "::error::The local folder holds an AuthService.Authorization package; the check must install the published one."
+            exit 1
+          fi
+
       - name: Add the feed
         run: >
           dotnet nuget add source "$FEED"
@@ -165,6 +179,7 @@ jobs:
           dotnet test samples/SampleProduct.Tests
           --configuration Release
           -p:AuthorizationPackageVersion=${{ needs.version.outputs.version }}
+          -p:EntitlementsPackageVersion=0.0.0-local
 
   # Public release (decision 0010). Runs only after the package has been pushed to GitHub Packages AND installed and tested from there,
   # and pushes the very same .nupkg that job kept. It signs in to nuget.org with a trusted publishing policy (OIDC): GitHub gives the

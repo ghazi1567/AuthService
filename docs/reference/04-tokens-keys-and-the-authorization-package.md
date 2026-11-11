@@ -789,7 +789,7 @@ the product's own logs.
 
 ENT-07 (epic AUTH-277, decision 0016). `src/AuthService.Entitlements` is the package a product installs to know each organisation's plan and
 limits; `src/AuthService.Entitlements.Testing` is its test kit. It builds on `IAuthServiceClient.SendAsync` (new in the authorization package,
-1.2.0), so the product's address, secret and cached service token are shared.
+1.2.1), so the product's address, secret and cached service token are shared.
 
 - `AddAuthServiceEntitlements` registers `IEntitlements`, `IEntitlementsClient`, `AuthWebhookVerifier`, `SeenEvents` and, unless one exists, an
   `InMemoryEntitlementStore`. Options `AuthServiceEntitlementsOptions`: `WebhookSecrets` (required, validated at start), `SignatureTolerance` (5 min),
@@ -805,7 +805,7 @@ limits; `src/AuthService.Entitlements.Testing` is its test kit. It builds on `IA
   `GetChangesAsync` (`/api/auth/applications/me/entitlements`), `CatchUpAsync` (every page, returns the change number to keep).
 - `IEntitlements.GetLimitAsync`: store, else one read; a key missing from the snapshot is the limit's default (limits cached, read again once
   for an unknown key); an unknown key is `KeyNotFoundException`, a tenant that never subscribed `InvalidOperationException`.
-- Versions: `EntitlementsVersion` is the packages' own; `Version` is the authorization dependency's (`MinimumAuthorizationVersion`, 1.2.0).
+- Versions: `EntitlementsVersion` is the packages' own; `Version` is the authorization dependency's (`MinimumAuthorizationVersion`, 1.2.1).
   Released by `publish-entitlements-package.yml` from an `entitlements-v*` tag, after the matching `authorization-v*` release.
 
 ### Failure modes and production debugging

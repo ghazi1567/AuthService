@@ -24,6 +24,10 @@ token is cached in one place. That client only had fixed calls and kept its conn
   answered `400` so it stays visible as failed instead of being dropped.
 - **Release order:** tag `authorization-v1.2.0`, wait for it, then tag `entitlements-v1.0.0` (`publish-entitlements-package.yml`). The nuget.org
   step needs a trusted publishing policy for the new workflow file.
+- **Update (2026-11-11):** the `authorization-v1.2.0` run reached GitHub Packages but stopped at the install check, because the sample
+  product now also installs the entitlements packages and nothing had published them yet. The check now packs them from the same commit.
+  A version is never pushed twice, so the first public release with `SendAsync` is **1.2.1** (1.2.0 stays on GitHub Packages only), and
+  `MinimumAuthorizationVersion` is 1.2.1 so the entitlements packages never point at a version nuget.org does not have.
 
 ## Alternatives considered
 
@@ -33,5 +37,5 @@ token is cached in one place. That client only had fixed calls and kept its conn
 
 ## Consequences
 
-- A product upgrading to entitlements must also take Authorization 1.2.0.
+- A product upgrading to entitlements must also take Authorization 1.2.1.
 - Duplicate events are dropped per process; a product on several instances relies on version ordering in its own store.
