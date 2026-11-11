@@ -12,11 +12,12 @@ without calling the Auth Service on every request. The web side of opening a pro
 3. [Signing keys and the JWKS](#signing-keys-and-the-jwks)
 4. [API keys](#api-keys)
 5. [The authorization package and the sample product](#the-authorization-package-and-the-sample-product)
-6. [The hand-off into a product](#the-hand-off-into-a-product)
-7. [Tenant isolation and the always-run isolation tests](#tenant-isolation-and-the-always-run-isolation-tests)
-8. [Symptom to where to look (this part)](#symptom-to-where-to-look-this-part)
-9. [Highest-risk areas in this part](#highest-risk-areas-in-this-part)
-10. [Unknowns and assumptions to confirm](#unknowns-and-assumptions-to-confirm)
+6. [The entitlements package](#the-entitlements-package)
+7. [The hand-off into a product](#the-hand-off-into-a-product)
+8. [Tenant isolation and the always-run isolation tests](#tenant-isolation-and-the-always-run-isolation-tests)
+9. [Symptom to where to look (this part)](#symptom-to-where-to-look-this-part)
+10. [Highest-risk areas in this part](#highest-risk-areas-in-this-part)
+11. [Unknowns and assumptions to confirm](#unknowns-and-assumptions-to-confirm)
 
 ---
 
@@ -779,6 +780,40 @@ the product's own logs.
 - **Unknown:** the currently released package version. The project file has no fixed version (it comes from the tag). Check the
   GitHub Packages feed and nuget.org.
 - The package reads only the `Authorization` header (the JWT bearer default). It has no helper for the form-post hand-off (next section).
+
+---
+
+## The entitlements package
+
+### What it does
+
+ENT-07 (epic AUTH-277, decision 0016). `src/AuthService.Entitlements` is the package a product installs to know each organisation's plan and
+limits; `src/AuthService.Entitlements.Testing` is its test kit. It builds on `IAuthServiceClient.SendAsync` (new in the authorization package,
+1.2.0), so the product's address, secret and cached service token are shared.
+
+- `AddAuthServiceEntitlements` registers `IEntitlements`, `IEntitlementsClient`, `AuthWebhookVerifier`, `SeenEvents` and, unless one exists, an
+  `InMemoryEntitlementStore`. Options `AuthServiceEntitlementsOptions`: `WebhookSecrets` (required, validated at start), `SignatureTolerance` (5 min),
+  `LimitCacheDuration` (10 min), `DuplicateWindow` (24 h), `MaxBodyBytes` (256 KB), `OnEvent`.
+- `MapAuthServiceWebhook(pattern)`: body over `MaxBodyBytes` -> `413`; `AuthWebhookVerifier.Verify` fails -> `401`; `AuthWebhookParser.Parse` fails
+  (not an event, missing field, `schemaVersion` above `SupportedSchemaVersion`) -> `400`; an event id already handled -> `204` with nothing done;
+  otherwise the store is updated (`EntitlementsChangedEvent` and `ApplicationSubscribedEvent` apply their snapshot, `ApplicationUnsubscribedEvent` sets
+  the status), `OnEvent` runs, and the answer is `204`. An exception forgets the id and answers `500`, so the Auth Service retries.
+- `AuthWebhookVerifier`: HMAC-SHA256 of `{timestamp}.{body}`, lowercase hex, `v1=` entries comma-separated, compared in fixed time; the signed time
+  must be within the tolerance either way. `Sign` builds the header for tests.
+- `InMemoryEntitlementStore.ApplyAsync` keeps a snapshot only when its version is higher; an event (no status) keeps the known status.
+- `IEntitlementsClient`: `GetLimitsAsync`, `GetPlansAsync` (`/api/auth/applications/me/limits`, `/plans`), `GetTenantAsync` (null on `404`),
+  `GetChangesAsync` (`/api/auth/applications/me/entitlements`), `CatchUpAsync` (every page, returns the change number to keep).
+- `IEntitlements.GetLimitAsync`: store, else one read; a key missing from the snapshot is the limit's default (limits cached, read again once
+  for an unknown key); an unknown key is `KeyNotFoundException`, a tenant that never subscribed `InvalidOperationException`.
+- Versions: `EntitlementsVersion` is the packages' own; `Version` is the authorization dependency's (`MinimumAuthorizationVersion`, 1.2.0).
+  Released by `publish-entitlements-package.yml` from an `entitlements-v*` tag, after the matching `authorization-v*` release.
+
+### Failure modes and production debugging
+
+- *Every webhook is 401:* the secret in `WebhookSecrets` is not the current one (after a rotation, add the new one), or the product's clock is
+  more than five minutes off.
+- *Webhooks are 400 "schema version 2":* the Auth Service sends a newer event shape; update the package.
+- *A product on several instances applies an event twice:* duplicates are dropped per process; versions keep the store right.
 
 ---
 

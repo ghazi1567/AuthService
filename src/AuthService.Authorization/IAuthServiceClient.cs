@@ -63,4 +63,17 @@ public interface IAuthServiceClient
     /// active changes nothing. <paramref name="maxSeats"/> null means no limit.
     /// </summary>
     Task<AuthServiceSubscription> SubscribeTenantAsync(Guid tenantId, int? maxSeats = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Calls any Auth Service endpoint as the product: <paramref name="path"/> is relative to the Auth Service's address, and the service
+    /// token is added and renewed exactly as for the other calls (asked for again once if turned down). The caller owns the response and
+    /// checks its status. Other packages, such as <c>AuthService.Entitlements</c>, build on this instead of keeping a second client.
+    /// </summary>
+    /// <param name="method">The HTTP method.</param>
+    /// <param name="path">The path and query, such as <c>/api/auth/applications/me/limits</c>.</param>
+    /// <param name="content">The body, or null. It is read once and sent again as it was if the token has to be renewed.</param>
+    /// <param name="cancellationToken">Stops the call.</param>
+    /// <exception cref="AuthServiceException">The Auth Service could not be reached.</exception>
+    Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content = null, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This IAuthServiceClient cannot make other calls. Use the one AddAuthServiceProduct registers.");
 }

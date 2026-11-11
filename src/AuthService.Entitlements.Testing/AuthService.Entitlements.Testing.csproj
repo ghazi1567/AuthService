@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- For a product's tests (ENT-07): a fake Auth Service that answers the entitlement reads and signs webhooks like the real one. -->
+    <PackageId>AuthService.Entitlements.Testing</PackageId>
+    <IsPackable>true</IsPackable>
+    <Description>Test helpers for AuthService.Entitlements: a fake Auth Service client that answers the entitlement reads, and signed webhook requests built like the real Auth Service's.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Version">
+    <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
+    <PackageVersion Condition="'$(EntitlementsVersion)' != ''">$(EntitlementsVersion)</PackageVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package contents">
+    <Authors>Auth Service</Authors>
+    <PackageTags>entitlements;testing;fake;webhooks</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AuthService.Entitlements\AuthService.Entitlements.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

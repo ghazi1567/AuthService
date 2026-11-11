@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\src\AuthService.Api\AuthService.Api.csproj" />
     <ProjectReference Include="..\..\src\AuthService.Infrastructure\AuthService.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\AuthService.Authorization\AuthService.Authorization.csproj" />
+    <ProjectReference Include="..\..\src\AuthService.Entitlements\AuthService.Entitlements.csproj" />
   </ItemGroup>
 
   <ItemGroup>

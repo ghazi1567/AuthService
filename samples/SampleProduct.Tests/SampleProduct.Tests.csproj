@@ -21,6 +21,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Shouldly" />
+    <PackageReference Include="AuthService.Entitlements.Testing" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +29,10 @@
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>AuthorizationPackageVersion</_Parameter1>
       <_Parameter2>$(AuthorizationPackageVersion)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>EntitlementsPackageVersion</_Parameter1>
+      <_Parameter2>$(EntitlementsPackageVersion)</_Parameter2>
     </AssemblyAttribute>
   </ItemGroup>
 
